@@ -1,9 +1,26 @@
+# OS / editor cruft
 .DS_Store
-node_modules/
+.idea/
+*.swp
+
+# Personal planning / scratch notes — not for the repo
+todo.md
+
+# Env / secrets
 .env
 .env.local
 
-# Foundry
-uniswap-v4-hook-template/cache/
-uniswap-v4-hook-template/out/
-uniswap-v4-hook-template/broadcast/
+# Node (in case any tooling lands here later)
+node_modules/
+
+# Foundry build artifacts under the hook project
+orbitalHook/cache/
+orbitalHook/out/
+orbitalHook/broadcast/
+orbitalHook/.forge-snapshots/
+
+# Future frontend build output
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/build/

@@ -1,18 +1,20 @@
-# Compiler files
+# Foundry build artifacts
 cache/
 out/
+.forge-snapshots/
 
-# Ignores development (and goerli) broadcast logs
-!/broadcast
-/broadcast/*/31337/
-/broadcast/*/5/
-/broadcast/**/dry-run/
+# Broadcast logs — local-anvil/testnet only at v1, no retention needed.
+# Remove this rule + the parent UHI/.gitignore rule when retaining mainnet logs.
+broadcast/
 
-# Docs
-docs/
-
-# Dotenv file
+# Env / secrets
 .env
+.env.local
 
-# Node modules
+# OS / editor cruft
+.DS_Store
+.idea/
+*.swp
+
+# Node (in case any tooling lands here later)
 node_modules/

@@ -1,183 +1,80 @@
-# Uniswap v4 Hook Template
+# Orbital Hook
 
-**A template for writing Uniswap v4 Hooks 🦄**
+A Uniswap v4 hook implementing the **Orbital** N-asset stableswap from [Paradigm (2025)](https://www.paradigm.xyz/2025/06/orbital).
 
-### Get Started
+The hook holds the abstract Orbital state (sphere reserves, ticks, fees) and uses v4's `PoolManager` for token custody via ERC-6909 claim tokens. Each of the `N(N-1)/2` pairs among the registered assets is exposed as a separate v4 pool, all sharing one engine state.
 
-This template provides a starting point for writing Uniswap v4 Hooks, including a simple example and preconfigured test environment. Start by creating a new repository using the "Use this template" button at the top right of this page. Alternatively you can also click this link:
+## Status
 
-[![Use this Template](https://img.shields.io/badge/Use%20this%20Template-101010?style=for-the-badge&logo=github)](https://github.com/uniswapfoundation/v4-template/generate)
+**v1 — research artifact, not production.** Working end-to-end in tests; not safe to deploy with real money. See the deployment-readiness notes at the bottom of this file.
 
-1. The example hook [Counter.sol](src/Counter.sol) demonstrates the `beforeSwap()` and `afterSwap()` hooks
-2. The test template [Counter.t.sol](test/Counter.t.sol) preconfigures the v4 pool manager, test tokens, and test liquidity.
+| Path | Implemented |
+|---|---|
+| Asset registry (N∈[2,5], sorted, immutable) | ✅ |
+| `addLiquidity` via `unlock` → settle N tokens → mint ERC-6909 | ✅ |
+| `removeLiquidity` via `unlock` → take N tokens → burn ERC-6909 | ✅ |
+| `collect` (per-asset accrued fees) | ✅ |
+| `beforeSwap` with full segmenting solver (within-tick + crossings) | ✅ |
+| Native v4 `modifyLiquidity` reverted by `beforeAddLiquidity` | ✅ |
+| Per-tick fee growth + per-position checkpoints (v3-style) | ✅ |
+| Deployment scripts (CREATE2 hook-address mining, multi-pool init) | ❌ deferred |
+| Decimal normalization (non-18-decimal tokens) | ❌ deferred |
+| TWAP oracle, native ETH, ERC-721 positions, protocol fee | ❌ deferred (v2) |
 
-<details>
-<summary>Updating to v4-template:latest</summary>
-
-This template is actively maintained -- you can update the v4 dependencies, scripts, and helpers:
+## Build & test
 
 ```bash
-git remote add template https://github.com/uniswapfoundation/v4-template
-git fetch template
-git merge template/main <BRANCH> --allow-unrelated-histories
-```
-
-</details>
-
-### Requirements
-
-This template is designed to work with Foundry (stable). If you are using Foundry Nightly, you may encounter compatibility issues. You can update your Foundry installation to the latest stable version by running:
-
-```
-foundryup
-```
-
-To set up the project, run the following commands in your terminal to install dependencies and run the tests:
-
-```
-forge install
+forge build
 forge test
 ```
 
-### Local Development
+82 tests across 5 suites. The math libraries are direct copies of the standalone Orbital AMM in [contracts/](../../contracts/) (same project root); the engine logic is a port of `OrbitalPool.sol` adapted to the v4 hook surface.
 
-Other than writing unit tests (recommended!), you can only deploy & test hooks on [anvil](https://book.getfoundry.sh/anvil/) locally. Scripts are available in the `script/` directory, which can be used to deploy hooks, create pools, provide liquidity and swap tokens. The scripts support both local `anvil` environment as well as running them directly on a production network.
-
-### Executing locally with using **Anvil**:
-
-1. Start Anvil (or fork a specific chain using anvil):
-
-```bash
-anvil
-```
-
-or
-
-```bash
-anvil --fork-url <YOUR_RPC_URL>
-```
-
-2. Execute scripts:
-
-```bash
-forge script script/00_DeployHook.s.sol \
-    --rpc-url http://localhost:8545 \
-    --private-key <PRIVATE_KEY> \
-    --broadcast
-```
-
-### Using **RPC URLs** (actual transactions):
-
-:::info
-It is best to not store your private key even in .env or enter it directly in the command line. Instead use the `--account` flag to select your private key from your keystore.
-:::
-
-### Follow these steps if you have not stored your private key in the keystore:
-
-<details>
-
-1. Add your private key to the keystore:
-
-```bash
-cast wallet import <SET_A_NAME_FOR_KEY> --interactive
-```
-
-2. You will prompted to enter your private key and set a password, fill and press enter:
+## Project layout
 
 ```
-Enter private key: <YOUR_PRIVATE_KEY>
-Enter keystore password: <SET_NEW_PASSWORD>
+src/
+├── OrbitalHook.sol          one contract: storage + v4 hook + LP entry + engine
+└── libraries/               math (copied from ../../contracts/src/lib/)
+    ├── FullMath.sol
+    ├── SphereMath.sol
+    ├── TorusMath.sol
+    ├── TickLib.sol
+    └── PositionLib.sol
+
+test/
+├── OrbitalHook.t.sol        constructor / hooks / LP / swap / crossing
+├── SphereMath.t.sol         ported from ../../contracts/test/
+├── TickLib.t.sol            ported from ../../contracts/test/
+└── TorusMath.t.sol          ported from ../../contracts/test/
 ```
 
-You should see this:
+## Key design decisions
 
-```
-`<YOUR_WALLET_PRIVATE_KEY_NAME>` keystore was saved successfully. Address: <YOUR_WALLET_ADDRESS>
-```
+- **One contract, internal library code.** Engine logic is inlined as internal functions rather than a separate contract, avoiding cross-contract overhead while keeping the deployed contract under the 24KB limit (current size leaves comfortable headroom).
+- **PoolManager holds tokens, hook holds claim tokens.** The hook tracks the abstract reserve vector `x⃗`; real ERC-20s sit in `PoolManager`, and the hook holds matching ERC-6909 claim tokens against them. Settlement uses the OZ `CurrencySettler` helper.
+- **LP shares as ERC-6909.** `tokenId = tickIdx`, hook is the issuer. Per-position fee checkpoints stay in engine storage keyed by `(owner, tickIdx)`.
+- **Pair-view model.** `N(N-1)/2` separate v4 PoolKeys all point at this hook; price coherence is guaranteed because every `beforeSwap` reads/writes the single shared engine state.
+- **Native v4 liquidity disabled.** `beforeAddLiquidity` / `beforeRemoveLiquidity` revert; the hook's own `addLiquidity` is the only LP path.
+- **`via_ir = true`** in `foundry.toml` — the standalone math library `TorusMath` hits stack-too-deep without it.
 
-::: warning
-Use `history -c` to clear your command history.
-:::
+## Constructor
 
-</details>
-
-1. Execute scripts:
-
-```bash
-forge script script/00_DeployHook.s.sol \
-    --rpc-url <YOUR_RPC_URL> \
-    --account <YOUR_WALLET_PRIVATE_KEY_NAME> \
-    --sender <YOUR_WALLET_ADDRESS> \
-    --broadcast
+```solidity
+constructor(
+    IPoolManager poolManager,
+    Currency[] memory assets,   // length 2..5, ascending by address, unique
+    uint24 fee                  // hundredths of a bip (e.g. 100 = 1 bp)
+)
 ```
 
-You will prompted to enter your wallet password, fill and press enter:
+After deployment, each pair `(assets[i], assets[j])` must be registered as a v4 pool via `PoolManager.initialize` with `PoolKey.hooks = address(orbitalHook)` and `PoolKey.lpFee = 0`. v1 assumes every registered asset is 18-decimal.
 
-```
-Enter keystore password: <YOUR_PASSWORD>
-```
+## Deployment readiness
 
-### Key Modifications to note:
+**Not ready for any deployment yet.** To deploy to testnet:
 
-1. Update the `token0` and `token1` addresses in the `BaseScript.sol` file to match the tokens you want to use in the network of your choice for sepolia and mainnet deployments.
-2. Update the `token0Amount` and `token1Amount` in the `CreatePoolAndAddLiquidity.s.sol` file to match the amount of tokens you want to provide liquidity with.
-3. Update the `token0Amount` and `token1Amount` in the `AddLiquidity.s.sol` file to match the amount of tokens you want to provide liquidity with.
-4. Update the `amountIn` and `amountOutMin` in the `Swap.s.sol` file to match the amount of tokens you want to swap.
+1. Write a `script/00_DeployHook.s.sol` that CREATE2-mines a hook address with the right flag suffix (`BEFORE_INITIALIZE | BEFORE_SWAP | BEFORE_SWAP_RETURNS_DELTA | BEFORE_ADD_LIQUIDITY | BEFORE_REMOVE_LIQUIDITY`). `HookMiner` from `lib/uniswap-hooks` handles this.
+2. Write a pool-initialization script that calls `PoolManager.initialize` for every pair.
 
-### Verifying the hook contract
-
-```bash
-forge verify-contract \
-  --rpc-url <URL> \
-  --chain <CHAIN_NAME_OR_ID> \
-  # Generally etherscan
-  --verifier <Verification_Provider> \
-  # Use --etherscan-api-key <ETHERSCAN_API_KEY> if you are using etherscan
-  --verifier-api-key <Verification_Provider_API_KEY> \
-  --constructor-args <ABI_ENCODED_ARGS> \
-  --num-of-optimizations <OPTIMIZER_RUNS> \
-  <Contract_Address> \
-  <path/to/Contract.sol:ContractName>
-  --watch
-```
-
-### Troubleshooting
-
-<details>
-
-#### Permission Denied
-
-When installing dependencies with `forge install`, Github may throw a `Permission Denied` error
-
-Typically caused by missing Github SSH keys, and can be resolved by following the steps [here](https://docs.github.com/en/github/authenticating-to-github/connecting-to-github-with-ssh)
-
-Or [adding the keys to your ssh-agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent#adding-your-ssh-key-to-the-ssh-agent), if you have already uploaded SSH keys
-
-#### Anvil fork test failures
-
-Some versions of Foundry may limit contract code size to ~25kb, which could prevent local tests to fail. You can resolve this by setting the `code-size-limit` flag
-
-```
-anvil --code-size-limit 40000
-```
-
-#### Hook deployment failures
-
-Hook deployment failures are caused by incorrect flags or incorrect salt mining
-
-1. Verify the flags are in agreement:
-   - `getHookCalls()` returns the correct flags
-   - `flags` provided to `HookMiner.find(...)`
-2. Verify salt mining is correct:
-   - In **forge test**: the _deployer_ for: `new Hook{salt: salt}(...)` and `HookMiner.find(deployer, ...)` are the same. This will be `address(this)`. If using `vm.prank`, the deployer will be the pranking address
-   - In **forge script**: the deployer must be the CREATE2 Proxy: `0x4e59b44847b379578588920cA78FbF26c0B4956C`
-     - If anvil does not have the CREATE2 deployer, your foundry may be out of date. You can update it with `foundryup`
-
-</details>
-
-### Additional Resources
-
-- [Uniswap v4 docs](https://docs.uniswap.org/contracts/v4/overview)
-- [v4-periphery](https://github.com/uniswap/v4-periphery)
-- [v4-core](https://github.com/uniswap/v4-core)
-- [v4-by-example](https://v4-by-example.org)
+To deploy to mainnet, additionally: external audit, decimal-normalization layer, fuzz tests at the hook level, gas profiling, root-cause the open Newton-solver edge case in the 2-tick crossing scenario, an emergency-pause mechanism, and an oracle if downstream integrations need one.
