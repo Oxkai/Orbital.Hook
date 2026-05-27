@@ -1,0 +1,9 @@
+.DS_Store
+node_modules/
+.env
+.env.local
+
+# Foundry
+uniswap-v4-hook-template/cache/
+uniswap-v4-hook-template/out/
+uniswap-v4-hook-template/broadcast/

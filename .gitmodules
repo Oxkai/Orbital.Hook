@@ -1,0 +1,9 @@
+[submodule "orbitalHook/lib/forge-std"]
+	path = orbitalHook/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "orbitalHook/lib/uniswap-hooks"]
+	path = orbitalHook/lib/uniswap-hooks
+	url = https://github.com/openzeppelin/uniswap-hooks
+[submodule "orbitalHook/lib/hookmate"]
+	path = orbitalHook/lib/hookmate
+	url = https://github.com/akshatmittal/hookmate
