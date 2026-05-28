@@ -90,6 +90,89 @@ Two invariants: `swap` moves no tokens (it only writes deltas to transient stora
 
 ---
 
+## Walkthrough
+
+<table>
+<tr>
+<td width="50%" valign="middle">
+
+**Swap**
+
+Trade any two of four stablecoins from one shared pool, at near-1:1. Every pair routes through the same liquidity — and if one coin depegs, the rest keep trading while the bad leg is fenced off.
+
+</td>
+<td width="50%"><img src="frontend/public/screens/swap.png" width="100%" alt="Swap" /></td>
+</tr>
+
+<tr>
+<td width="50%" valign="middle">
+
+**Pools**
+
+All four stablecoins live in a single shared book — every pair is a view onto the same reserves, so liquidity never fragments and depth compounds across the whole basket.
+
+</td>
+<td width="50%"><img src="frontend/public/screens/pools.png" width="100%" alt="Pools" /></td>
+</tr>
+
+<tr>
+<td width="50%" valign="middle">
+
+**Liquidity depth**
+
+Depth concentrates against the $1 peg where stablecoins actually trade, instead of spreading flat across prices that never happen — that's where the capital efficiency comes from.
+
+</td>
+<td width="50%"><img src="frontend/public/screens/pool-depth.png" width="100%" alt="Liquidity depth chart" /></td>
+</tr>
+
+<tr>
+<td width="50%" valign="middle">
+
+**Add liquidity — range**
+
+Pick a depeg threshold and your capital concentrates above it. Tighter earns more fees but its tick pauses sooner if a coin depegs; wider is a safer backstop. Every LP sets their own.
+
+</td>
+<td width="50%"><img src="frontend/public/screens/add-range.png" width="100%" alt="Add liquidity: range" /></td>
+</tr>
+
+<tr>
+<td width="50%" valign="middle">
+
+**Add liquidity — amount**
+
+Your deposit splits across all four tokens at the current pool ratio, so you add balanced exposure to the whole basket in one step — no rebalancing across pairs.
+
+</td>
+<td width="50%"><img src="frontend/public/screens/add-amount.png" width="100%" alt="Add liquidity: amount" /></td>
+</tr>
+
+<tr>
+<td width="50%" valign="middle">
+
+**Add liquidity — review**
+
+Check the full breakdown — tokens, depeg threshold, fee tier, slippage — then confirm. It settles on-chain in one transaction as an ERC-6909 position the hook issues against your tick.
+
+</td>
+<td width="50%"><img src="frontend/public/screens/add-review.png" width="100%" alt="Add liquidity: review" /></td>
+</tr>
+
+<tr>
+<td width="50%" valign="middle">
+
+**Positions**
+
+Manage everything from one place — each tick you hold is its own ERC-6909 share, earning fees independently. Increase, decrease, collect, or burn anytime.
+
+</td>
+<td width="50%"><img src="frontend/public/screens/positions.png" width="100%" alt="Positions" /></td>
+</tr>
+</table>
+
+---
+
 ## Repo layout
 
 ```
