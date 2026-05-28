@@ -1,14 +1,77 @@
-# Orbital
+<img src="frontend/public/orbital.jpg" width="76" height="76" align="right" alt="Orbital logo" />
 
-An **N-asset stableswap** ([Paradigm Orbital, 2025](https://www.paradigm.xyz/2025/06/orbital)) implemented as a **Uniswap v4 hook** and deployed on **X Layer Testnet**, with a full web app.
+# Orbital Hook
 
-Four stablecoins (USDC / USDT / DAI / FRAX) form six v4 pools, all bound to one `OrbitalHook` that holds a single shared sphere of reserves. Swaps run through the hook's `beforeSwap`; LPs deposit directly into the hook and hold ERC-6909 shares.
+A **Uniswap v4 hook** that turns a single pool into an **N-asset stablecoin AMM**. Every stablecoin (USDC / USDT / DAI / FRAX) shares one reserve book inside the hook, and the hook replaces Uniswap's swap curve with the Orbital sphere/torus math — concentrated liquidity, generalized to N coins, on top of v4's infrastructure.
+
+**Live app → <https://orbital-hook.vercel.app/>** · deployed on **X Layer Testnet** · **100 tests passing**
 
 ```
 UHI/
-├── orbitalHook/   Solidity — the v4 hook, math libraries, deploy + simulation scripts, tests
-└── frontend/      Next.js app — swap, pools, positions, wired to the live hook
+├── orbitalHook/        Solidity — the v4 hook
+└── frontend/           Next.js app — swap, pools, positions (wired to the live hook)
 ```
+
+## The Orbital concept (Paradigm)
+
+Stablecoins all target $1, but AMMs force a trade-off: **Curve** pools many stablecoins together yet spreads liquidity flatly across the whole curve, while **Uniswap v3** concentrates liquidity but only for two tokens. Orbital ([Paradigm, 2025](https://www.paradigm.xyz/2025/06/orbital)) does both at once.
+
+The whole idea is one swap of curve. Uniswap prices two tokens on a hyperbola; Orbital prices N tokens on a sphere:
+
+$$x \cdot y = k \quad \longrightarrow \quad \|\mathbf{r} - \mathbf{x}\|^2 = \sum_{i=1}^{n}(r - x_i)^2 = r^2$$
+
+- **Sphere** — the reserve vector $\mathbf{x} = (x_1, \dots, x_n)$ is a point on an N-sphere of radius $r$ centred at $\mathbf{r} = (r, \dots, r)$. The peg sits at the equal-price point $x_i = r\left(1 - \tfrac{1}{\sqrt{n}}\right)$, where every coin trades exactly 1:1; the curve only bends as the basket drifts off peg.
+- **Ticks** — each LP picks a plane $\sum_i x_i = k$ that cuts the sphere at a depeg bound ("provide liquidity only while the price holds above \$0.95"). That's the concentration: capital sits in the narrow band near peg where stablecoins actually trade, instead of being wasted on prices that never happen.
+- **Torus** — stacked ticks fold into a torus the pool tracks with just the running sums $\sum x_i$ and $\sum x_i^2$, so a swap stays **O(1)** no matter how many coins or ticks exist.
+
+The payoff: **N stablecoins in one pool**, concentrated liquidity for capital efficiency, and **depeg isolation** — when one coin breaks peg its tick exits to the boundary and the rest keep trading 1:1.
+
+## What we built
+
+A v4 hook that puts the Orbital math behind a normal Uniswap pool. We took the sphere/torus engine and wired it into v4's `beforeSwap`, so a swap on any pair runs the Orbital curve instead of constant-product — while v4 keeps doing custody, settlement, and accounting.
+
+The catch: a v4 pool is always **two tokens**. To get all four stablecoins into one book, we deploy the $\binom{4}{2} = 6$ pairs as six separate v4 pools and point every `PoolKey.hooks` at the **same** hook. The pairs are just views — the hook holds one shared reserve vector behind all of them. A trade on USDC/USDT and a trade on DAI/FRAX move the same reserves and the same price.
+
+## Architecture
+
+Two views: **structure** (what exists, who owns what) and **runtime** (the actual v4 swap frame).
+
+### Structure
+
+The 6 pairs are `PoolKey`s that live *inside* the one PoolManager; every key's `hooks` points at the same OrbitalHook. The PoolManager holds all tokens and the lock; the hook holds the curve and the shared reserves.
+
+![Orbital architecture — Trader/LP, the v4 PoolManager holding the 6 PoolKeys, and the OrbitalHook](frontend/public/archi.png)
+
+- **PoolManager** — singleton: owns the lock, custody of every ERC-20, and the deferred-delta accounting. The 6 `PoolKey`s are registered here, not separate contracts.
+- **OrbitalHook** — our code: holds the reserve vector (the sphere), the ticks, the fees, and the ERC-6909 LP shares. It only supplies the curve; it never holds tokens.
+- **LP** calls the hook directly; the hook settles through the PoolManager.
+
+### Runtime — one swap, inside the lock
+
+A trader doesn't call `swap` directly. Any contract calls `unlock`; the PoolManager calls back, the swap and settlement happen inside that locked frame, and no tokens move until the deltas net to zero.
+
+```
+caller.unlock(data)
+└─ PoolManager unlocks, calls back ────────────────┐
+   unlockCallback(data):                           │  runs inside the lock
+     swap(poolKey, params)                         │
+       ├─ beforeSwap → Orbital BeforeSwapDelta      │  (default x·y math bypassed)
+       └─ records currency deltas (no tokens move) │
+     sync + transfer + settle()   ← pay input      │
+     take()                        ← pull output    │
+└─ unlock returns ─────────────────────────────────┘
+   PoolManager asserts every delta == 0  (else revert)
+```
+
+Two invariants: **`swap` moves no tokens** (it only writes deltas to transient storage), and **`unlock` won't return** until every currency delta nets to zero.
+
+## Why it matters
+
+- **No liquidity fragmentation.** Four stablecoins would normally need six separate pools, each with its own shallow depth. Here all six pairs share one book, so a USDC/FRAX trade draws on the *same* liquidity as USDC/USDT — one deep pool instead of six thin ones.
+- **Capital efficiency via virtual reserves.** A tick removes the portion of the curve below its depeg bound, so a small amount of *real* capital behaves like a much larger reserve near peg — exactly like Uniswap v3's virtual liquidity, but on the N-sphere. The pool quotes the depth of millions while LPs post a fraction of it; capital that would sit idle at prices that never happen is freed.
+- **N coins, not 2.** One pool prices a whole basket of dollars off a single sphere — add a fifth or sixth stablecoin without standing up a new market.
+- **Depeg isolation.** If one coin breaks peg, its tick exits to the boundary and the rest keep trading 1:1 — the bad coin doesn't drain the pool.
+- **Built on v4, not beside it.** We only supply the curve. Custody, routing, ERC-6909 accounting, and the unlock/settle flow are all v4's — so the pools are reachable by any v4 router or aggregator.
 
 ## Deployed — X Layer Testnet (chainId 1952)
 
@@ -23,41 +86,9 @@ UHI/
 | USDT | `0x3a2bCfc287b8106774Ec85533d821D3604cB7DC5` |
 | DAI | `0x78340e3C5169b6DF15F13a8d627Db2C0e23cf921` |
 | FRAX | `0x17c868495deF240091E95410e2B2D5a6cEabf6f0` |
-| Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
 
-Hook explorer: <https://www.okx.com/web3/explorer/xlayer-test/address/0x4024911A26B5BF5160D156eccBAc148bd55c6a88>
+Live app → <https://orbital-hook.vercel.app/> · Hook explorer → <https://www.okx.com/web3/explorer/xlayer-test/address/0x4024911A26B5BF5160D156eccBAc148bd55c6a88>
 Seeded with ~$20M TVL across 5 ticks, all interior.
-
-## Architecture
-
-```
-  Trader                                 Liquidity Provider
-  swapExactTokensForTokens               addLiquidity / removeLiquidity
-        │                                        │
-        ▼                                        │ (direct to hook)
-  v4 PoolManager.swap(poolKey)                   │
-        │                                        ▼
-        ▼                                ┌──────────────────────┐
-  6 v4 pools  ─────────────────────────▶│      OrbitalHook     │
-  USDC/USDT, USDC/DAI, USDC/FRAX,        │  one shared sphere   │
-  USDT/DAI, USDT/FRAX, DAI/FRAX          │  beforeSwap · 6909   │
-        (every PoolKey.hooks = hook)     └──────────┬───────────┘
-                                                    │ settles through
-                                                    ▼
-                                          v4 PoolManager (custody)
-```
-
-- **One hook, many pools.** Every pair is a separate v4 `PoolKey` whose `hooks` field points at the same `OrbitalHook`. They all read and write one reserve vector (`slot0`), so prices stay coherent across pairs.
-- **Token custody is the PoolManager's.** The hook never holds ERC-20s — it tracks the abstract sphere and mints ERC-6909 claim tokens against the manager, settling via the `unlock` flow.
-- **LP positions are ERC-6909 shares** (`tokenId = tickIdx`), soulbound in v1.
-- **One swap, at runtime:** `PoolManager.swap → unlock → beforeSwap → solve(sphere · torus) → BeforeSwapDelta → settle`.
-
-See [orbitalHook/README.md](orbitalHook/README.md) for the engine internals (sphere / tick / torus math, fees, admin/pause).
-
-## Status
-
-- **orbitalHook** — v1, **100 tests passing**; deployed + seeded on X Layer testnet. Engine: LP add/remove, fee collect, v4 swap interception with the full tick-crossing solver, admin pause (Ownable2Step + Pausable), Permit2 LP path. Research artifact — **not audited**.
-- **frontend** — live app wired to the X Layer hook (swap via V4Quoter + router, pools, positions). Deployable on Vercel — see [frontend/README.md](frontend/README.md).
 
 ## Getting started
 
@@ -73,17 +104,18 @@ npm install && npm run dev       # http://localhost:3000
 
 Foundry uses `via_ir = true` (required by the Orbital math libraries). Clone with `--recurse-submodules`, or run `git submodule update --init --recursive` afterwards.
 
-## Deploy scripts (`orbitalHook/script`)
+## How it compares
 
-| Script | Does |
-|---|---|
-| `Deploy.s.sol` | Mock tokens → CREATE2-mined hook → 6 pools → deep tiered seed |
-| `DeployPeriphery.s.sol` | v4 SwapRouter + Quoter against an existing PoolManager |
-| `SeedActivity.s.sol` | Gentle swaps + re-seed to exercise the live pool near peg |
-
-```bash
-forge script script/Deploy.s.sol --rpc-url https://testrpc.xlayer.tech --broadcast --slow --private-key $PRIVATE_KEY
-```
+| Property | Uniswap V3 | Curve Stable | Balancer | **Orbital** |
+|---|---|---|---|---|
+| Assets per pool | 2 | 2–8 (fixed) | 2–8 (fixed) | **N (≥ 2)** |
+| Concentrated liquidity | Yes | No | No | **Yes** |
+| Per-LP depeg range | n/a | No | No | **Yes** |
+| Depeg drains pool | n/a | Yes | Yes | **Isolated** |
+| Capital efficiency at peg | High (pair) | ~1–2× flat | ~1–2× flat | **~154× flat, N=5** |
+| TWAP oracle | Yes | No | Yes | **Roadmap** |
+| LP position type | NFT (721) | LP token | LP token | **ERC-6909** |
+| Venue | Standalone | Standalone | Standalone | **Uniswap v4 hook** |
 
 ## References
 

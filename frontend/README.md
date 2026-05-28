@@ -2,6 +2,8 @@
 
 The web app for **Orbital**, an N-asset stableswap built as a **Uniswap v4 hook**, deployed on **X Layer Testnet (chainId 1952)**. Swap, provide liquidity, and inspect the live pool — wired directly to the on-chain hook.
 
+**Live → https://orbital-hook.vercel.app/**
+
 Contracts live in [`../orbitalHook`](../orbitalHook). The deployed addresses the app talks to are in [`lib/contracts.ts`](lib/contracts.ts).
 
 ## Stack
@@ -39,7 +41,7 @@ Copy `.env.example` → `.env.local` and fill in if you have one.
 
 Deploy this folder as its own Vercel project:
 
-1. **Import** the `Oxkai/orbital-hook` repo into Vercel.
+1. **Import** the `Oxkai/Orbital.Hook` repo into Vercel.
 2. Set **Root Directory** to `frontend`.
 3. Framework preset auto-detects **Next.js** (also pinned in `vercel.json`).
 4. (Optional) add `NEXT_PUBLIC_RPC_URL` as an env var.
