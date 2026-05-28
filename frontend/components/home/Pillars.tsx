@@ -7,6 +7,7 @@ type Pillar = {
   title: string;
   lede: string;
   body: string;
+  note: string;
   metric: { value: string; unit: string; caption: string };
   accent: string;
 };
@@ -18,6 +19,7 @@ const PILLARS: Pillar[] = [
     title: "Low slippage",
     lede: "At peg, trades move along the sphere's flat equator.",
     body: "Every LP's tick concentrates liquidity where stables actually trade. Routes stay tight through the full depth of the book — not just the first few basis points.",
+    note: "A flat AMM smears the same depth across every price. Orbital stacks it where stablecoins actually clear.",
     metric: { value: "< 1", unit: "bps", caption: "price impact at peg, p=0.99" },
     accent: colors.green.hex,
   },
@@ -27,6 +29,7 @@ const PILLARS: Pillar[] = [
     title: "High capital efficiency",
     lede: "One dollar here behaves like ~154 in a flat sphere pool.",
     body: "Concentrated ticks compound across N assets in a single pool. No fragmentation across pairs, no idle reserves sitting outside the active range.",
+    note: "Measured against an equal-reserve flat-sphere pool at the same peg tolerance.",
     metric: { value: "154", unit: "×", caption: "vs flat sphere, N = 5" },
     accent: colors.purple.hex,
   },
@@ -36,6 +39,7 @@ const PILLARS: Pillar[] = [
     title: "Automatic depeg isolation",
     lede: "When one asset breaks peg, the other N−1 keep trading.",
     body: "Ticks flip to their boundary and the broken asset is fenced off. The pool doesn't drain into the bad leg — healthy stables stay liquid against each other.",
+    note: "No governance call, no pause — the geometry fences the bad leg the instant price leaves the tick.",
     metric: { value: "N − 1", unit: "assets", caption: "stay live through a depeg" },
     accent: colors.yellow.hex,
   },
@@ -160,7 +164,7 @@ export function Pillars() {
                       maxWidth: "42ch",
                     }}
                   >
-                    {p.metric.caption} — measured against an equivalent flat-sphere pool.
+                    {p.note}
                   </p>
 
                   <div

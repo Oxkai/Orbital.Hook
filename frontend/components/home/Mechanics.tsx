@@ -31,7 +31,7 @@ const CARDS = [
 function MechanicsCard({ card }: { card: typeof CARDS[number] }) {
   return (
     <article
-      className="flex flex-col justify-between"
+      className="flex flex-col"
       style={{ backgroundColor: color.surface1, minHeight: 320 }}
     >
       <div
@@ -60,6 +60,7 @@ function MechanicsCard({ card }: { card: typeof CARDS[number] }) {
             letterSpacing: "-0.03em",
             color: color.textPrimary,
             fontWeight: 400,
+            minHeight: "2.24em",
           }}
         >
           {card.lede}
@@ -67,13 +68,14 @@ function MechanicsCard({ card }: { card: typeof CARDS[number] }) {
 
         {/* Formula */}
         <div
-          className="px-4 py-3 border border-dashed"
-          style={{ borderColor: color.borderSubtle, color: color.accent, fontSize: "18px" }}
+          className="px-4 border border-dashed flex items-center justify-center [&_.katex-display]:my-0"
+          style={{ borderColor: color.borderSubtle, color: color.accent, fontSize: "18px", height: 56 }}
         >
           <Tex block>{card.tex}</Tex>
         </div>
 
         <p
+          className="flex-1"
           style={{
             fontFamily: typography.p2.family,
             fontSize: typography.p2.size,
@@ -105,9 +107,9 @@ export function Mechanics() {
             fontWeight: 400,
           }}
         >
-          Three ideas do the work.{" "}
+          The whole curve, in three shapes.{" "}
           <span style={{ color: color.textMuted }}>
-            A sphere for reserves. A plane for every position. A torus that holds them together.
+            A sphere for the reserves, a plane for every LP position, and a torus that folds them into one O(1) swap.
           </span>
         </p>
       </div>

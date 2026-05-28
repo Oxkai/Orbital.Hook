@@ -6,6 +6,8 @@ A Uniswap v4 hook that turns a single pool into an N-asset stablecoin AMM. Every
 
 Live app → <https://orbital-hook.vercel.app/> · X Layer Testnet · 100 tests passing
 
+---
+
 ## The Orbital concept (Paradigm)
 
 Stablecoins all target $1, but AMMs force a trade-off: Curve pools many stablecoins together yet spreads liquidity flatly across the whole curve, while Uniswap v3 concentrates liquidity but only for two tokens. Orbital ([Paradigm, 2025](https://www.paradigm.xyz/2025/06/orbital)) does both at once.
@@ -20,17 +22,17 @@ $$x \cdot y = k \quad \longrightarrow \quad \|\mathbf{r} - \mathbf{x}\|^2 = \sum
 
 The payoff: N stablecoins in one pool, concentrated liquidity for capital efficiency, and depeg isolation — when one coin breaks peg its tick exits to the boundary and the rest keep trading 1:1.
 
+---
+
 ## What we built
 
-A v4 hook that puts the Orbital math behind a normal Uniswap pool. We took the sphere/torus engine and wired it into v4's `beforeSwap`, so a swap on any pair runs the Orbital curve instead of constant-product — while v4 keeps doing custody, settlement, and accounting.
+We implemented the full Orbital math from the paper — the N-sphere invariant, per-tick depeg planes, the torus consolidation, and the quartic tick-crossing solver — and run it inside a v4 hook. On a swap, `beforeSwap` evaluates that engine and returns the trade, so any pair prices on the Orbital curve instead of constant-product, while v4 keeps doing custody, settlement, and accounting.
 
 The catch: a v4 pool is always two tokens. To get all four stablecoins into one book, we deploy the $\binom{4}{2} = 6$ pairs as six separate v4 pools and point every `PoolKey.hooks` at the same hook. The pairs are just views — the hook holds one shared reserve vector behind all of them. A trade on USDC/USDT and a trade on DAI/FRAX move the same reserves and the same price.
 
+---
+
 ## Architecture
-
-Two views: structure (what exists, who owns what) and runtime (the actual v4 swap frame).
-
-### Structure
 
 The 6 pairs are `PoolKey`s that live *inside* the one PoolManager; every key's `hooks` points at the same OrbitalHook. The PoolManager holds all tokens and the lock; the hook holds the curve and the shared reserves.
 
@@ -40,7 +42,9 @@ The 6 pairs are `PoolKey`s that live *inside* the one PoolManager; every key's `
 - **OrbitalHook** — our code: holds the reserve vector (the sphere), the ticks, the fees, and the ERC-6909 LP shares. It only supplies the curve; it never holds tokens.
 - **LP** calls the hook directly; the hook settles through the PoolManager.
 
-### Runtime — one swap, inside the lock
+---
+
+## Runtime — one swap
 
 A trader doesn't call `swap` directly. Any contract calls `unlock`; the PoolManager calls back, the swap and settlement happen inside that locked frame, and no tokens move until the deltas net to zero.
 
@@ -59,13 +63,17 @@ caller.unlock(data)
 
 Two invariants: `swap` moves no tokens (it only writes deltas to transient storage), and `unlock` won't return until every currency delta nets to zero.
 
+---
+
 ## Why it matters
 
-- **No liquidity fragmentation.** Four stablecoins would normally need six separate pools, each with its own shallow depth. Here all six pairs share one book, so a USDC/FRAX trade draws on the *same* liquidity as USDC/USDT — one deep pool instead of six thin ones.
-- **Capital efficiency via virtual reserves.** A tick removes the portion of the curve below its depeg bound, so a small amount of *real* capital behaves like a much larger reserve near peg — exactly like Uniswap v3's virtual liquidity, but on the N-sphere. The pool quotes the depth of millions while LPs post a fraction of it; capital that would sit idle at prices that never happen is freed.
+- **No liquidity fragmentation.** Four stablecoins would normally need six separate pools, each with its own shallow depth. Here all six pairs share one book, so a USDC/FRAX trade draws on the same liquidity as USDC/USDT — one deep pool instead of six thin ones.
+- **Capital efficiency via virtual reserves.** A tick removes the curve below its depeg bound, so a small amount of real capital behaves like a much larger reserve near peg — Uniswap v3's virtual liquidity, generalized to the N-sphere.
 - **N coins, not 2.** One pool prices a whole basket of dollars off a single sphere — add a fifth or sixth stablecoin without standing up a new market.
 - **Depeg isolation.** If one coin breaks peg, its tick exits to the boundary and the rest keep trading 1:1 — the bad coin doesn't drain the pool.
-- **Built on v4, not beside it.** We only supply the curve. Custody, routing, ERC-6909 accounting, and the unlock/settle flow are all v4's — so the pools are reachable by any v4 router or aggregator.
+- **Built on v4, not beside it.** We only supply the curve; custody, accounting, and the unlock/settle flow are all v4's — so the pools are reachable by any v4 router or aggregator.
+
+---
 
 ## How it compares
 
@@ -80,6 +88,8 @@ Two invariants: `swap` moves no tokens (it only writes deltas to transient stora
 | LP position type | NFT (721) | LP token | LP token | ERC-6909 |
 | Venue | Standalone | Standalone | Standalone | Uniswap v4 hook |
 
+---
+
 ## Repo layout
 
 ```
@@ -87,6 +97,8 @@ UHI/
 ├── orbitalHook/        Solidity — the v4 hook (see orbitalHook/README.md)
 └── frontend/           Next.js app — swap, pools, positions (see frontend/README.md)
 ```
+
+---
 
 ## Deployed — X Layer Testnet (chainId 1952)
 
@@ -107,6 +119,8 @@ Seeded with ~$20M TVL across 5 ticks, all interior.
 - Live app — <https://orbital-hook.vercel.app/>
 - Hook explorer — <https://www.okx.com/web3/explorer/xlayer-test/address/0x4024911A26B5BF5160D156eccBAc148bd55c6a88>
 
+---
+
 ## Getting started
 
 ```bash
@@ -121,8 +135,10 @@ npm install && npm run dev       # http://localhost:3000
 
 Foundry uses `via_ir = true` (required by the Orbital math libraries). Clone with `--recurse-submodules`, or run `git submodule update --init --recursive` afterwards.
 
+---
+
 ## References
 
 - Paradigm Orbital paper — <https://www.paradigm.xyz/2025/06/orbital>
 - Uniswap v4 — <https://docs.uniswap.org/contracts/v4/overview>
-- Standalone Orbital AMM the hook ports from: [`../contracts`](../contracts) (parent project)
+- Our standalone Orbital AMM that shares the same engine: [`../contracts`](../contracts) (parent project)

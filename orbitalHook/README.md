@@ -6,6 +6,8 @@ The hook holds the abstract Orbital state (the sphere reserve vector, the LP tic
 
 For the project overview and the frontend, see the [root README](../README.md).
 
+---
+
 ## How the engine works
 
 The hook keeps the pool as a point on an N-sphere and consolidates every LP tick into a single torus it can solve in O(1) per swap. It currently supports up to 5 tokens in one shared pool.
@@ -15,6 +17,8 @@ The hook keeps the pool as a point on an N-sphere and consolidates every LP tick
 - **Torus (`slot0`).** Instead of iterating ticks on every swap, the hook tracks five running sums — `sumX, sumXSq, rInt, kBound, sBound` — that fold all interior + boundary ticks into one torus. A swap reads and writes only these, so cost is independent of how many ticks or coins exist.
 - **Segmenting solver.** `beforeSwap` walks the trade segment by segment: solve the within-tick quartic by Newton's method up to the next tick boundary, cross that tick (flip it interior↔boundary and update `slot0`), then continue until the input is consumed. The result is returned as a `BeforeSwapDelta`.
 
+---
+
 ## Why it matters
 
 - **No liquidity fragmentation.** Up to 5 stablecoins would normally need a separate pool per pair, each shallow. Here every pair is a view onto one shared reserve vector, so a USDC/FRAX trade taps the same depth as USDC/USDT.
@@ -23,6 +27,8 @@ The hook keeps the pool as a point on an N-sphere and consolidates every LP tick
 - **Low slippage near peg.** Concentrating depth in the band where stablecoins actually trade keeps quotes close to 1:1 for ordinary size.
 - **Depeg isolation.** When one coin breaks peg its tick snaps to the boundary and exits; the remaining coins keep trading 1:1 instead of the bad coin draining the pool.
 - **O(1) regardless of scale.** The torus `slot0` means swap cost doesn't grow with the number of coins or ticks.
+
+---
 
 ## Status
 
@@ -55,6 +61,8 @@ v1 — research artifact, not audited, not production. Working end-to-end (100 t
 - [ ] Protocol fee
 - [ ] External audit + hook-level fuzzing
 
+---
+
 ## Build & test
 
 ```bash
@@ -62,14 +70,16 @@ forge build
 forge test          # 100 passing
 ```
 
-`via_ir = true` (solc 0.8.30) is required — the `TorusMath` library hits stack-too-deep without it. The math libraries are direct copies of the standalone Orbital AMM in [`../../contracts/`](../../contracts/); the engine is a port of its `OrbitalPool.sol` adapted to the v4 hook surface.
+`via_ir = true` (solc 0.8.30) is required — the `TorusMath` library hits stack-too-deep without it. We implemented the complete Orbital math from the paper — the sphere invariant, tick planes, torus consolidation, and the segmenting quartic solver. The same engine backs our standalone Orbital AMM in [`../../contracts/`](../../contracts/); this hook adapts it to the v4 surface.
+
+---
 
 ## Project layout
 
 ```
 src/
 ├── OrbitalHook.sol          one contract: storage + v4 hook + LP entry + engine
-└── libraries/               math (copied from ../../contracts/src/lib/)
+└── libraries/               math (shared with ../../contracts/src/lib/)
     ├── FullMath.sol         512-bit mulDiv — full-precision intermediate products
     ├── SphereMath.sol       sphere invariant, radius, equal-price point
     ├── TorusMath.sol        folds all ticks into the torus running sums
@@ -89,6 +99,8 @@ script/
 └── SeedActivity.s.sol       exercises the live pool — swaps across pairs + adds a tick
 ```
 
+---
+
 ## Hook permissions
 
 The hook address is CREATE2-mined so its low bits encode these flags:
@@ -96,6 +108,8 @@ The hook address is CREATE2-mined so its low bits encode these flags:
 `beforeInitialize` · `beforeAddLiquidity` · `beforeRemoveLiquidity` · `beforeSwap` · `beforeSwapReturnDelta`
 
 `beforeSwap` + `beforeSwapReturnDelta` is the pair that lets the hook return a `BeforeSwapDelta` that fully specifies the trade, so the PoolManager's default constant-product math is bypassed. The two `before*Liquidity` flags exist only to revert native v4 liquidity — the hook's own `addLiquidity` is the only LP path.
+
+---
 
 ## Constructor
 
@@ -111,6 +125,8 @@ constructor(
 
 After deployment, each pair `(assets[i], assets[j])` is registered as a v4 pool via `PoolManager.initialize` with `PoolKey.hooks = address(orbitalHook)` and `PoolKey.lpFee = 0`. Non-18-decimal assets revert at construction.
 
+---
+
 ## LP interface
 
 LPs call the hook directly (not the PoolManager):
@@ -124,6 +140,8 @@ collect(uint256 tickIdx)                                                 // → 
 
 `tokenId = tickIdx`; the hook is the ERC-6909 issuer. Shares are soulbound in v1 (`transfer` / `transferFrom` revert). Per-position fee checkpoints live in engine storage keyed by `(owner, tickIdx)`.
 
+---
+
 ## Key design decisions
 
 - **One contract, internal library code.** Engine logic is inlined as internal functions rather than a separate contract — no cross-contract overhead, and the deployed bytecode stays under the 24KB limit.
@@ -131,6 +149,8 @@ collect(uint256 tickIdx)                                                 // → 
 - **Pair-view model.** $\tfrac{N(N-1)}{2}$ separate v4 `PoolKey`s all point at this hook; price coherence is guaranteed because every `beforeSwap` reads and writes the single shared engine state.
 - **Native v4 liquidity disabled.** `beforeAddLiquidity` / `beforeRemoveLiquidity` revert; the hook's own `addLiquidity` is the only entry.
 - **`via_ir = true`** — `TorusMath` hits stack-too-deep without it.
+
+---
 
 ## Deploy
 
@@ -141,6 +161,8 @@ forge script script/Deploy.s.sol \
 ```
 
 `Deploy.s.sol` mines the hook address (`HookMiner` from `lib/uniswap-hooks`), deploys the four mock tokens, initializes the 6 pair pools, and seeds tiered liquidity across depeg bounds 0.95 / 0.90 / 0.85 / 0.80 (~$10M rInt). The deep, layered seed keeps quotes near 1:1 for ordinary flow, while the segmenting solver handles tick crossings when a swap is large enough to reach a boundary.
+
+---
 
 ## Deployed — X Layer Testnet (chainId 1952)
 
