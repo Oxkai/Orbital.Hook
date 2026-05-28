@@ -1,6 +1,6 @@
 # Orbital Hook — engine
 
-A Uniswap v4 hook implementing the **Orbital** N-asset stableswap from [Paradigm (2025)](https://www.paradigm.xyz/2025/06/orbital).
+A Uniswap v4 hook implementing the Orbital N-asset stableswap from [Paradigm (2025)](https://www.paradigm.xyz/2025/06/orbital).
 
 The hook holds the abstract Orbital state (the sphere reserve vector, the LP ticks, the fees) and replaces Uniswap's swap curve inside `beforeSwap`. Token custody stays in v4's `PoolManager` — the hook only holds matching ERC-6909 claim tokens. Each of the $\tfrac{N(N-1)}{2}$ pairs among the registered assets is a separate v4 pool, all pointing at this one hook and sharing one engine state.
 
@@ -8,7 +8,7 @@ For the project overview and the frontend, see the [root README](../README.md).
 
 ## How the engine works
 
-The hook keeps the pool as a point on an N-sphere and consolidates every LP tick into a single torus it can solve in O(1) per swap. It currently supports **up to 5 tokens** in one shared pool.
+The hook keeps the pool as a point on an N-sphere and consolidates every LP tick into a single torus it can solve in O(1) per swap. It currently supports up to 5 tokens in one shared pool.
 
 - **Sphere.** Reserves $\mathbf{x}$ satisfy $\|\mathbf{r} - \mathbf{x}\|^2 = r^2$, centred at $\mathbf{r} = (r, \dots, r)$. At the equal-price point $x_i = r\left(1 - \tfrac{1}{\sqrt{N}}\right)$ every coin trades 1:1; the curve only bends as the basket drifts off peg.
 - **Ticks.** Each LP position is a plane $\sum_i x_i = k$ that cuts the sphere at a depeg bound — concentrated liquidity in the band near \$1. A tick stays *interior* while the pool holds above its bound and snaps to its *boundary* if price crosses it, so a depegging coin's tick exits without draining the rest.
@@ -17,33 +17,16 @@ The hook keeps the pool as a point on an N-sphere and consolidates every LP tick
 
 ## Why it matters
 
-- **No liquidity fragmentation.** Up to 5 stablecoins would normally need a separate pool per pair, each shallow. Here every pair is a view onto one shared reserve vector, so a USDC/FRAX trade taps the *same* depth as USDC/USDT.
+- **No liquidity fragmentation.** Up to 5 stablecoins would normally need a separate pool per pair, each shallow. Here every pair is a view onto one shared reserve vector, so a USDC/FRAX trade taps the same depth as USDC/USDT.
 - **Deep, shared liquidity.** All LP capital lands in one book instead of being split across pools — more depth behind every quote.
 - **Capital efficiency via virtual reserves.** A tick removes the curve below its depeg bound, so a small amount of real capital behaves like a much larger reserve near peg (Uniswap v3's virtual-liquidity idea, generalized to the N-sphere).
 - **Low slippage near peg.** Concentrating depth in the band where stablecoins actually trade keeps quotes close to 1:1 for ordinary size.
 - **Depeg isolation.** When one coin breaks peg its tick snaps to the boundary and exits; the remaining coins keep trading 1:1 instead of the bad coin draining the pool.
 - **O(1) regardless of scale.** The torus `slot0` means swap cost doesn't grow with the number of coins or ticks.
 
-## Deployed — X Layer Testnet (chainId 1952)
-
-| Contract | Address |
-|---|---|
-| **OrbitalHook** | [`0x4024911A26B5BF5160D156eccBAc148bd55c6a88`](https://www.okx.com/web3/explorer/xlayer-test/address/0x4024911A26B5BF5160D156eccBAc148bd55c6a88) |
-| PoolManager (v4 core) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
-| SwapRouter (v4) | `0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E` |
-| Quoter (v4) | `0x77442de670D723Db1Ae17fa9cA887c9426eBb41f` |
-| Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| USDC | `0xBe272Bcb1Fa1d99616F53Ce7d7703589C92bb33b` |
-| USDT | `0x3a2bCfc287b8106774Ec85533d821D3604cB7DC5` |
-| DAI | `0x78340e3C5169b6DF15F13a8d627Db2C0e23cf921` |
-| FRAX | `0x17c868495deF240091E95410e2B2D5a6cEabf6f0` |
-| Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
-
-A self-hosted v4 stack (v4 isn't canonically deployed on X Layer). Four mock 18-decimal stablecoins → 6 pair pools registered against the hook → a deep tiered seed of **~$10M rInt (~$20M TVL)** across 5 ticks, all interior. The hook address suffix `...6a88` encodes its permission flags.
-
 ## Status
 
-**v1 — research artifact, not audited, not production.** Working end-to-end (100 tests) and live on X Layer testnet.
+v1 — research artifact, not audited, not production. Working end-to-end (100 tests) and live on X Layer testnet.
 
 **Engine**
 - [x] Asset registry — up to 5 tokens per pool, sorted, unique, immutable
@@ -112,7 +95,7 @@ The hook address is CREATE2-mined so its low bits encode these flags:
 
 `beforeInitialize` · `beforeAddLiquidity` · `beforeRemoveLiquidity` · `beforeSwap` · `beforeSwapReturnDelta`
 
-`beforeSwap` + `beforeSwapReturnDelta` is the pair that lets the hook return a `BeforeSwapDelta` that fully specifies the trade, so the PoolManager's default constant-product math is bypassed. The two `before*Liquidity` flags exist only to **revert** native v4 liquidity — the hook's own `addLiquidity` is the only LP path.
+`beforeSwap` + `beforeSwapReturnDelta` is the pair that lets the hook return a `BeforeSwapDelta` that fully specifies the trade, so the PoolManager's default constant-product math is bypassed. The two `before*Liquidity` flags exist only to revert native v4 liquidity — the hook's own `addLiquidity` is the only LP path.
 
 ## Constructor
 
@@ -133,13 +116,13 @@ After deployment, each pair `(assets[i], assets[j])` is registered as a v4 pool 
 LPs call the hook directly (not the PoolManager):
 
 ```solidity
-addLiquidity(uint256 kWad, uint256 rWad, uint256[] maxAmounts)          // → tickIdx, mints ERC-6909
+addLiquidity(uint256 kWad, uint256 rWad, uint256[] maxAmounts)           // → tickIdx, mints ERC-6909
 addLiquidityViaPermit2(uint256 kWad, uint256 rWad, uint256[] maxAmounts) // same, Permit2-funded
 removeLiquidity(uint256 tickIdx, uint256 rWad, uint256[] minAmounts)     // burns ERC-6909
 collect(uint256 tickIdx)                                                 // → per-asset fees
 ```
 
-`tokenId = tickIdx`; the hook is the ERC-6909 issuer. Shares are **soulbound** in v1 (`transfer` / `transferFrom` revert). Per-position fee checkpoints live in engine storage keyed by `(owner, tickIdx)`.
+`tokenId = tickIdx`; the hook is the ERC-6909 issuer. Shares are soulbound in v1 (`transfer` / `transferFrom` revert). Per-position fee checkpoints live in engine storage keyed by `(owner, tickIdx)`.
 
 ## Key design decisions
 
@@ -159,4 +142,19 @@ forge script script/Deploy.s.sol \
 
 `Deploy.s.sol` mines the hook address (`HookMiner` from `lib/uniswap-hooks`), deploys the four mock tokens, initializes the 6 pair pools, and seeds tiered liquidity across depeg bounds 0.95 / 0.90 / 0.85 / 0.80 (~$10M rInt). The deep, layered seed keeps quotes near 1:1 for ordinary flow, while the segmenting solver handles tick crossings when a swap is large enough to reach a boundary.
 
+## Deployed — X Layer Testnet (chainId 1952)
 
+| Contract | Address |
+|---|---|
+| OrbitalHook | [`0x4024911A26B5BF5160D156eccBAc148bd55c6a88`](https://www.okx.com/web3/explorer/xlayer-test/address/0x4024911A26B5BF5160D156eccBAc148bd55c6a88) |
+| PoolManager (v4 core) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
+| SwapRouter (v4) | `0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E` |
+| Quoter (v4) | `0x77442de670D723Db1Ae17fa9cA887c9426eBb41f` |
+| Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| USDC | `0xBe272Bcb1Fa1d99616F53Ce7d7703589C92bb33b` |
+| USDT | `0x3a2bCfc287b8106774Ec85533d821D3604cB7DC5` |
+| DAI | `0x78340e3C5169b6DF15F13a8d627Db2C0e23cf921` |
+| FRAX | `0x17c868495deF240091E95410e2B2D5a6cEabf6f0` |
+| Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
+
+A self-hosted v4 stack (v4 isn't canonically deployed on X Layer): four mock 18-decimal stablecoins → 6 pair pools registered against the hook → a deep tiered seed of ~$10M rInt (~$20M TVL) across 5 ticks, all interior. The hook address suffix `...6a88` encodes its permission flags.

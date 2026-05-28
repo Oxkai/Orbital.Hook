@@ -1,20 +1,14 @@
-<img src="frontend/public/orbital.jpg" width="76" height="76" align="right" alt="Orbital logo" />
+<img src="frontend/public/orbital.jpg" width="76" height="76" alt="Orbital logo" />
 
 # Orbital Hook
 
-A **Uniswap v4 hook** that turns a single pool into an **N-asset stablecoin AMM**. Every stablecoin (USDC / USDT / DAI / FRAX) shares one reserve book inside the hook, and the hook replaces Uniswap's swap curve with the Orbital sphere/torus math — concentrated liquidity, generalized to N coins, on top of v4's infrastructure.
+A Uniswap v4 hook that turns a single pool into an N-asset stablecoin AMM. Every stablecoin (USDC / USDT / DAI / FRAX) shares one reserve book inside the hook, and the hook replaces Uniswap's swap curve with the Orbital sphere/torus math — concentrated liquidity, generalized to N coins, on top of v4's infrastructure.
 
-**Live app → <https://orbital-hook.vercel.app/>** · deployed on **X Layer Testnet** · **100 tests passing**
-
-```
-UHI/
-├── orbitalHook/        Solidity — the v4 hook
-└── frontend/           Next.js app — swap, pools, positions (wired to the live hook)
-```
+Live app → <https://orbital-hook.vercel.app/> · X Layer Testnet · 100 tests passing
 
 ## The Orbital concept (Paradigm)
 
-Stablecoins all target $1, but AMMs force a trade-off: **Curve** pools many stablecoins together yet spreads liquidity flatly across the whole curve, while **Uniswap v3** concentrates liquidity but only for two tokens. Orbital ([Paradigm, 2025](https://www.paradigm.xyz/2025/06/orbital)) does both at once.
+Stablecoins all target $1, but AMMs force a trade-off: Curve pools many stablecoins together yet spreads liquidity flatly across the whole curve, while Uniswap v3 concentrates liquidity but only for two tokens. Orbital ([Paradigm, 2025](https://www.paradigm.xyz/2025/06/orbital)) does both at once.
 
 The whole idea is one swap of curve. Uniswap prices two tokens on a hyperbola; Orbital prices N tokens on a sphere:
 
@@ -22,19 +16,19 @@ $$x \cdot y = k \quad \longrightarrow \quad \|\mathbf{r} - \mathbf{x}\|^2 = \sum
 
 - **Sphere** — the reserve vector $\mathbf{x} = (x_1, \dots, x_n)$ is a point on an N-sphere of radius $r$ centred at $\mathbf{r} = (r, \dots, r)$. The peg sits at the equal-price point $x_i = r\left(1 - \tfrac{1}{\sqrt{n}}\right)$, where every coin trades exactly 1:1; the curve only bends as the basket drifts off peg.
 - **Ticks** — each LP picks a plane $\sum_i x_i = k$ that cuts the sphere at a depeg bound ("provide liquidity only while the price holds above \$0.95"). That's the concentration: capital sits in the narrow band near peg where stablecoins actually trade, instead of being wasted on prices that never happen.
-- **Torus** — stacked ticks fold into a torus the pool tracks with just the running sums $\sum x_i$ and $\sum x_i^2$, so a swap stays **O(1)** no matter how many coins or ticks exist.
+- **Torus** — stacked ticks fold into a torus the pool tracks with just the running sums $\sum x_i$ and $\sum x_i^2$, so a swap stays O(1) no matter how many coins or ticks exist.
 
-The payoff: **N stablecoins in one pool**, concentrated liquidity for capital efficiency, and **depeg isolation** — when one coin breaks peg its tick exits to the boundary and the rest keep trading 1:1.
+The payoff: N stablecoins in one pool, concentrated liquidity for capital efficiency, and depeg isolation — when one coin breaks peg its tick exits to the boundary and the rest keep trading 1:1.
 
 ## What we built
 
 A v4 hook that puts the Orbital math behind a normal Uniswap pool. We took the sphere/torus engine and wired it into v4's `beforeSwap`, so a swap on any pair runs the Orbital curve instead of constant-product — while v4 keeps doing custody, settlement, and accounting.
 
-The catch: a v4 pool is always **two tokens**. To get all four stablecoins into one book, we deploy the $\binom{4}{2} = 6$ pairs as six separate v4 pools and point every `PoolKey.hooks` at the **same** hook. The pairs are just views — the hook holds one shared reserve vector behind all of them. A trade on USDC/USDT and a trade on DAI/FRAX move the same reserves and the same price.
+The catch: a v4 pool is always two tokens. To get all four stablecoins into one book, we deploy the $\binom{4}{2} = 6$ pairs as six separate v4 pools and point every `PoolKey.hooks` at the same hook. The pairs are just views — the hook holds one shared reserve vector behind all of them. A trade on USDC/USDT and a trade on DAI/FRAX move the same reserves and the same price.
 
 ## Architecture
 
-Two views: **structure** (what exists, who owns what) and **runtime** (the actual v4 swap frame).
+Two views: structure (what exists, who owns what) and runtime (the actual v4 swap frame).
 
 ### Structure
 
@@ -63,7 +57,7 @@ caller.unlock(data)
    PoolManager asserts every delta == 0  (else revert)
 ```
 
-Two invariants: **`swap` moves no tokens** (it only writes deltas to transient storage), and **`unlock` won't return** until every currency delta nets to zero.
+Two invariants: `swap` moves no tokens (it only writes deltas to transient storage), and `unlock` won't return until every currency delta nets to zero.
 
 ## Why it matters
 
@@ -73,11 +67,32 @@ Two invariants: **`swap` moves no tokens** (it only writes deltas to transient s
 - **Depeg isolation.** If one coin breaks peg, its tick exits to the boundary and the rest keep trading 1:1 — the bad coin doesn't drain the pool.
 - **Built on v4, not beside it.** We only supply the curve. Custody, routing, ERC-6909 accounting, and the unlock/settle flow are all v4's — so the pools are reachable by any v4 router or aggregator.
 
+## How it compares
+
+| Property | Uniswap V3 | Curve Stable | Balancer | Orbital |
+|---|---|---|---|---|
+| Assets per pool | 2 | 2–8 (fixed) | 2–8 (fixed) | N (≥ 2) |
+| Concentrated liquidity | Yes | No | No | Yes |
+| Per-LP depeg range | n/a | No | No | Yes |
+| Depeg drains pool | n/a | Yes | Yes | Isolated |
+| Capital efficiency at peg | High (pair) | ~1–2× flat | ~1–2× flat | ~154× flat, N=5 |
+| TWAP oracle | Yes | No | Yes | Roadmap |
+| LP position type | NFT (721) | LP token | LP token | ERC-6909 |
+| Venue | Standalone | Standalone | Standalone | Uniswap v4 hook |
+
+## Repo layout
+
+```
+UHI/
+├── orbitalHook/        Solidity — the v4 hook (see orbitalHook/README.md)
+└── frontend/           Next.js app — swap, pools, positions (see frontend/README.md)
+```
+
 ## Deployed — X Layer Testnet (chainId 1952)
 
 | Contract | Address |
 |---|---|
-| **OrbitalHook** | `0x4024911A26B5BF5160D156eccBAc148bd55c6a88` |
+| OrbitalHook | `0x4024911A26B5BF5160D156eccBAc148bd55c6a88` |
 | PoolManager (v4) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
 | SwapRouter (v4) | `0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E` |
 | Quoter (v4) | `0x77442de670D723Db1Ae17fa9cA887c9426eBb41f` |
@@ -87,8 +102,10 @@ Two invariants: **`swap` moves no tokens** (it only writes deltas to transient s
 | DAI | `0x78340e3C5169b6DF15F13a8d627Db2C0e23cf921` |
 | FRAX | `0x17c868495deF240091E95410e2B2D5a6cEabf6f0` |
 
-Live app → <https://orbital-hook.vercel.app/> · Hook explorer → <https://www.okx.com/web3/explorer/xlayer-test/address/0x4024911A26B5BF5160D156eccBAc148bd55c6a88>
 Seeded with ~$20M TVL across 5 ticks, all interior.
+
+- Live app — <https://orbital-hook.vercel.app/>
+- Hook explorer — <https://www.okx.com/web3/explorer/xlayer-test/address/0x4024911A26B5BF5160D156eccBAc148bd55c6a88>
 
 ## Getting started
 
@@ -103,19 +120,6 @@ npm install && npm run dev       # http://localhost:3000
 ```
 
 Foundry uses `via_ir = true` (required by the Orbital math libraries). Clone with `--recurse-submodules`, or run `git submodule update --init --recursive` afterwards.
-
-## How it compares
-
-| Property | Uniswap V3 | Curve Stable | Balancer | **Orbital** |
-|---|---|---|---|---|
-| Assets per pool | 2 | 2–8 (fixed) | 2–8 (fixed) | **N (≥ 2)** |
-| Concentrated liquidity | Yes | No | No | **Yes** |
-| Per-LP depeg range | n/a | No | No | **Yes** |
-| Depeg drains pool | n/a | Yes | Yes | **Isolated** |
-| Capital efficiency at peg | High (pair) | ~1–2× flat | ~1–2× flat | **~154× flat, N=5** |
-| TWAP oracle | Yes | No | Yes | **Roadmap** |
-| LP position type | NFT (721) | LP token | LP token | **ERC-6909** |
-| Venue | Standalone | Standalone | Standalone | **Uniswap v4 hook** |
 
 ## References
 
