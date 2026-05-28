@@ -16,6 +16,7 @@ import {Permit2Deployer} from "hookmate/artifacts/Permit2.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
+import {TickLib} from "../src/libraries/TickLib.sol";
 
 /// @notice Deploys an end-to-end Orbital hook setup on local anvil:
 ///         1) v4 PoolManager
@@ -41,20 +42,55 @@ contract DeployScript is Script {
     uint24 internal constant POOL_KEY_LP_FEE = 0;
     int24 internal constant POOL_KEY_TICK_SPACING = 1;
 
-    // Per-LP starting mint for each mock token.
-    uint256 internal constant MINT_PER_TOKEN = 10_000_000 ether;
+    // Per-token mint to the deployer. Must cover the ~5M/asset seed plus swap room.
+    uint256 internal constant MINT_PER_TOKEN = 20_000_000 ether;
 
     uint8 internal constant N_TOKENS = 4;
-    string[4] internal SYMBOLS = ["sUSDA", "sUSDB", "sUSDC", "sUSDD"];
+    string[4] internal SYMBOLS = ["USDC", "USDT", "DAI", "FRAX"];
+    string[4] internal NAMES = ["USD Coin", "Tether USD", "Dai Stablecoin", "Frax"];
+
+    // Deep, tiered seed: ~$10M rInt (~$20M TVL) across four depeg-bound tiers.
+    // Bounds are intentionally WIDE (0.95 .. 0.80) so they sit well above the
+    // equal-price point — gentle demo swaps keep αNorm near peg and never reach
+    // the tightest tier, so no tick crosses to boundary.
+    //   tier r (radius)          depeg bound
+    //   4,000,000                0.95
+    //   3,000,000                0.90
+    //   2,000,000                0.85
+    //   1,000,000                0.80
+    function _tierR(uint256 i) internal pure returns (uint256) {
+        if (i == 0) return 4_000_000 ether;
+        if (i == 1) return 3_000_000 ether;
+        if (i == 2) return 2_000_000 ether;
+        return 1_000_000 ether;
+    }
+
+    function _tierDepeg(uint256 i) internal pure returns (uint256) {
+        if (i == 0) return 0.95e18;
+        if (i == 1) return 0.90e18;
+        if (i == 2) return 0.85e18;
+        return 0.80e18;
+    }
+
+    uint256 internal constant N_TIERS = 4;
 
     function run() external {
         vm.startBroadcast();
 
-        // 1) v4 PoolManager + Permit2
-        address pmAddr = V4PoolManagerDeployer.deploy(msg.sender);
-        IPoolManager poolManager = IPoolManager(pmAddr);
-        IAllowanceTransfer permit2 = IAllowanceTransfer(Permit2Deployer.deploy());
-        console2.log("PoolManager:", pmAddr);
+        // 1) v4 PoolManager + Permit2 — reuse existing infra if present, so a
+        //    redeploy only creates fresh tokens + hook + pools (and avoids a
+        //    CREATE2 collision on the deterministic PoolManager address).
+        address knownPM = 0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7; // X Layer testnet
+        IPoolManager poolManager = knownPM.code.length > 0
+            ? IPoolManager(knownPM)
+            : IPoolManager(V4PoolManagerDeployer.deploy(msg.sender));
+
+        address canonicalPermit2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+        IAllowanceTransfer permit2 = canonicalPermit2.code.length > 0
+            ? IAllowanceTransfer(canonicalPermit2)
+            : IAllowanceTransfer(Permit2Deployer.deploy());
+
+        console2.log("PoolManager:", address(poolManager));
         console2.log("Permit2:    ", address(permit2));
 
         // 2) Mock stables
@@ -68,13 +104,16 @@ contract DeployScript is Script {
         // 4) Pair pools — N(N-1)/2 of them, all sharing the hook's engine state.
         _initializePools(poolManager, hook, assets);
 
+        // 5) Seed deep, tiered liquidity so the pool is immediately usable and tight.
+        _seedTiers(hook, assets);
+
         vm.stopBroadcast();
     }
 
     function _deployTokens() internal returns (Currency[] memory sorted) {
         MockERC20[] memory raw = new MockERC20[](N_TOKENS);
         for (uint8 i = 0; i < N_TOKENS; ++i) {
-            MockERC20 token = new MockERC20(string.concat("Mock Stable ", SYMBOLS[i]), SYMBOLS[i], 18);
+            MockERC20 token = new MockERC20(NAMES[i], SYMBOLS[i], 18);
             token.mint(msg.sender, MINT_PER_TOKEN);
             raw[i] = token;
             console2.log(SYMBOLS[i], address(token));
@@ -132,5 +171,26 @@ contract DeployScript is Script {
             }
         }
         console2.log("Pools registered:", pairCount);
+    }
+
+    function _seedTiers(OrbitalHook hook, Currency[] memory assets) internal {
+        // Approve the hook to pull each asset from the deployer.
+        for (uint256 i = 0; i < assets.length; ++i) {
+            MockERC20(Currency.unwrap(assets[i])).approve(address(hook), type(uint256).max);
+        }
+
+        uint256[] memory maxA = new uint256[](N_TOKENS);
+        for (uint256 i = 0; i < N_TOKENS; ++i) maxA[i] = type(uint256).max;
+
+        // All tiers added while the pool is balanced (kBound stays 0), so each
+        // mint's depeg-bound k is valid and deposits stay pro-rata/equal-price.
+        for (uint256 t = 0; t < N_TIERS; ++t) {
+            uint256 r = _tierR(t);
+            uint256 k = TickLib.kFromDepegPrice(r, N_TOKENS, _tierDepeg(t));
+            (uint256 tickIdx,) = hook.addLiquidity(k, r, maxA);
+            console2.log("Tier seeded, tickIdx:", tickIdx);
+            console2.log("  r:", r);
+            console2.log("  depeg(wad):", _tierDepeg(t));
+        }
     }
 }

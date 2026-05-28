@@ -22,5 +22,14 @@ orbitalHook/.forge-snapshots/
 # Future frontend build output
 frontend/node_modules/
 frontend/.next/
+frontend/.vercel/
 frontend/dist/
 frontend/build/
+
+# Frontend cruft / not shipped
+frontend/design system inspo/
+frontend/undefined/
+frontend/components.webp
+frontend/pending.md
+frontend/*.tsbuildinfo
+frontend/**/*.cpuprofile

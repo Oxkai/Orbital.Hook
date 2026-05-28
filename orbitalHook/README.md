@@ -4,6 +4,23 @@ A Uniswap v4 hook implementing the **Orbital** N-asset stableswap from [Paradigm
 
 The hook holds the abstract Orbital state (sphere reserves, ticks, fees) and uses v4's `PoolManager` for token custody via ERC-6909 claim tokens. Each of the `N(N-1)/2` pairs among the registered assets is exposed as a separate v4 pool, all sharing one engine state.
 
+## Deployments
+
+### X Layer Testnet (chainId 1952)
+
+| Contract | Address |
+|---|---|
+| **OrbitalHook** | [`0xF7347E5a36CeE74B758313C3CB66A6015365aa88`](https://www.okx.com/web3/explorer/xlayer-test/address/0xF7347E5a36CeE74B758313C3CB66A6015365aa88) |
+| **PoolManager** (v4 core) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
+| Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| sUSDA | `0xa854E3ee9eFa1936034dE51CCD6e6fB66F4309cF` |
+| sUSDB | `0xaF9Bc1C4a47860D970BD20472776EFE24526660d` |
+| sUSDC | `0xbBd1DD6CEA4E7D114439DB527a99d0Aae789203b` |
+| sUSDD | `0x081588D70E9cC742Ab99bb80c2370f501E791531` |
+| Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
+
+A self-hosted v4 stack (v4 isn't canonically deployed on X Layer). 6 pair pools registered against the hook, seeded with 100k liquidity (50k of each token) at tick 0. The hook address suffix `...aa88` encodes its permission flags.
+
 ## Status
 
 **v1 — research artifact, not production.** Working end-to-end in tests; not safe to deploy with real money. See the deployment-readiness notes at the bottom of this file.
@@ -17,7 +34,8 @@ The hook holds the abstract Orbital state (sphere reserves, ticks, fees) and use
 | `beforeSwap` with full segmenting solver (within-tick + crossings) | ✅ |
 | Native v4 `modifyLiquidity` reverted by `beforeAddLiquidity` | ✅ |
 | Per-tick fee growth + per-position checkpoints (v3-style) | ✅ |
-| Deployment scripts (CREATE2 hook-address mining, multi-pool init) | ❌ deferred |
+| Admin pause + Ownable2Step, Permit2 LP path | ✅ |
+| Deployment scripts (CREATE2 mining, multi-pool init, seed) + live on X Layer testnet | ✅ |
 | Decimal normalization (non-18-decimal tokens) | ❌ deferred |
 | TWAP oracle, native ETH, ERC-721 positions, protocol fee | ❌ deferred (v2) |
 
