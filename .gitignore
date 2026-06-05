@@ -5,6 +5,7 @@
 
 # Personal planning / scratch notes — not for the repo
 todo.md
+req.md
 
 # Env / secrets
 .env
@@ -31,5 +32,6 @@ frontend/design system inspo/
 frontend/undefined/
 frontend/components.webp
 frontend/pending.md
+frontend/ss/
 frontend/*.tsbuildinfo
 frontend/**/*.cpuprofile

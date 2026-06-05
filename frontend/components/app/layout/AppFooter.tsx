@@ -13,7 +13,7 @@ export function AppFooter() {
           color: color.textMuted,
         }}
       >
-        X LAYER TESTNET · CHAIN ID 1952
+        UNICHAIN SEPOLIA · CHAIN ID 1301
       </span>
       <span
         style={{

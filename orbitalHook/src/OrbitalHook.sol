@@ -24,6 +24,7 @@ import {SphereMath} from "./libraries/SphereMath.sol";
 import {TorusMath} from "./libraries/TorusMath.sol";
 import {TickLib} from "./libraries/TickLib.sol";
 import {PositionLib} from "./libraries/PositionLib.sol";
+import {QuadraticSolver} from "./libraries/QuadraticSolver.sol";
 
 /// @notice Uniswap v4 hook implementing the Orbital N-asset stableswap (Paradigm 2025).
 /// @dev Single engine state shared across all N(N-1)/2 pair-pools that share this hook.
@@ -74,6 +75,13 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     mapping(uint8 => uint256) public feeGrowthGlobal; // WAD per unit rInt
 
     TickLib.Tick[] public ticks;
+    /// @dev O(1) lookup of LIVE INTERIOR ticks by their `k` value, encoded as
+    ///      `idx + 1` so 0 means absent. Boundary and dead ticks are kept out
+    ///      of this map; they're filtered explicitly in the crossing scan.
+    mapping(uint256 => uint256) private _interiorTickByK;
+    /// @dev Stack of fully-burned tick array slots that are free to reuse.
+    ///      Caps `ticks.length` growth across mint/burn cycles.
+    uint256[] private _freeTickIndices;
 
     mapping(bytes32 => PositionLib.Position) public positions;
     mapping(bytes32 => mapping(uint8 => uint256)) public feeGrowthInsideLast;
@@ -104,6 +112,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     error FeeBucketShort();
     error SharesAreSoulbound();
     error AssetNotEighteenDecimals(Currency asset, uint8 decimals);
+    error SwapAmountTooLarge(uint256 amountIn);
 
     event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts);
     event Burn(address indexed owner, uint256 indexed tickIdx, uint256 rWad, uint256[] amounts);
@@ -279,6 +288,10 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
         uint256 amountIn = uint256(-params.amountSpecified);
         if (amountIn == 0) revert ZeroSwapInput();
+        // Cap input at the BeforeSwapDelta int128 range so the cast at return
+        // doesn't silently wrap and emit a negative-looking delta. Also bounds
+        // the int256 intermediates inside the quartic solver well within range.
+        if (amountIn > uint256(uint128(type(int128).max))) revert SwapAmountTooLarge(amountIn);
 
         (Currency cIn, Currency cOut) = params.zeroForOne
             ? (key.currency0, key.currency1)
@@ -340,12 +353,17 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         uint256 D;
     }
 
-    /// @dev Solve the full swap, segmenting on tick boundaries. Up to 10 crossings.
+    /// @dev Solve the full swap, segmenting on tick boundaries. Caps at
+    ///      MAX_CROSSINGS partial segments per swap — a trade that would need
+    ///      more reverts with `TooManyCrossings` so a router can chunk it.
+    ///      The cap bounds worst-case gas; raising it doubles solver+detect cost.
+    uint256 internal constant MAX_CROSSINGS = 20;
+
     function _solveWithCrossings(SwapState memory state, uint256[] memory res, uint8 assetIn, uint8 assetOut)
         internal
         returns (uint256 totalOut)
     {
-        for (uint256 iter = 0; iter < 10; ++iter) {
+        for (uint256 iter = 0; iter < MAX_CROSSINGS; ++iter) {
             if (state.amountInRemaining == 0) break;
 
             uint256 alphaNormOld = _alphaNormOf(state.torus, state.torus.sumX);
@@ -380,7 +398,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             _applyPartial(state, res, assetIn, assetOut, partialIn, partialOut);
             _crossTick(crossIdx, state);
 
-            if (iter == 9 && state.amountInRemaining > 0) revert TooManyCrossings();
+            if (iter == MAX_CROSSINGS - 1 && state.amountInRemaining > 0) revert TooManyCrossings();
         }
     }
 
@@ -400,6 +418,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             for (uint256 i = 0; i < len; ++i) {
                 TickLib.Tick storage t = ticks[i];
                 if (!t.isInterior) continue;
+                if (t.r == 0) continue; // dead tick from a full burn; skip
                 uint256 kNorm = FullMath.mulDiv(t.k, WAD, t.r);
                 if (kNorm >= alphaNormOld && kNorm < alphaNormNew && kNorm < bestKNorm) {
                     bestKNorm = kNorm;
@@ -413,6 +432,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             for (uint256 i = 0; i < len; ++i) {
                 TickLib.Tick storage t = ticks[i];
                 if (t.isInterior) continue;
+                if (t.r == 0) continue; // dead tick from a full burn; skip
                 uint256 kNorm = FullMath.mulDiv(t.k, WAD, t.r);
                 if (kNorm <= alphaNormOld && kNorm > alphaNormNew && kNorm > bestKNorm) {
                     bestKNorm = kNorm;
@@ -473,46 +493,6 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         }
     }
 
-    /// @dev Solve  2p² + b·p + c·WAD = 0  for the smallest non-negative root,
-    ///      then refine with up to 30 Newton iterations.
-    function _solveXoverQuadratic(int256 bCoef, int256 cCoef) internal pure returns (uint256 p) {
-        int256 wad = int256(WAD);
-        int256 disc = bCoef * bCoef - 8 * cCoef * wad;
-
-        if (disc >= 0) {
-            uint256 sq = SphereMath.sqrt(uint256(disc));
-            int256 r1 = (-bCoef - int256(sq)) / 4;
-            int256 r2 = (-bCoef + int256(sq)) / 4;
-            if (r1 >= 0 && (r2 < 0 || r1 <= r2)) {
-                p = uint256(r1);
-            } else if (r2 >= 0) {
-                p = uint256(r2);
-            }
-        } else {
-            int256 vertex = -bCoef / 4;
-            p = vertex > 0 ? uint256(vertex) : 0;
-        }
-
-        for (uint256 i = 0; i < 30; ++i) {
-            int256 ip = int256(p);
-            int256 fp = 2 * ip * ip + bCoef * ip + cCoef * wad;
-            int256 dfp = 4 * ip + bCoef;
-            if (dfp == 0) break;
-            int256 step = fp / dfp;
-
-            uint256 absStep = step < 0 ? uint256(-step) : uint256(step);
-            if (step < 0) {
-                p = p >= absStep ? p - absStep : 0;
-            } else {
-                p += absStep;
-            }
-
-            uint256 eps = p / 1_000_000;
-            if (eps < 100) eps = 100;
-            if (absStep < eps) break;
-        }
-    }
-
     /// @dev Compute the partial (in, out) that moves αNorm to the crossing tick.
     function _tradeToXover(
         SwapState memory state,
@@ -523,7 +503,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     ) internal view returns (uint256 partialIn, uint256 partialOut) {
         XoverCoeffs memory q = _xoverCoeffs(state.torus, res, assetIn, assetOut, crossTickIdx);
 
-        partialOut = _solveXoverQuadratic(q.bCoef, q.cCoef);
+        partialOut = QuadraticSolver.solveSmallestNonNegativeRoot(q.bCoef, q.cCoef);
         partialIn = q.dPositive ? q.D + partialOut : (partialOut >= q.D ? partialOut - q.D : 0);
 
         if (partialOut >= res[assetOut]) revert CrossingPartialExceedsOutputReserve();
@@ -542,6 +522,9 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             slot0.rInt = state.torus.rInt;
             slot0.kBound = state.torus.kBound;
             slot0.sBound = state.torus.sBound;
+            // Going interior → boundary: drop the map entry so the next mint
+            // at this k creates a fresh interior tick instead of merging.
+            delete _interiorTickByK[t.k];
         } else {
             state.torus.rInt += t.r;
             state.torus.kBound -= t.k;
@@ -549,6 +532,9 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             slot0.rInt = state.torus.rInt;
             slot0.kBound = state.torus.kBound;
             slot0.sBound = state.torus.sBound;
+            // Boundary → interior recovery: re-register this tick as the live
+            // interior representative of its k.
+            _interiorTickByK[t.k] = tickIdx + 1;
         }
 
         t.isInterior = !t.isInterior;
@@ -812,11 +798,16 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
     function _computeDepositAmounts(uint256 rWad) internal view returns (uint256[] memory amounts) {
         amounts = new uint256[](N);
+        // Mints are not safe while any boundary tick is in play — the deposit
+        // ratios needed to satisfy the torus invariant depend on kBound/sBound,
+        // and neither the equalPricePoint nor the pro-rata branch accounts for
+        // that. The pool must first have all ticks recovered (or burned) so
+        // kBound == 0 before fresh liquidity can be added.
+        if (slot0.kBound != 0) revert MintBlockedByBoundaryTicks();
         if (slot0.rInt == 0) {
             uint256 perAsset = SphereMath.equalPricePoint(rWad, N);
             for (uint8 i = 0; i < N; ++i) amounts[i] = perAsset;
         } else {
-            if (slot0.kBound != 0) revert MintBlockedByBoundaryTicks();
             for (uint8 i = 0; i < N; ++i) {
                 amounts[i] = FullMath.mulDiv(reserves[i], rWad, slot0.rInt);
             }
@@ -824,31 +815,55 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     }
 
     function _findOrCreateTick(uint256 kWad, uint256 rWad) internal returns (uint256 tickIdx) {
-        uint256 len = ticks.length;
-        for (uint256 i = 0; i < len; ++i) {
-            if (ticks[i].k == kWad) {
-                TickLib.Tick storage t = ticks[i];
-                t.r += rWad;
-                t.liquidityGross += uint128(rWad);
-                return i;
-            }
+        // O(1) live-interior lookup. The map only ever holds live interior
+        // ticks (see _crossTick and the burn full-zero path), so a hit is a
+        // safe merge target — boundary and dead ticks are excluded by
+        // construction (no "skip" loop needed).
+        uint256 idxPlus1 = _interiorTickByK[kWad];
+        if (idxPlus1 != 0) {
+            tickIdx = idxPlus1 - 1;
+            TickLib.Tick storage t = ticks[tickIdx];
+            t.r += rWad;
+            t.liquidityGross += uint128(rWad);
+            return tickIdx;
         }
-        ticks.push(
-            TickLib.Tick({k: kWad, r: rWad, isInterior: true, feeGrowthInside: 0, liquidityGross: uint128(rWad)})
-        );
-        return ticks.length - 1;
+
+        // Fresh interior tick. Reuse a dead slot if one's available so the
+        // array doesn't grow unbounded across mint/burn cycles.
+        uint256 freeLen = _freeTickIndices.length;
+        if (freeLen > 0) {
+            tickIdx = _freeTickIndices[freeLen - 1];
+            _freeTickIndices.pop();
+            ticks[tickIdx] = TickLib.Tick({
+                k: kWad,
+                r: rWad,
+                isInterior: true,
+                feeGrowthInside: 0,
+                liquidityGross: uint128(rWad)
+            });
+        } else {
+            ticks.push(
+                TickLib.Tick({k: kWad, r: rWad, isInterior: true, feeGrowthInside: 0, liquidityGross: uint128(rWad)})
+            );
+            tickIdx = ticks.length - 1;
+        }
+        _interiorTickByK[kWad] = tickIdx + 1;
     }
 
     function _applyMintToTorus(uint256[] memory amounts, uint256 rWad) internal {
+        // Accumulate sumX/sumXSq in memory and commit once at the end — one
+        // SSTORE per slot0 field instead of N per asset.
         uint256 totalAdded;
+        uint256 sumXSqAdded;
         for (uint8 i = 0; i < N; ++i) {
             uint256 xi = reserves[i];
             uint256 amt = amounts[i];
             totalAdded += amt;
-            slot0.sumXSq += FullMath.mulDiv(2 * xi, amt, WAD) + FullMath.mulDiv(amt, amt, WAD);
+            sumXSqAdded += FullMath.mulDiv(2 * xi, amt, WAD) + FullMath.mulDiv(amt, amt, WAD);
             reserves[i] = xi + amt;
         }
         slot0.sumX += totalAdded;
+        slot0.sumXSq += sumXSqAdded;
         slot0.rInt += rWad;
     }
 
@@ -906,6 +921,11 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         // Update tick aggregates: interior shrinks rInt directly; boundary scales
         // k/s proportionally to preserve kNorm so a later interior→boundary cross
         // back is consistent.
+        //
+        // ORDERING NOTE: in the boundary branch, kRemove / sRemove use the
+        // *pre-burn* `t.r` as the denominator. The `t.r -= b.rWad` write below
+        // must stay after this block — moving it up would silently break the
+        // proportional scale.
         if (t.isInterior) {
             slot0.rInt -= b.rWad;
         } else {
@@ -941,6 +961,15 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         if (pos.r == 0) {
             // Any pending fees must be collected separately; we wipe the position.
             delete positions[pKey];
+        }
+
+        // If the tick is now fully drained, retire its slot. An interior tick
+        // still carries its original k, so unmap it; a boundary tick's k was
+        // proportionally scaled to 0 above, so it isn't (and wasn't) in the map.
+        // Either way, recycle the array slot via the free-list.
+        if (t.r == 0) {
+            if (t.isInterior) delete _interiorTickByK[t.k];
+            _freeTickIndices.push(b.tickIdx);
         }
 
         // Burn the LP's ERC-6909 share.

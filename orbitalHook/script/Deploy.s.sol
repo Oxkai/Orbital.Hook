@@ -80,7 +80,9 @@ contract DeployScript is Script {
         // 1) v4 PoolManager + Permit2 — reuse existing infra if present, so a
         //    redeploy only creates fresh tokens + hook + pools (and avoids a
         //    CREATE2 collision on the deterministic PoolManager address).
-        address knownPM = 0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7; // X Layer testnet
+        // Canonical Uniswap v4 PoolManager on Unichain Sepolia.
+        // Source: https://developers.uniswap.org/contracts/v4/deployments
+        address knownPM = 0x00B036B58a818B1BC34d502D3fE730Db729e62AC;
         IPoolManager poolManager = knownPM.code.length > 0
             ? IPoolManager(knownPM)
             : IPoolManager(V4PoolManagerDeployer.deploy(msg.sender));

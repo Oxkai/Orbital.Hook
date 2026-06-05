@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useCallback } from "react";
 import { ArrowRight, CurrencyDollar, TrendUp, Coins, Pulse, Copy, Check, ArrowSquareOut } from "@phosphor-icons/react";
-import { TokenDAI, TokenUSDT, TokenUSDC, TokenFRAX, NetworkXLayer } from "@token-icons/react";
+import { TokenDAI, TokenUSDT, TokenUSDC, TokenFRAX } from "@token-icons/react";
 import { color, typography } from "@/constants";
 import { fmtUSD, type Pool } from "@/lib/mock/data";
 
@@ -179,18 +179,12 @@ export function PoolCard({ pool }: PoolCardProps) {
         style={{ backgroundColor: color.surface1 }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <span
-            className="inline-flex items-center justify-center shrink-0"
-            style={{ width: 18, height: 18, borderRadius: "50%", backgroundColor: "#fff" }}
-          >
-            <NetworkXLayer size={13} variant="branded" />
-          </span>
           <span style={body("p3", color.textSecondary)}>
             {pool.address.slice(0, 8)}…{pool.address.slice(-6)}
           </span>
           <CopyButton text={pool.address} />
           <a
-            href={`https://www.okx.com/web3/explorer/xlayer-test/address/${pool.address}`}
+            href={`https://sepolia.uniscan.xyz/address/${pool.address}`}
             target="_blank"
             rel="noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -201,7 +195,7 @@ export function PoolCard({ pool }: PoolCardProps) {
             <ArrowSquareOut size={12} weight="regular" />
           </a>
         </div>
-        <span style={body("caption", color.textMuted)}>X Layer Testnet</span>
+        <span style={body("caption", color.textMuted)}>Unichain Sepolia</span>
       </div>
 
       {/* ── Stats row ────────────────────────────────────────────────── */}

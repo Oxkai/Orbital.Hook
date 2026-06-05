@@ -32,7 +32,7 @@ The hook keeps the pool as a point on an N-sphere and consolidates every LP tick
 
 ## Status
 
-v1 — research artifact, not audited, not production. Working end-to-end (100 tests) and live on X Layer testnet.
+v1 — research artifact, not audited, not production. Working end-to-end (115 tests) and live on Unichain Sepolia.
 
 **Engine**
 - [x] Asset registry — up to 5 tokens per pool, sorted, unique, immutable
@@ -51,7 +51,7 @@ v1 — research artifact, not audited, not production. Working end-to-end (100 t
 **Safety & ops**
 - [x] Admin pause — Ownable2Step + Pausable
 - [x] Deploy + seed + simulation scripts; CREATE2-mined hook
-- [x] Live + seeded on X Layer testnet (100 tests passing)
+- [x] Live + seeded on Unichain Sepolia (115 tests passing)
 
 **Deferred to v2**
 - [ ] Decimal normalization for non-18-decimal tokens
@@ -67,7 +67,7 @@ v1 — research artifact, not audited, not production. Working end-to-end (100 t
 
 ```bash
 forge build
-forge test          # 100 passing
+forge test          # 115 passing
 ```
 
 `via_ir = true` (solc 0.8.30) is required — the `TorusMath` library hits stack-too-deep without it. We implemented the complete Orbital math from the paper — the sphere invariant, tick planes, torus consolidation, and the segmenting quartic solver. The same engine backs our standalone Orbital AMM in [`../../contracts/`](../../contracts/); this hook adapts it to the v4 surface.
@@ -156,7 +156,7 @@ collect(uint256 tickIdx)                                                 // → 
 
 ```bash
 forge script script/Deploy.s.sol \
-  --rpc-url https://testrpc.xlayer.tech --broadcast --slow \
+  --rpc-url https://sepolia.unichain.org --broadcast --slow \
   --private-key $PRIVATE_KEY
 ```
 
@@ -164,19 +164,21 @@ forge script script/Deploy.s.sol \
 
 ---
 
-## Deployed — X Layer Testnet (chainId 1952)
+## Deployed — Unichain Sepolia (chainId 1301)
+
+Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the official `PoolManager`, `SwapRouter`, and `V4Quoter`.
 
 | Contract | Address |
 |---|---|
-| OrbitalHook | [`0x4024911A26B5BF5160D156eccBAc148bd55c6a88`](https://www.okx.com/web3/explorer/xlayer-test/address/0x4024911A26B5BF5160D156eccBAc148bd55c6a88) |
-| PoolManager (v4 core) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
-| SwapRouter (v4) | `0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E` |
-| Quoter (v4) | `0x77442de670D723Db1Ae17fa9cA887c9426eBb41f` |
+| OrbitalHook | [`0x405E3C4541077C501854082cf3256926BeF6AA88`](https://sepolia.uniscan.xyz/address/0x405E3C4541077C501854082cf3256926BeF6AA88) |
+| PoolManager (v4, canonical) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
+| V4Quoter (canonical) | `0x56DcD40A3F2D466F48E7F48BdBe5cc9b92aE4472` |
+| SwapRouter (v4) | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
 | Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| USDC | `0xBe272Bcb1Fa1d99616F53Ce7d7703589C92bb33b` |
-| USDT | `0x3a2bCfc287b8106774Ec85533d821D3604cB7DC5` |
-| DAI | `0x78340e3C5169b6DF15F13a8d627Db2C0e23cf921` |
-| FRAX | `0x17c868495deF240091E95410e2B2D5a6cEabf6f0` |
+| USDC (mock) | `0x3f53c9ae1ae5D34D8A89986ea456da8e69916725` |
+| USDT (mock) | `0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90` |
+| DAI (mock) | `0x345581C18e6b15D02b303A4E7Cc2F0671591acbE` |
+| FRAX (mock) | `0x1D49545CccDA551d5f5b2Ec95Fc53C34432016cF` |
 | Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
 
-A self-hosted v4 stack (v4 isn't canonically deployed on X Layer): four mock 18-decimal stablecoins → 6 pair pools registered against the hook → a deep tiered seed of ~$10M rInt (~$20M TVL) across 5 ticks, all interior. The hook address suffix `...6a88` encodes its permission flags.
+Four mock 18-decimal stablecoins → 6 pair pools registered against the hook → tiered seed across 4 tiers (depeg bounds 0.95 / 0.90 / 0.85 / 0.80, ~$10M rInt) → `SeedActivity` runs a swap wave and adds a 5th tick. Live state: **~$24M TVL across 5 ticks, all interior, kBound = 0**. The hook address suffix `...6AA88` encodes its permission flags (CREATE2-mined).

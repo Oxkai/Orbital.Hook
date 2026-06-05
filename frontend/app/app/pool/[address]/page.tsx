@@ -200,7 +200,7 @@ function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["p
   const boundaryCount = pool.ticks.filter(t => !t.isInterior).length;
   const isHealthy     = boundaryCount === 0;
   const activeTicks   = pool.ticks.length - boundaryCount;
-  const explorer      = `https://www.okx.com/web3/explorer/xlayer-test/address/${pool.address}`;
+  const explorer      = `https://sepolia.uniscan.xyz/address/${pool.address}`;
 
   return (
     <div className="flex flex-col gap-8">
@@ -473,7 +473,7 @@ function LiquidityTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["
 
 // ─── Transactions tab ─────────────────────────────────────────────────────────
 
-const EXPLORER = "https://www.okx.com/web3/explorer/xlayer-test";
+const EXPLORER = "https://sepolia.uniscan.xyz";
 
 const TYPE_COLOR: Record<TxType, string> = {
   Swap:    "#60A5FA",
@@ -718,7 +718,7 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
               {pool && (
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <a
-                    href={`https://www.okx.com/web3/explorer/xlayer-test/address/${poolAddr}`}
+                    href={`https://sepolia.uniscan.xyz/address/${poolAddr}`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 hover:opacity-100 opacity-80 transition-opacity"

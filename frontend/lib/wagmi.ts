@@ -2,32 +2,38 @@ import { createConfig, http, fallback, type Config } from "wagmi";
 import { defineChain } from "viem";
 import { injected, coinbaseWallet } from "wagmi/connectors";
 
-// X Layer Testnet — Uniswap v4 is self-hosted here (not a canonical v4 chain).
-export const xLayerTestnet = defineChain({
-  id: 1952,
-  name: "X Layer Testnet",
-  nativeCurrency: { name: "OKB", symbol: "OKB", decimals: 18 },
+// Unichain Sepolia — Uniswap v4 is canonically deployed here.
+export const unichainSepolia = defineChain({
+  id: 1301,
+  name: "Unichain Sepolia",
+  nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://testrpc.xlayer.tech"] },
+    default: { http: ["https://sepolia.unichain.org"] },
   },
   blockExplorers: {
     default: {
-      name: "OKLink",
-      url: "https://www.okx.com/web3/explorer/xlayer-test",
+      name: "Uniscan",
+      url: "https://sepolia.uniscan.xyz",
     },
   },
   testnet: true,
 });
 
+// Canonical block-explorer URL builders. Use these from components instead of
+// hard-coding the explorer base.
+export const EXPLORER_BASE = unichainSepolia.blockExplorers.default.url;
+export const explorerAddressUrl = (address: string) => `${EXPLORER_BASE}/address/${address}`;
+export const explorerTxUrl      = (hash: string)    => `${EXPLORER_BASE}/tx/${hash}`;
+
 export function createWagmiConfig(): Config {
   const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL;
   return createConfig({
-    chains: [xLayerTestnet],
+    chains: [unichainSepolia],
     connectors: [injected(), coinbaseWallet({ appName: "Orbital" })],
     transports: {
-      [xLayerTestnet.id]: RPC_URL
-        ? fallback([http(RPC_URL), http("https://testrpc.xlayer.tech")])
-        : http("https://testrpc.xlayer.tech"),
+      [unichainSepolia.id]: RPC_URL
+        ? fallback([http(RPC_URL), http("https://sepolia.unichain.org")])
+        : http("https://sepolia.unichain.org"),
     },
   });
 }

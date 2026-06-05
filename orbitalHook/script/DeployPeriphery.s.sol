@@ -11,11 +11,17 @@ import {V4Quoter} from "@uniswap/v4-periphery/src/lens/V4Quoter.sol";
 ///         against an already-deployed PoolManager. Run after Deploy.s.sol.
 ///
 /// @dev Set POOL_MANAGER + PERMIT2 below to the addresses from the Deploy run.
-///         forge script script/DeployPeriphery.s.sol --rpc-url <xlayer> \
+///         forge script script/DeployPeriphery.s.sol --rpc-url <unichain-sepolia> \
 ///             --broadcast --slow --private-key $PRIVATE_KEY
 contract DeployPeripheryScript is Script {
-    // From the X Layer testnet Deploy.s.sol run.
-    address internal constant POOL_MANAGER = 0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7;
+    // Canonical Uniswap v4 PoolManager on Unichain Sepolia.
+    // Source: https://developers.uniswap.org/contracts/v4/deployments
+    //
+    // Unichain Sepolia has canonical PoolManager + UniversalRouter + Quoter,
+    // but NO separate v4 SwapRouter. Our SwapWidget and SeedActivity use the
+    // v4-specific Router ABI, so run this script to deploy a lightweight one
+    // pointed at the canonical PoolManager — keeps the frontend code intact.
+    address internal constant POOL_MANAGER = 0x00B036B58a818B1BC34d502D3fE730Db729e62AC;
     address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     function run() external {

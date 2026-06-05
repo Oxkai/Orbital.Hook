@@ -197,7 +197,7 @@ export function Footer() {
           >
             Research implementation of the Paradigm Orbital paper.
             <br />
-            Deployed on X Layer testnet — not production.
+            Deployed on Unichain Sepolia — not production.
           </p>
           <p
             style={{
@@ -310,7 +310,7 @@ export function Footer() {
         }}
       >
         <span>
-          X LAYER TESTNET · CHAIN ID 1952 · NOT AUDITED · NOT FINANCIAL ADVICE
+          UNICHAIN SEPOLIA · CHAIN ID 1301 · NOT AUDITED · NOT FINANCIAL ADVICE
         </span>
         <span>© 2026 ORBITAL</span>
       </div>

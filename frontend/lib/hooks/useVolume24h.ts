@@ -25,7 +25,7 @@ export function useVolume24h(fee: number) {
       try {
         const latest = await client!.getBlockNumber();
 
-        // X Layer's public RPC caps getLogs at 100 blocks, so we can't scan a
+        // the public RPC caps getLogs at 100 blocks, so we can't scan a
         // full 24h window cheaply. Instead scan a bounded recent window
         // (RECENT_BLOCKS) in 100-block chunks and report it as recent volume.
         const RECENT_BLOCKS = 1_500n;

@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { usePublicClient } from "wagmi";
 import { parseAbiItem, type Address, type AbiEvent } from "viem";
 import { POOL_ADDRESSES, TOKEN_META, DEPLOY_BLOCK } from "@/lib/contracts";
-const CHUNK        = 100n;     // X Layer public RPC caps getLogs at 100 blocks
+const CHUNK        = 100n;     // the public RPC caps getLogs at 100 blocks
 const PAGE_SIZE    = 20;
 const DELAY_MS     = 150;
 const TS_BATCH     = 5;        // max parallel getBlock calls at once

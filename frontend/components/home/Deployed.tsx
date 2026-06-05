@@ -65,7 +65,7 @@ function GroupHeader({ code, label, count }: { code: string; label: string; coun
 function Row({ c, index }: { c: Contract; index: string }) {
   return (
     <a
-      href={`https://www.okx.com/web3/explorer/xlayer-test/address/${c.address}`}
+      href={`https://sepolia.uniscan.xyz/address/${c.address}`}
       target="_blank"
       rel="noopener noreferrer"
       className="group grid grid-cols-12 items-center gap-5 px-5 py-4 border-b border-dashed transition-colors hover:bg-white/[0.03]"
@@ -169,8 +169,8 @@ export function Deployed() {
             color: color.textMuted,
           }}
         >
-          <span className="col-span-12 md:col-span-6">NETWORK / X LAYER TESTNET</span>
-          <span className="col-span-12 md:col-span-6 md:justify-self-end">CHAIN ID / 1952</span>
+          <span className="col-span-12 md:col-span-6">NETWORK / UNICHAIN SEPOLIA</span>
+          <span className="col-span-12 md:col-span-6 md:justify-self-end">CHAIN ID / 1301</span>
         </div>
 
         <div

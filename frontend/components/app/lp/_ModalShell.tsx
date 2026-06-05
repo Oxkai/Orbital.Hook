@@ -79,7 +79,7 @@ export function ModalShell({
         {/* footer */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px" }}>
           {hash ? (
-            <a href={`https://www.okx.com/web3/explorer/xlayer-test/tx/${hash}`} target="_blank" rel="noreferrer"
+            <a href={`https://sepolia.uniscan.xyz/tx/${hash}`} target="_blank" rel="noreferrer"
               style={{ ...M, fontSize: "10px", letterSpacing: "0.04em", color: color.textMuted, textDecoration: "none", display: "flex", alignItems: "center", gap: 5 }}>
               <span>TX</span>
               <span>{hash.slice(0, 12)}…{hash.slice(-6)}</span>

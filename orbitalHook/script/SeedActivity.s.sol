@@ -12,22 +12,23 @@ import {IUniswapV4Router04} from "hookmate/interfaces/router/IUniswapV4Router04.
 import {OrbitalHook} from "../src/OrbitalHook.sol";
 import {TickLib} from "../src/libraries/TickLib.sol";
 
-/// @notice Lifecycle simulation on the live X Layer pool, kept near peg:
+/// @notice Lifecycle simulation on the live Unichain Sepolia pool, kept near peg:
 ///         swaps -> seed again (new tick) -> swaps. Swaps are small relative to
 ///         the ~10M rInt and roughly balanced, so reserves barely move and no
 ///         tick crosses to boundary (kBound stays 0).
 ///
-/// @dev forge script script/SeedActivity.s.sol --rpc-url <xlayer> \
+/// @dev forge script script/SeedActivity.s.sol --rpc-url <unichain-sepolia> \
 ///          --broadcast --slow --private-key $PRIVATE_KEY
 contract SeedActivityScript is Script {
-    OrbitalHook internal constant HOOK = OrbitalHook(0x4024911A26B5BF5160D156eccBAc148bd55c6a88);
+    // Filled from the Unichain Sepolia Deploy.s.sol + DeployPeriphery.s.sol output.
+    OrbitalHook internal constant HOOK = OrbitalHook(0x405E3C4541077C501854082cf3256926BeF6AA88);
     IUniswapV4Router04 internal constant ROUTER =
-        IUniswapV4Router04(payable(0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E));
+        IUniswapV4Router04(payable(0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540));
 
-    address internal constant A = 0xBe272Bcb1Fa1d99616F53Ce7d7703589C92bb33b; // USDC
-    address internal constant B = 0x3a2bCfc287b8106774Ec85533d821D3604cB7DC5; // USDT
-    address internal constant C = 0x78340e3C5169b6DF15F13a8d627Db2C0e23cf921; // DAI
-    address internal constant D = 0x17c868495deF240091E95410e2B2D5a6cEabf6f0; // FRAX
+    address internal constant A = 0x3f53c9ae1ae5D34D8A89986ea456da8e69916725; // USDC
+    address internal constant B = 0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90; // USDT
+    address internal constant C = 0x345581C18e6b15D02b303A4E7Cc2F0671591acbE; // DAI
+    address internal constant D = 0x1D49545CccDA551d5f5b2Ec95Fc53C34432016cF; // FRAX
 
     uint8 internal constant N = 4;
 

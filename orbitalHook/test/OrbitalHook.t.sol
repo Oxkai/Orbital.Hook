@@ -456,6 +456,23 @@ contract OrbitalHookTest is BaseTest {
         );
     }
 
+    // M3 regression: amountIn beyond int128 max would silently wrap when cast
+    // for BeforeSwapDelta. The hook must reject such swaps explicitly.
+    function test_swap_reverts_when_amount_exceeds_int128_max() public {
+        PoolKey memory key = _seedSinglePoolWithLiquidity(1_000 ether);
+
+        uint256 oversized = uint256(uint128(type(int128).max)) + 1;
+        // Fund the caller and the router with enough tokens to even attempt it,
+        // then expect the hook's domain error to bubble up through the router.
+        deal(Currency.unwrap(c0), address(this), oversized);
+        MockERC20(Currency.unwrap(c0)).approve(address(swapRouter), oversized);
+
+        vm.expectRevert();
+        swapRouter.swapExactTokensForTokens(
+            oversized, 0, true, key, "", address(this), block.timestamp
+        );
+    }
+
     function test_swap_reverts_on_no_liquidity() public {
         PoolKey memory key = PoolKey({
             currency0: c0,
@@ -535,6 +552,123 @@ contract OrbitalHookTest is BaseTest {
 
         assertTrue(_isInterior(0), "tight tick still interior");
         assertTrue(_isInterior(1), "backstop still interior");
+    }
+
+    // H1 regression: a tick that was fully burned has r == 0 and stays in the
+    // array. Pre-fix, _detectCrossing would divide by zero on the next swap.
+    function test_swap_after_full_burn_skips_dead_tick() public {
+        uint256 r = 1_000 ether;
+        uint256 rBack = 500 ether;
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        uint256 kA = (TickLib.kMin(r, 3) + TickLib.kMax(r, 3)) / 2;
+        hook.addLiquidity(kA, r, maxA);                                     // tick 0
+        hook.addLiquidity(TickLib.kMax(rBack, 3) - 1 ether, rBack, maxA);   // tick 1 (backstop)
+
+        PoolKey memory key =
+            PoolKey({currency0: c0, currency1: c1, fee: 0, tickSpacing: 1, hooks: IHooks(address(hook))});
+        poolManager.initialize(key, Constants.SQRT_PRICE_1_1);
+
+        // Fully burn tick 0 → tick 0 stays in the array with r == 0.
+        uint256[] memory minA = new uint256[](3);
+        hook.removeLiquidity(0, r, minA);
+
+        // Pre-fix this reverts inside FullMath.mulDiv(t.k, WAD, 0). Post-fix it succeeds.
+        swapRouter.swapExactTokensForTokens(1 ether, 0, true, key, "", address(this), block.timestamp);
+
+        assertGt(hook.reserves(1), 0, "swap settled output reserve");
+    }
+
+    // H1 regression + M2 free-list: re-minting at the same k after a full burn
+    // must NOT silently resurrect a dead tick (different LP, different bookkeeping).
+    // With the free-list optimization, the slot is recycled — but the tick must
+    // be a *freshly* initialized interior tick, not a zombie.
+    function test_mint_after_full_burn_creates_fresh_tick() public {
+        uint256 r = 100 ether;
+        uint256 kA = (TickLib.kMin(r, 3) + TickLib.kMax(r, 3)) / 2;
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        hook.addLiquidity(kA, r, maxA);                  // tick 0
+        uint256[] memory minA = new uint256[](3);
+        hook.removeLiquidity(0, r, minA);                // tick 0 now dead (r == 0, free-listed)
+
+        hook.addLiquidity(kA, r, maxA);                  // reuses slot 0 with a fresh tick
+
+        // Whatever slot it lands in, the live tick must be interior and freshly sized.
+        // Find it via the public ticks() getter on slot 0 (where it ought to be reused).
+        (uint256 tk, uint256 tr, bool tInt, , uint128 tLiq) = hook.ticks(0);
+        assertEq(tk, kA, "k preserved");
+        assertEq(tr, r, "r reset to fresh deposit");
+        assertTrue(tInt, "tick is interior");
+        assertEq(uint256(tLiq), r, "liquidityGross reset to fresh deposit");
+    }
+
+    // M2 regression: fully-burned tick slots feed a free-list, so a fresh
+    // mint at a DIFFERENT k recycles the slot instead of growing the array.
+    function test_burned_tick_slot_is_recycled_on_next_mint() public {
+        uint256 r = 100 ether;
+        uint256 kA = (TickLib.kMin(r, 3) + TickLib.kMax(r, 3)) / 2;
+        uint256 kB = kA + 10 ether;
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        hook.addLiquidity(kA, r, maxA);                  // tick 0
+        uint256[] memory minA = new uint256[](3);
+        hook.removeLiquidity(0, r, minA);                // tick 0 freed
+        assertEq(hook.numTicks(), 1, "array does not shrink, slot just freed");
+
+        // Fresh mint at a different k recycles slot 0 — array stays length 1.
+        hook.addLiquidity(kB, r, maxA);
+        assertEq(hook.numTicks(), 1, "slot recycled, no array growth");
+        (uint256 tk, , bool tInt, , ) = hook.ticks(0);
+        assertEq(tk, kB, "slot now holds the new k");
+        assertTrue(tInt, "and is interior");
+    }
+
+    // H2 regression: mints must be blocked whenever any boundary tick exists,
+    // regardless of whether rInt is zero. Pre-fix, the rescue-mint path (rInt
+    // == 0) would silently merge into a boundary tick via _findOrCreateTick and
+    // desync kBound / sBound; the proper behavior is to reject the mint until
+    // the pool fully recovers (kBound == 0).
+    function test_mint_blocked_while_boundary_tick_exists() public {
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        // Tight tick A that boundary-flips on a moderate swap, plus a backstop B.
+        uint256 rA = 200 ether;
+        uint256 kA = TickLib.kMin(rA, 3);
+        hook.addLiquidity(kA, rA, maxA);                                                 // tick 0
+        uint256 rB = 1_000 ether;
+        hook.addLiquidity(TickLib.kMax(rB, 3) - 1 ether, rB, maxA);                      // tick 1
+
+        PoolKey memory key =
+            PoolKey({currency0: c0, currency1: c1, fee: 0, tickSpacing: 1, hooks: IHooks(address(hook))});
+        poolManager.initialize(key, Constants.SQRT_PRICE_1_1);
+
+        // Flip tick 0 to boundary.
+        swapRouter.swapExactTokensForTokens(
+            hook.reserves(0) * 30 / 100, 0, true, key, "", address(this), block.timestamp
+        );
+        assertFalse(_isInterior(0), "tick 0 boundary");
+
+        // Drain the backstop so rInt == 0 while kBound stays non-zero (from tick 0).
+        uint256[] memory minA = new uint256[](3);
+        hook.removeLiquidity(1, rB, minA);
+        (, , uint256 rInt, uint256 kBound,) = hook.slot0();
+        assertEq(rInt, 0, "rInt drained");
+        assertGt(kBound, 0, "kBound still set");
+
+        // A fresh mint at the boundary tick's k must revert — pre-fix it would
+        // silently merge into tick 0 (boundary) and break the invariant.
+        vm.expectRevert(OrbitalHook.MintBlockedByBoundaryTicks.selector);
+        hook.addLiquidity(kA, rA, maxA);
+
+        // A mint at any other valid k must also revert for the same reason.
+        uint256 kMid = (TickLib.kMin(rA, 3) + TickLib.kMax(rA, 3)) / 2;
+        vm.expectRevert(OrbitalHook.MintBlockedByBoundaryTicks.selector);
+        hook.addLiquidity(kMid, rA, maxA);
     }
 
     // ─────────────────────────────────────────────────────────────

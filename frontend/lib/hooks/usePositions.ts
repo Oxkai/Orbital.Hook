@@ -15,7 +15,7 @@ export type OnChainPosition = {
 const WAD = 1e18;
 
 // Positions are soulbound ERC-6909 shares with tokenId == tickIdx. Rather than
-// scan Mint events (X Layer's public RPC caps getLogs at 100 blocks), we read
+// scan Mint events (the public RPC caps getLogs at 100 blocks), we read
 // the hook's tick count and check the account's share balance at each tick.
 export function usePositions(account: Address | undefined) {
   const { data: numTicksData } = useReadContract({

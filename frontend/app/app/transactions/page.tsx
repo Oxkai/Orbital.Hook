@@ -41,7 +41,7 @@ function TokenIcon({ symbol, size = 16 }: { symbol: string; size?: number }) {
   );
 }
 
-const EXPLORER = "https://www.okx.com/web3/explorer/xlayer-test";
+const EXPLORER = "https://sepolia.uniscan.xyz";
 
 const POOL_TOKENS = Object.entries(TOKEN_META).map(([addr, m]) => ({ symbol: m.symbol, address: addr }));
 

@@ -825,7 +825,7 @@ export function SwapWidget() {
               >
                 {swapResult.hash ? (
                   <a
-                    href={`https://www.okx.com/web3/explorer/xlayer-test/tx/${swapResult.hash}`}
+                    href={`https://sepolia.uniscan.xyz/tx/${swapResult.hash}`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 hover:opacity-100 opacity-70 transition-opacity"
