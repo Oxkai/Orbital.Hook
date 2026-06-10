@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity 0.8.30;
 
 import {BaseHook} from "@openzeppelin/uniswap-hooks/src/base/BaseHook.sol";
 import {ERC6909} from "@uniswap/v4-core/src/ERC6909.sol";
@@ -10,9 +10,6 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
-interface IERC20Decimals {
-    function decimals() external view returns (uint8);
-}
 import {CurrencySettler} from "@openzeppelin/uniswap-hooks/src/utils/CurrencySettler.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
@@ -26,12 +23,23 @@ import {TickLib} from "./libraries/TickLib.sol";
 import {PositionLib} from "./libraries/PositionLib.sol";
 import {QuadraticSolver} from "./libraries/QuadraticSolver.sol";
 
+interface IERC20Decimals {
+    function decimals() external view returns (uint8);
+}
+
 /// @notice Uniswap v4 hook implementing the Orbital N-asset stableswap (Paradigm 2025).
 /// @dev Single engine state shared across all N(N-1)/2 pair-pools that share this hook.
 ///      Token custody lives in the v4 PoolManager via ERC-6909 claim tokens; this hook
 ///      tracks the abstract reserve vector and routes settlement through `unlockCallback`.
 ///      All reserve/amount values are WAD-scaled — v1 assumes every registered asset is
 ///      an 18-decimal token.
+///
+///      TOKEN ASSUMPTIONS (enforced loosely / by convention, not fully on-chain):
+///      registered assets MUST be standard 18-decimal ERC-20s with no fee-on-transfer
+///      and no rebasing. The hook credits `reserves[i] += amt` and mints `amt` claim
+///      tokens assuming the PoolManager received exactly `amt`; a fee-on-transfer or
+///      rebasing token would leave claim tokens unbacked. Native ETH is unsupported
+///      (the constructor's `decimals()` probe reverts for `address(0)`).
 contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausable {
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
@@ -52,6 +60,13 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     uint8 public immutable N;
     /// @notice Pool fee in hundredths of a bip (e.g. 100 = 1bp).
     uint24 public immutable fee;
+
+    /// @dev Cached √N·WAD (= sqrt(N·WAD²)). N is immutable, so this geometric
+    ///      constant is computed once at deploy instead of being re-derived via
+    ///      an iterative Babylonian sqrt on every call — it is recomputed ~30×
+    ///      per swap inside the Newton solver's `torusLHS`, plus in the crossing
+    ///      and coefficient math. Threaded through `TorusState.sqrtN`.
+    uint256 internal immutable sqrtN;
 
     Currency[] private _assets;
     mapping(Currency => uint8) private _assetIndexPlusOne;
@@ -113,6 +128,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     error SharesAreSoulbound();
     error AssetNotEighteenDecimals(Currency asset, uint8 decimals);
     error SwapAmountTooLarge(uint256 amountIn);
+    error TooManyTicks();
 
     event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts);
     event Burn(address indexed owner, uint256 indexed tickIdx, uint256 rWad, uint256[] amounts);
@@ -167,6 +183,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         if (len < MIN_ASSETS || len > MAX_ASSETS) revert InvalidAssetCount(len);
         N = uint8(len);
         fee = fee_;
+        sqrtN = SphereMath.sqrt(uint256(len) * WAD * WAD);
 
         Currency prev = Currency.wrap(address(0));
         for (uint256 i = 0; i < len; ++i) {
@@ -359,6 +376,21 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     ///      The cap bounds worst-case gas; raising it doubles solver+detect cost.
     uint256 internal constant MAX_CROSSINGS = 20;
 
+    /// @dev Hard cap on the live tick array length. `_detectCrossing` scans all
+    ///      ticks linearly on every swap, so without a cap an attacker could mint
+    ///      unboundedly many distinct-`k` ticks and make every swap's scan cost
+    ///      grow without limit (a permanent griefing DoS). Capping the array
+    ///      converts that UNBOUNDED cost into a bounded worst case.
+    ///
+    ///      NOTE: this is a bound, not the complete fix. The proper solution is
+    ///      an ordered tick index (O(log n) next-tick lookup) so the scan is
+    ///      O(crossings) instead of O(ticks) — tracked as a follow-up. The cap
+    ///      has a mild residual tradeoff: once full, new *distinct-k* positions
+    ///      revert until a tick is burned (merging into existing ticks, adding to
+    ///      interior, burn and collect all keep working). 128 distinct
+    ///      concentration points is generous for a stableswap.
+    uint256 internal constant MAX_TICKS = 128;
+
     function _solveWithCrossings(SwapState memory state, uint256[] memory res, uint8 assetIn, uint8 assetOut)
         internal
         returns (uint256 totalOut)
@@ -453,7 +485,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         uint8 assetOut,
         uint256 crossTickIdx
     ) internal view returns (XoverCoeffs memory q) {
-        uint256 sqrtN = SphereMath.sqrt(ts.n * WAD * WAD);
+        uint256 sqrtN = ts.sqrtN; // cached √N·WAD (see immutable `sqrtN`)
 
         uint256 kNormCross = FullMath.mulDiv(ticks[crossTickIdx].k, WAD, ticks[crossTickIdx].r);
         uint256 alphaIntTarget = FullMath.mulDiv(kNormCross, ts.rInt, WAD);
@@ -519,9 +551,6 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             state.torus.rInt -= t.r;
             state.torus.kBound += t.k;
             state.torus.sBound += s;
-            slot0.rInt = state.torus.rInt;
-            slot0.kBound = state.torus.kBound;
-            slot0.sBound = state.torus.sBound;
             // Going interior → boundary: drop the map entry so the next mint
             // at this k creates a fresh interior tick instead of merging.
             delete _interiorTickByK[t.k];
@@ -529,13 +558,15 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             state.torus.rInt += t.r;
             state.torus.kBound -= t.k;
             state.torus.sBound -= s;
-            slot0.rInt = state.torus.rInt;
-            slot0.kBound = state.torus.kBound;
-            slot0.sBound = state.torus.sBound;
             // Boundary → interior recovery: re-register this tick as the live
             // interior representative of its k.
             _interiorTickByK[t.k] = tickIdx + 1;
         }
+
+        // Commit the updated torus aggregates — identical in both branches.
+        slot0.rInt = state.torus.rInt;
+        slot0.kBound = state.torus.kBound;
+        slot0.sBound = state.torus.sBound;
 
         t.isInterior = !t.isInterior;
 
@@ -570,7 +601,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     }
 
     function _alphaNormOf(TorusMath.TorusState memory ts, uint256 sumX) internal pure returns (uint256) {
-        uint256 sqrtN = SphereMath.sqrt(ts.n * WAD * WAD);
+        uint256 sqrtN = ts.sqrtN; // cached √N·WAD (see immutable `sqrtN`)
         uint256 alphaTot = FullMath.mulDiv(sumX, WAD, sqrtN);
         uint256 alphaInt = alphaTot >= ts.kBound ? alphaTot - ts.kBound : 0;
         return ts.rInt > 0 ? FullMath.mulDiv(alphaInt, WAD, ts.rInt) : type(uint256).max;
@@ -786,7 +817,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
     function _buildTorusState() internal view returns (TorusMath.TorusState memory) {
         Slot0 memory s = slot0;
-        return TorusMath.TorusState({rInt: s.rInt, kBound: s.kBound, sBound: s.sBound, sumX: s.sumX, sumXSq: s.sumXSq, n: N});
+        return TorusMath.TorusState({rInt: s.rInt, kBound: s.kBound, sBound: s.sBound, sumX: s.sumX, sumXSq: s.sumXSq, n: N, sqrtN: sqrtN});
     }
 
     function _currentReserves() internal view returns (uint256[] memory out) {
@@ -824,7 +855,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             tickIdx = idxPlus1 - 1;
             TickLib.Tick storage t = ticks[tickIdx];
             t.r += rWad;
-            t.liquidityGross += uint128(rWad);
+            t.liquidityGross += rWad.toUint128();
             return tickIdx;
         }
 
@@ -839,11 +870,14 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
                 r: rWad,
                 isInterior: true,
                 feeGrowthInside: 0,
-                liquidityGross: uint128(rWad)
+                liquidityGross: rWad.toUint128()
             });
         } else {
+            // Bound the crossing-scan: refuse to grow the array past MAX_TICKS.
+            // Reuse of free slots above is exempt — it doesn't grow the scan.
+            if (ticks.length >= MAX_TICKS) revert TooManyTicks();
             ticks.push(
-                TickLib.Tick({k: kWad, r: rWad, isInterior: true, feeGrowthInside: 0, liquidityGross: uint128(rWad)})
+                TickLib.Tick({k: kWad, r: rWad, isInterior: true, feeGrowthInside: 0, liquidityGross: rWad.toUint128()})
             );
             tickIdx = ticks.length - 1;
         }
@@ -955,7 +989,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         }
 
         t.r -= b.rWad;
-        t.liquidityGross -= uint128(b.rWad);
+        t.liquidityGross -= b.rWad.toUint128();
         pos.r -= b.rWad;
 
         if (pos.r == 0) {

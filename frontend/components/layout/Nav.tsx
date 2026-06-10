@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Palette, Sun } from "lucide-react";
 import { color, getThemeCssVariables, typography, type ThemeName } from "@/constants";
 
-const THEME_CYCLE: ThemeName[] = ["dark", "light"];
+const THEME_CYCLE: ThemeName[] = ["dark", "light", "purple"];
 
 export function Nav() {
   const [theme, setTheme] = useState<ThemeName>(() => {
     if (typeof window === "undefined") return "dark";
     const saved = window.localStorage.getItem("theme");
-    if (saved === "dark" || saved === "light") return saved;
+    if (saved === "dark" || saved === "light" || saved === "purple") return saved;
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
 
@@ -34,11 +34,15 @@ export function Nav() {
 
   const themeIcon = theme === "dark"
     ? <Sun size={16} strokeWidth={1.8} aria-hidden="true" />
-    : <Moon size={16} strokeWidth={1.8} aria-hidden="true" />;
+    : theme === "light"
+      ? <Palette size={16} strokeWidth={1.8} aria-hidden="true" />
+      : <Moon size={16} strokeWidth={1.8} aria-hidden="true" />;
 
   const themeTitle = theme === "dark"
     ? "Switch to light mode"
-    : "Switch to dark mode";
+    : theme === "light"
+      ? "Switch to purple mode"
+      : "Switch to dark mode";
 
   return (
     <nav

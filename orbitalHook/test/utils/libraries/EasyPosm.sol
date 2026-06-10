@@ -40,21 +40,22 @@ library EasyPosm {
         uint256 deadline,
         bytes memory hookData
     ) internal returns (uint256 tokenId, BalanceDelta delta) {
-        (Currency currency0, Currency currency1) = (poolKey.currency0, poolKey.currency1);
-
-        MintData memory mintData = MintData({
-            balance0Before: currency0.balanceOf(address(this)),
-            balance1Before: currency1.balanceOf(address(this)),
-            actions: new bytes(0),
-            params: new bytes[](4)
-        });
+        MintData memory mintData;
+        mintData.params = new bytes[](4);
 
         mintData.actions = abi.encodePacked(
             uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR), uint8(Actions.SWEEP), uint8(Actions.SWEEP)
         );
 
+        // Encode the position params before introducing the currency locals so the
+        // 8-argument encode doesn't share the stack with currency0/currency1 (keeps
+        // `forge coverage --ir-minimum` from going stack-too-deep here).
         mintData.params[0] =
             abi.encode(poolKey, tickLower, tickUpper, liquidity, amount0Max, amount1Max, recipient, hookData);
+
+        (Currency currency0, Currency currency1) = (poolKey.currency0, poolKey.currency1);
+        mintData.balance0Before = currency0.balanceOf(address(this));
+        mintData.balance1Before = currency1.balanceOf(address(this));
         mintData.params[1] = abi.encode(currency0, currency1);
         mintData.params[2] = abi.encode(currency0, recipient);
         mintData.params[3] = abi.encode(currency1, recipient);

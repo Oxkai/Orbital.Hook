@@ -32,6 +32,7 @@ contract TorusMathTest is Test {
         s.n      = n;
         s.sumX   = n * q;
         s.sumXSq = n * FullMath.mulDiv(q, q, WAD);
+        s.sqrtN  = SphereMath.sqrt(n * WAD * WAD);
 
         reserves = new uint256[](n);
         reserves[0] = q;

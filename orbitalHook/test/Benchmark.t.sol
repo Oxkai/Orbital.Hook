@@ -29,7 +29,7 @@ contract BenchmarkTest is Test {
             sumX += perAsset;
             sumXSq += FullMath.mulDiv(perAsset, perAsset, WAD);
         }
-        s = TorusMath.TorusState({rInt: R, kBound: 0, sBound: 0, sumX: sumX, sumXSq: sumXSq, n: n});
+        s = TorusMath.TorusState({rInt: R, kBound: 0, sBound: 0, sumX: sumX, sumXSq: sumXSq, n: n, sqrtN: SphereMath.sqrt(n * WAD * WAD)});
     }
 
     function _quote(uint256 R, uint256 n, uint256 amountIn) internal pure returns (uint256) {

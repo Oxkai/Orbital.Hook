@@ -43,7 +43,7 @@ export const colors = {
   },
 } as const;
 
-export type ThemeName = "dark" | "light";
+export type ThemeName = "dark" | "light" | "purple";
 
 type ThemePalette = {
   success: string;
@@ -97,6 +97,25 @@ export const themePalettes: Record<ThemeName, ThemePalette> = {
     textPrimary: "#010101",
     textSecondary: "#303030",
     textMuted: "#797979",
+  },
+  // Extracted from the PROKOPI "AI × UX" series: warm cream paper, vivid
+  // violet accent, near-black editorial headlines, warm muted mono captions.
+  purple: {
+    success: colors.green.hex,
+    error: colors.red.hex,
+    warning: colors.yellow.hex,
+    info: "#7C3AED",
+    accent: "#7C3AED",
+    bg: "#EFE9DD",
+    surface1: "#F5F1E8",
+    surface2: "#EAE3D5",
+    surface3: "#E0D8C7",
+    surface4: "#D4CAB6",
+    border: "#D8CFBD",
+    borderSubtle: "#E4DCCC",
+    textPrimary: "#0E0E0E",
+    textSecondary: "#3A3A3A",
+    textMuted: "#8A8275",
   },
 };
 

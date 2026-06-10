@@ -19,6 +19,8 @@ library TorusMath {
         uint256 sumX;    // Σxᵢ total reserves, WAD-scaled
         uint256 sumXSq;  // Σ(xᵢ²/WAD) total reserves, WAD-scaled
         uint256 n;       // number of assets (plain integer)
+        uint256 sqrtN;   // cached √n·WAD (= sqrt(n·WAD²)); set by the caller so
+                         // the Newton solver doesn't recompute it every iteration
     }
 
     // Helpers
@@ -47,7 +49,7 @@ library TorusMath {
 
     /// @notice Compute LHS = (alphaInt − rInt√n)² + (wNorm − sBound)², WAD-scaled.
     function torusLHS(TorusState memory s) internal pure returns (uint256) {
-        uint256 sqrtN = SphereMath.sqrt(s.n * WAD * WAD);
+        uint256 sqrtN = s.sqrtN; // cached √n·WAD; avoids a Babylonian sqrt per call
 
         // alphaTot = Σxᵢ / √n
         uint256 alphaTot = FullMath.mulDiv(s.sumX, WAD, sqrtN);
@@ -188,6 +190,7 @@ library TorusMath {
         t.kBound = s.kBound;
         t.sBound = s.sBound;
         t.n      = s.n;
+        t.sqrtN  = s.sqrtN;
         t.sumX   = s.sumX - amount;
         // sumXSq decreases by xj² - (xj-amount)² = 2*xj*amount - amount²
         uint256 twoXjAmount = FullMath.mulDiv(2 * xjOld, amount, WAD);

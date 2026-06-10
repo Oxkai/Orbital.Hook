@@ -362,6 +362,31 @@ contract OrbitalHookTest is BaseTest {
         assertEq(rInt, rWad * 2);
     }
 
+    // DoS bound: the live tick array cannot grow past MAX_TICKS, so an attacker
+    // can't make every swap's crossing-scan unboundedly expensive by minting
+    // many distinct-k dust ticks. Merging into existing ticks still works.
+    function test_tick_cap_bounds_distinct_k_ticks() public {
+        uint256 rWad = 1 ether;
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        uint256 km = TickLib.kMin(rWad, 3);
+
+        // Fill the array to the cap (128) with distinct-k interior ticks.
+        for (uint256 i = 0; i < 128; ++i) {
+            hook.addLiquidity(km + i, rWad, maxA);
+        }
+        assertEq(hook.numTicks(), 128, "array filled to MAX_TICKS");
+
+        // A 129th distinct-k mint reverts rather than growing the scan unboundedly.
+        vm.expectRevert(OrbitalHook.TooManyTicks.selector);
+        hook.addLiquidity(km + 128, rWad, maxA);
+
+        // Merging into an existing k still works and does not grow the array.
+        hook.addLiquidity(km, rWad, maxA);
+        assertEq(hook.numTicks(), 128, "merge does not grow the array past the cap");
+    }
+
     // ─────────────────────────────────────────────────────────────
     // beforeSwap (Phase B: within-tick only)
     // ─────────────────────────────────────────────────────────────

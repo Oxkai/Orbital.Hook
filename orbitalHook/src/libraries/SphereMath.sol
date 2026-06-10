@@ -13,17 +13,40 @@ library SphereMath {
 
     // Integer square root
 
-    /// @notice Babylonian integer square root — returns floor(√x).
+    /// @notice Integer square root — returns floor(√x).
+    /// @dev Bit-shift-seeded Newton (Solmate/Solady `FixedPointMathLib.sqrt`).
+    ///      Returns the exact same floor(√x) as a Babylonian loop, but with a
+    ///      good power-of-two seed it needs a fixed 7 iterations instead of an
+    ///      unbounded `while`, which is materially cheaper for the large
+    ///      operands (~1e36) this curve feeds it on every swap.
     function sqrt(uint256 x) internal pure returns (uint256 z) {
-        if (x > 3) {
-            z = x;
-            uint256 y = x / 2 + 1;
-            while (y < z) {
-                z = y;
-                y = (x / y + y) / 2;
-            }
-        } else if (x != 0) {
-            z = 1;
+        /// @solidity memory-safe-assembly
+        assembly {
+            z := 1
+            let y := x
+
+            // Seed: smallest power of two ≥ √x.
+            if iszero(lt(y, 0x100000000000000000000000000000000)) { y := shr(128, y) z := shl(64, z) }
+            if iszero(lt(y, 0x10000000000000000)) { y := shr(64, y) z := shl(32, z) }
+            if iszero(lt(y, 0x100000000)) { y := shr(32, y) z := shl(16, z) }
+            if iszero(lt(y, 0x10000)) { y := shr(16, y) z := shl(8, z) }
+            if iszero(lt(y, 0x100)) { y := shr(8, y) z := shl(4, z) }
+            if iszero(lt(y, 0x10)) { y := shr(4, y) z := shl(2, z) }
+            if iszero(lt(y, 0x8)) { z := shl(1, z) }
+
+            // Seven Newton iterations converge for any uint256.
+            z := shr(1, add(z, div(x, z)))
+            z := shr(1, add(z, div(x, z)))
+            z := shr(1, add(z, div(x, z)))
+            z := shr(1, add(z, div(x, z)))
+            z := shr(1, add(z, div(x, z)))
+            z := shr(1, add(z, div(x, z)))
+            z := shr(1, add(z, div(x, z)))
+
+            // Floor correction: if x+1 is a perfect square the iteration can
+            // land one high, so round down to floor(√x).
+            let zRoundDown := div(x, z)
+            if lt(zRoundDown, z) { z := zRoundDown }
         }
     }
 
