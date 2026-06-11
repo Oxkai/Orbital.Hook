@@ -153,14 +153,15 @@ contract OrbitalHookTest is BaseTest {
     }
 
     function test_constructor_revertsOn_tooManyAssets() public {
-        Currency[] memory six = new Currency[](6);
-        // Synthesize 6 ascending currencies; values just need to be sorted-unique.
-        for (uint160 i = 0; i < 6; ++i) {
-            six[i] = Currency.wrap(address(uint160(0x1000 + i)));
+        // MAX_ASSETS = 10, so 11 must revert (count is checked before the
+        // per-asset decimals() probe, so synthetic addresses are fine here).
+        Currency[] memory eleven = new Currency[](11);
+        for (uint160 i = 0; i < 11; ++i) {
+            eleven[i] = Currency.wrap(address(uint160(0x1000 + i)));
         }
-        vm.expectRevert(abi.encodeWithSelector(OrbitalHook.InvalidAssetCount.selector, 6));
+        vm.expectRevert(abi.encodeWithSelector(OrbitalHook.InvalidAssetCount.selector, 11));
         deployCodeTo(
-            "OrbitalHook.sol:OrbitalHook", abi.encode(poolManager, permit2, six, uint24(100), address(this)), address(HOOK_FLAGS ^ (0x4446 << 144))
+            "OrbitalHook.sol:OrbitalHook", abi.encode(poolManager, permit2, eleven, uint24(100), address(this)), address(HOOK_FLAGS ^ (0x4446 << 144))
         );
     }
 
@@ -1088,6 +1089,56 @@ contract OrbitalHookTest is BaseTest {
         // New owner can.
         vm.prank(newOwner);
         hook.pause();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Guardian (depeg circuit-breaker)
+    // ─────────────────────────────────────────────────────────────
+
+    function test_setGuardian_onlyOwner() public {
+        vm.prank(address(0xBAD));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(0xBAD)));
+        hook.setGuardian(address(0x6A6D));
+    }
+
+    function test_guardian_can_pause() public {
+        address guardian = address(0x6A6D);
+        hook.setGuardian(guardian);
+        assertEq(hook.guardian(), guardian);
+
+        PoolKey memory key = _seedSinglePoolWithLiquidity(1_000 ether);
+        vm.prank(guardian);
+        hook.guardianPause();
+
+        // Pool is now paused — swaps blocked.
+        vm.expectRevert();
+        swapRouter.swapExactTokensForTokens(1 ether, 0, true, key, "", address(this), block.timestamp);
+    }
+
+    function test_guardianPause_reverts_for_stranger() public {
+        hook.setGuardian(address(0x6A6D));
+        vm.prank(address(0xBAD));
+        vm.expectRevert(OrbitalHook.NotGuardian.selector);
+        hook.guardianPause();
+    }
+
+    function test_owner_can_also_guardianPause() public {
+        // Owner is always allowed, even with no guardian set.
+        hook.guardianPause();
+        // unpause is owner-only and restores operation.
+        hook.unpause();
+    }
+
+    function test_guardian_cannot_unpause() public {
+        address guardian = address(0x6A6D);
+        hook.setGuardian(guardian);
+        vm.prank(guardian);
+        hook.guardianPause();
+
+        // Resuming is owner-only — the guardian must not be able to unpause.
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, guardian));
+        hook.unpause();
     }
 
     // ─────────────────────────────────────────────────────────────

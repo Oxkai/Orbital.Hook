@@ -8,11 +8,15 @@ export function Emphasized({
   segments,
   size = "52px",
   lineHeight = "1.1",
+  letterSpacing = "-0.03em",
+  fontFamily,
   maxWidth,
 }: {
   segments: Seg[];
   size?: string;
   lineHeight?: string;
+  letterSpacing?: string;
+  fontFamily?: string;
   maxWidth?: string;
 }) {
   return (
@@ -20,9 +24,10 @@ export function Emphasized({
       style={{
         fontSize: size,
         lineHeight,
-        letterSpacing: "-0.03em",
+        letterSpacing,
         fontWeight: 400,
         color: color.textPrimary,
+        fontFamily,
         maxWidth,
         width: "100%",
       }}

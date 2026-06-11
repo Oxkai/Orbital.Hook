@@ -19,6 +19,14 @@ function short(addr: string) {
   return addr.slice(0, 6) + "…" + addr.slice(-4);
 }
 
+// Deterministic wallet avatar — a 2-stop gradient seeded by the address.
+function avatarGradient(addr: string) {
+  const a = addr.toLowerCase().replace("0x", "").padEnd(12, "0");
+  const h1 = parseInt(a.slice(0, 6), 16) % 360;
+  const h2 = parseInt(a.slice(6, 12), 16) % 360;
+  return `linear-gradient(135deg, hsl(${h1} 70% 56%), hsl(${h2} 72% 46%))`;
+}
+
 export function AppNav() {
   const pathname = usePathname();
   const { address, isConnected } = useAccount();
@@ -46,18 +54,25 @@ export function AppNav() {
           backgroundColor: "color-mix(in srgb, var(--color-bg) 82%, transparent)",
         }}
       >
-        <Link href="/" className="flex items-center shrink-0">
+        <Link href="/" aria-label="Orbital home" className="flex items-center shrink-0">
           <span
+            role="img"
+            aria-label="Orbital"
             style={{
-              fontFamily: typography.p2.family,
-              fontSize: "14px",
-              fontWeight: 500,
-              letterSpacing: "0.1em",
-              color: color.textPrimary,
+              display: "inline-block",
+              width: 26,
+              height: 26,
+              backgroundColor: color.textPrimary,
+              WebkitMaskImage: "url(/logo.svg)",
+              maskImage: "url(/logo.svg)",
+              WebkitMaskSize: "contain",
+              maskSize: "contain",
+              WebkitMaskRepeat: "no-repeat",
+              maskRepeat: "no-repeat",
+              WebkitMaskPosition: "center",
+              maskPosition: "center",
             }}
-          >
-            ORBITAL
-          </span>
+          />
         </Link>
 
         <div className="hidden sm:flex items-center gap-6 shrink-0">
@@ -142,7 +157,7 @@ export function AppNav() {
           {showConnectedWallet ? (
             <button
               onClick={() => disconnect()}
-              className="flex items-center h-9 px-3 hover:bg-(--color-surface-3) transition-colors"
+              className="flex items-center gap-2 h-9 px-3 hover:bg-(--color-surface-3) transition-colors"
               style={{
                 color: color.textPrimary,
                 backgroundColor: color.surface2,
@@ -153,6 +168,10 @@ export function AppNav() {
                 fontVariantNumeric: "tabular-nums",
               }}
             >
+              <span
+                aria-hidden
+                style={{ width: 16, height: 16, borderRadius: "50%", background: avatarGradient(address), flexShrink: 0 }}
+              />
               {short(address)}
             </button>
           ) : (

@@ -3,6 +3,7 @@
 import { useReadContracts } from "wagmi";
 import { type Address } from "viem";
 import { ERC20_ABI } from "@/lib/contracts";
+import { unichainSepolia } from "@/lib/wagmi";
 
 const WAD = 10n ** 18n;
 
@@ -15,6 +16,7 @@ export function useTokenBalances(tokenAddresses: Address[], account: Address | u
   const { data, isLoading, refetch } = useReadContracts({
     contracts: tokenAddresses.map(addr => ({
       address: addr,
+      chainId: unichainSepolia.id,
       abi: ERC20_ABI,
       functionName: "balanceOf" as const,
       args: [account ?? "0x0000000000000000000000000000000000000000"] as const,
@@ -38,6 +40,7 @@ export function useTokenAllowances(
   const { data, isLoading, refetch } = useReadContracts({
     contracts: tokenAddresses.map(addr => ({
       address: addr,
+      chainId: unichainSepolia.id,
       abi: ERC20_ABI,
       functionName: "allowance" as const,
       args: [owner ?? "0x0000000000000000000000000000000000000000", spender] as const,

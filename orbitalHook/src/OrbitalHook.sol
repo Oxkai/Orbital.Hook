@@ -55,7 +55,10 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     // ─────────────────────────────────────────────────────────────
 
     uint8 public constant MIN_ASSETS = 2;
-    uint8 public constant MAX_ASSETS = 5;
+    /// @notice Upper bound on assets per pool. Raised from 5 to 10; the cap is a
+    ///         gas/safety guard (per-asset settlement and fee-accrual loops and
+    ///         the segmenting solver scale with N) rather than a math limit.
+    uint8 public constant MAX_ASSETS = 10;
 
     uint8 public immutable N;
     /// @notice Pool fee in hundredths of a bip (e.g. 100 = 1bp).
@@ -63,7 +66,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
     /// @dev Cached √N·WAD (= sqrt(N·WAD²)). N is immutable, so this geometric
     ///      constant is computed once at deploy instead of being re-derived via
-    ///      an iterative Babylonian sqrt on every call — it is recomputed ~30×
+    ///      an integer sqrt on every call — it is recomputed ~30×
     ///      per swap inside the Newton solver's `torusLHS`, plus in the crossing
     ///      and coefficient math. Threaded through `TorusState.sqrtN`.
     uint256 internal immutable sqrtN;
@@ -213,6 +216,39 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Guardian (automated depeg circuit-breaker)
+    //
+    // A `guardian` is an automation endpoint — in this deployment the
+    // Reactive Network callback contract — allowed to pause the pool the
+    // instant an external oracle reports a constituent stablecoin has
+    // depegged, faster than any human keeper. It can ONLY pause (a
+    // fail-safe action); resuming the pool stays owner-only so a human
+    // reviews the situation before liquidity is re-enabled.
+    // ─────────────────────────────────────────────────────────────
+
+    /// @notice Trusted automation endpoint allowed to call {guardianPause}.
+    address public guardian;
+
+    event GuardianUpdated(address indexed previous, address indexed current);
+    event GuardianPaused(address indexed caller);
+
+    error NotGuardian();
+
+    function setGuardian(address newGuardian) external onlyOwner {
+        emit GuardianUpdated(guardian, newGuardian);
+        guardian = newGuardian;
+    }
+
+    /// @notice Emergency pause triggered by the guardian (e.g. an on-chain
+    ///         depeg signal relayed via Reactive Network). Idempotent-safe:
+    ///         reverts only on authorization, not if already paused.
+    function guardianPause() external {
+        if (msg.sender != guardian && msg.sender != owner()) revert NotGuardian();
+        emit GuardianPaused(msg.sender);
+        _pause();
     }
 
     // ─────────────────────────────────────────────────────────────

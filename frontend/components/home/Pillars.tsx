@@ -1,5 +1,6 @@
 import { color, colors, typography } from "@/constants";
 import { SectionLabel } from "./SectionLabel";
+import { Emphasized } from "./Emphasized";
 
 type Pillar = {
   n: string;
@@ -17,9 +18,9 @@ const PILLARS: Pillar[] = [
     n: "01",
     tag: "EXECUTION",
     title: "Low slippage",
-    lede: "At peg, trades move along the sphere's flat equator.",
-    body: "Every LP's tick concentrates liquidity where stables actually trade. Routes stay tight through the full depth of the book — not just the first few basis points.",
-    note: "A flat AMM smears the same depth across every price. Orbital stacks it where stablecoins actually clear.",
+    lede: "While the coins hold their peg, trades barely move the price.",
+    body: "Every LP packs their liquidity right around the peg, where stablecoins actually trade — so prices stay tight even on large orders, not just small ones.",
+    note: "An ordinary AMM spreads its liquidity thinly across every price. Orbital piles it where stablecoins actually change hands.",
     metric: { value: "< 1", unit: "bps", caption: "price impact at peg, p=0.99" },
     accent: colors.green.hex,
   },
@@ -27,9 +28,9 @@ const PILLARS: Pillar[] = [
     n: "02",
     tag: "DENSITY",
     title: "High capital efficiency",
-    lede: "One dollar here behaves like ~154 in a flat sphere pool.",
-    body: "Concentrated ticks compound across N assets in a single pool. No fragmentation across pairs, no idle reserves sitting outside the active range.",
-    note: "Measured against an equal-reserve flat-sphere pool at the same peg tolerance.",
+    lede: "A dollar here does the work of about 154 in an ordinary pool.",
+    body: "All the liquidity sits in one pool across every asset — none split between separate pairs, and none left idle outside its range.",
+    note: "Compared with a plain pool holding the same reserves over the same peg range.",
     metric: { value: "154", unit: "×", caption: "vs flat sphere, N = 5" },
     accent: colors.purple.hex,
   },
@@ -37,9 +38,9 @@ const PILLARS: Pillar[] = [
     n: "03",
     tag: "RESILIENCE",
     title: "Automatic depeg isolation",
-    lede: "When one asset breaks peg, the other N−1 keep trading.",
-    body: "Ticks flip to their boundary and the broken asset is fenced off. The pool doesn't drain into the bad leg — healthy stables stay liquid against each other.",
-    note: "No governance call, no pause — the geometry fences the bad leg the instant price leaves the tick.",
+    lede: "If one coin breaks its peg, the rest keep trading normally.",
+    body: "The broken coin is walled off automatically. The pool doesn't drain into it — the healthy coins stay liquid against each other.",
+    note: "No vote, no pause button. The moment a coin's price leaves the tick it's walled off, so LPs stop absorbing it instead of taking the loss an ordinary pool would.",
     metric: { value: "N − 1", unit: "assets", caption: "stay live through a depeg" },
     accent: colors.yellow.hex,
   },
@@ -67,23 +68,33 @@ export function Pillars() {
       </div>
 
       <div className="pb-20" style={{ borderColor: color.borderSubtle }}>
-        <p
-          className="col-span-12"
-          style={{
-            fontFamily: typography.h2.family,
-            fontSize: "clamp(22px, 2.4vw, 32px)",
-            lineHeight: "1.35",
-            letterSpacing: "-0.025em",
-            color: color.textPrimary,
-            maxWidth: "58ch",
-          }}
-        >
-          Three properties do the work.{" "}
-          <span style={{ color: color.textMuted }}>
-            Tight execution at peg. Dense capital across N assets. And a clean
-            fence when one of them breaks.
-          </span>
-        </p>
+        <Emphasized
+          size="clamp(22px, 2.4vw, 32px)"
+          lineHeight="1.35"
+          letterSpacing="-0.025em"
+          fontFamily={typography.h2.family}
+          maxWidth="58ch"
+          segments={[
+            { t: "Three things", v: "on" },
+            { t: " make Orbital work", v: "off" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "Trades stay cheap", v: "on" },
+            { t: " while the coins hold their peg", v: "off" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "Liquidity stays dense", v: "on" },
+            { t: " across every asset", v: "off" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "And if one coin ", v: "off" },
+            { t: "breaks", v: "on" },
+            { t: ", it gets ", v: "off" },
+            { t: "walled off", v: "on" },
+            { t: " before it can drain the pool", v: "off" },
+            { t: ".", v: "green" },
+          ]}
+        />
       </div>
 
       <div className="grid grid-cols-12 gap-5">

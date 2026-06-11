@@ -2,7 +2,7 @@
 
 A Uniswap v4 hook implementing the Orbital N-asset stableswap from [Paradigm (2025)](https://www.paradigm.xyz/2025/06/orbital).
 
-The hook holds the abstract Orbital state (the sphere reserve vector, the LP ticks, the fees) and replaces Uniswap's swap curve inside `beforeSwap`. Token custody stays in v4's `PoolManager` — the hook only holds matching ERC-6909 claim tokens. Each of the $\tfrac{N(N-1)}{2}$ pairs among the registered assets is a separate v4 pool, all pointing at this one hook and sharing one engine state.
+The hook ([`src/OrbitalHook.sol`](src/OrbitalHook.sol)) holds the abstract Orbital state (the sphere reserve vector, the LP ticks, the fees) and replaces Uniswap's swap curve inside `beforeSwap`. Token custody stays in v4's `PoolManager` — the hook only holds matching ERC-6909 claim tokens. Each of the $\tfrac{N(N-1)}{2}$ pairs among the registered assets is a separate v4 pool, all pointing at this one hook and sharing one engine state.
 
 For the project overview and the frontend, see the [root README](../README.md).
 
@@ -10,32 +10,50 @@ For the project overview and the frontend, see the [root README](../README.md).
 
 ## How the engine works
 
-The hook keeps the pool as a point on an N-sphere and consolidates every LP tick into a single torus it can solve in O(1) per swap. It currently supports up to 5 tokens in one shared pool.
+The hook keeps the pool as a point on an N-sphere and consolidates every LP tick into a single torus it can solve in O(1) per swap. A whole basket of stablecoins lives in one shared pool.
 
-- **Sphere.** Reserves $\mathbf{x}$ satisfy $\|\mathbf{r} - \mathbf{x}\|^2 = r^2$, centred at $\mathbf{r} = (r, \dots, r)$. At the equal-price point $x_i = r\left(1 - \tfrac{1}{\sqrt{N}}\right)$ every coin trades 1:1; the curve only bends as the basket drifts off peg.
-- **Ticks.** Each LP position is a plane $\sum_i x_i = k$ that cuts the sphere at a depeg bound — concentrated liquidity in the band near \$1. A tick stays *interior* while the pool holds above its bound and snaps to its *boundary* if price crosses it, so a depegging coin's tick exits without draining the rest.
-- **Torus (`slot0`).** Instead of iterating ticks on every swap, the hook tracks five running sums — `sumX, sumXSq, rInt, kBound, sBound` — that fold all interior + boundary ticks into one torus. A swap reads and writes only these, so cost is independent of how many ticks or coins exist.
-- **Segmenting solver.** `beforeSwap` walks the trade segment by segment: solve the within-tick quartic by Newton's method up to the next tick boundary, cross that tick (flip it interior↔boundary and update `slot0`), then continue until the input is consumed. The result is returned as a `BeforeSwapDelta`.
+- **Sphere.** Reserves $\mathbf{x}$ satisfy $\|\mathbf{r} - \mathbf{x}\|^2 = r^2$, centred at $\mathbf{r} = (r, \dots, r)$. At the equal-price point $x_i = r\left(1 - \tfrac{1}{\sqrt{N}}\right)$ every coin trades 1:1; the curve only bends as the basket drifts off peg. ([`SphereMath.sol`](src/libraries/SphereMath.sol))
+- **Ticks.** Each LP position is a plane $\sum_i x_i = k$ that cuts the sphere at a depeg bound — concentrated liquidity in the band near \$1. A tick stays *interior* while the pool holds above its bound and snaps to its *boundary* if price crosses it, so a depegging coin's tick exits without draining the rest. ([`TickLib.sol`](src/libraries/TickLib.sol))
+- **Torus (`slot0`).** Instead of iterating ticks on every swap, the hook tracks five running sums — `sumX, sumXSq, rInt, kBound, sBound` — that fold all interior + boundary ticks into one torus. A swap reads and writes only these, so cost is independent of how many ticks or coins exist. ([`TorusMath.sol`](src/libraries/TorusMath.sol))
+- **Segmenting solver.** `beforeSwap` walks the trade segment by segment: solve the within-tick quartic by Newton's method up to the next tick boundary, cross that tick (flip it interior↔boundary and update `slot0`), then continue until the input is consumed. The result is returned as a `BeforeSwapDelta`. ([`QuadraticSolver.sol`](src/libraries/QuadraticSolver.sol), in [`OrbitalHook.sol`](src/OrbitalHook.sol))
 
 ---
 
 ## Why it matters
 
-- **No liquidity fragmentation.** Up to 5 stablecoins would normally need a separate pool per pair, each shallow. Here every pair is a view onto one shared reserve vector, so a USDC/FRAX trade taps the same depth as USDC/USDT.
+- **No liquidity fragmentation.** A basket of stablecoins would normally need a separate pool per pair, each shallow. Here every pair is a view onto one shared reserve vector, so a USDC/FRAX trade taps the same depth as USDC/USDT.
 - **Deep, shared liquidity.** All LP capital lands in one book instead of being split across pools — more depth behind every quote.
 - **Capital efficiency via virtual reserves.** A tick removes the curve below its depeg bound, so a small amount of real capital behaves like a much larger reserve near peg (Uniswap v3's virtual-liquidity idea, generalized to the N-sphere).
 - **Low slippage near peg.** Concentrating depth in the band where stablecoins actually trade keeps quotes close to 1:1 for ordinary size.
 - **Depeg isolation.** When one coin breaks peg its tick snaps to the boundary and exits; the remaining coins keep trading 1:1 instead of the bad coin draining the pool.
 - **O(1) regardless of scale.** The torus `slot0` means swap cost doesn't grow with the number of coins or ticks.
+- **Automatic circuit-breaker.** A `guardian` role lets a Reactive Network watcher pause the pool the instant an external oracle reports a depeg — before the on-pool price catches up. See [Reactive integration](#reactive-network-integration).
+
+---
+
+## Reactive Network integration
+
+A keeper-free depeg circuit-breaker, kept *out* of the audited core — the only hook change is a `guardian` address and a fail-safe `guardianPause()`.
+
+```
+ Origin chain          Reactive Lasna (5318007)        Unichain Sepolia (1301)
+ Chainlink feed ─log─▶ OrbitalDepegReactive ─callback─▶ OrbitalDepegCallback ─▶ hook.guardianPause()
+```
+
+- [**`src/reactive/OrbitalDepegReactive.sol`**](src/reactive/OrbitalDepegReactive.sol) — subscribes to a Chainlink `AnswerUpdated` feed; emits a cross-chain `Callback` when the price leaves the peg band.
+- [**`src/reactive/OrbitalDepegCallback.sol`**](src/reactive/OrbitalDepegCallback.sol) — the Reactive callback proxy calls it; it is the hook's `guardian` and calls `guardianPause()`.
+- **Hook surface** — `setGuardian(address)` (owner-only), `guardianPause()` (guardian or owner; **pause-only**), `unpause()` stays **owner-only** so a human reviews before resuming.
+
+Unichain Sepolia (1301) is a supported Reactive *destination* (callback proxy `0x9299472A6399Fd1027ebF067571Eb3e3D7837FC4`), so the hook is the callback target directly. Deploy steps + env vars: [`src/reactive/README.md`](src/reactive/README.md) and [`script/DeployReactive.s.sol`](script/DeployReactive.s.sol).
 
 ---
 
 ## Status
 
-v1 — research artifact, not audited, not production. Working end-to-end (115 tests) and live on Unichain Sepolia.
+v1 — research artifact, not audited, not production. Working end-to-end (121 tests) and live on Unichain Sepolia.
 
 **Engine**
-- [x] Asset registry — up to 5 tokens per pool, sorted, unique, immutable
+- [x] Asset registry — N tokens per pool, sorted, unique, immutable
 - [x] 18-decimal guard (`AssetNotEighteenDecimals` on registration)
 - [x] `beforeSwap` full segmenting solver (within-tick + tick crossings)
 - [x] Per-tick fee growth + per-position checkpoints (v3-style)
@@ -50,8 +68,10 @@ v1 — research artifact, not audited, not production. Working end-to-end (115 t
 
 **Safety & ops**
 - [x] Admin pause — Ownable2Step + Pausable
+- [x] Guardian role + `guardianPause()` — fail-safe pause for automation
+- [x] Reactive Network depeg circuit-breaker (`src/reactive/`)
 - [x] Deploy + seed + simulation scripts; CREATE2-mined hook
-- [x] Live + seeded on Unichain Sepolia (115 tests passing)
+- [x] Live + seeded on Unichain Sepolia (121 tests passing)
 
 **Deferred to v2**
 - [ ] Decimal normalization for non-18-decimal tokens
@@ -67,7 +87,7 @@ v1 — research artifact, not audited, not production. Working end-to-end (115 t
 
 ```bash
 forge build
-forge test          # 115 passing
+forge test          # 121 passing
 ```
 
 `via_ir = true` (solc 0.8.30) is required — the `TorusMath` library hits stack-too-deep without it. We implemented the complete Orbital math from the paper — the sphere invariant, tick planes, torus consolidation, and the segmenting quartic solver. The same engine backs our standalone Orbital AMM in [`../../contracts/`](../../contracts/); this hook adapts it to the v4 surface.
@@ -78,7 +98,11 @@ forge test          # 115 passing
 
 ```
 src/
-├── OrbitalHook.sol          one contract: storage + v4 hook + LP entry + engine
+├── OrbitalHook.sol          one contract: storage + v4 hook + LP entry + engine + guardian
+├── reactive/                Reactive Network depeg circuit-breaker
+│   ├── OrbitalDepegReactive.sol   watches a Chainlink feed, emits cross-chain Callback
+│   ├── OrbitalDepegCallback.sol   destination receiver → hook.guardianPause()
+│   └── README.md            flow diagram + rationale
 └── libraries/               math (shared with ../../contracts/src/lib/)
     ├── FullMath.sol         512-bit mulDiv — full-precision intermediate products
     ├── SphereMath.sol       sphere invariant, radius, equal-price point
@@ -87,7 +111,7 @@ src/
     └── PositionLib.sol      LP position struct + fee-checkpoint accounting
 
 test/
-├── OrbitalHook.t.sol        constructor / hooks / LP / swap / crossing / admin
+├── OrbitalHook.t.sol        constructor / hooks / LP / swap / crossing / admin / guardian
 ├── SphereMath.t.sol
 ├── TickLib.t.sol
 ├── TorusMath.t.sol
@@ -96,6 +120,7 @@ test/
 script/
 ├── Deploy.s.sol             mock tokens → CREATE2-mined hook → 6 pools → tiered seed
 ├── DeployPeriphery.s.sol    v4 SwapRouter + Quoter against an existing PoolManager
+├── DeployReactive.s.sol     Reactive breaker — callback (Unichain) + reactive (Lasna)
 └── SeedActivity.s.sol       exercises the live pool — swaps across pairs + adds a tick
 ```
 
@@ -117,7 +142,7 @@ The hook address is CREATE2-mined so its low bits encode these flags:
 constructor(
     IPoolManager poolManager,
     IAllowanceTransfer permit2,  // canonical Permit2, for the signature LP path
-    Currency[] memory assets,    // up to 5 tokens, ascending by address, unique, all 18-decimal
+    Currency[] memory assets,    // N tokens, ascending by address, unique, all 18-decimal
     uint24 fee,                  // hundredths of a bip (e.g. 100 = 1 bp)
     address admin                // Ownable2Step owner; can pause/unpause
 )

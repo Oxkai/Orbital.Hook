@@ -3,6 +3,7 @@
 import { useReadContracts } from "wagmi";
 import { type Address } from "viem";
 import { POOL_ABI, TOKEN_META } from "@/lib/contracts";
+import { unichainSepolia } from "@/lib/wagmi";
 import { type Pool } from "@/lib/mock/data";
 import { useVolume24h } from "@/lib/hooks/useVolume24h";
 
@@ -12,10 +13,10 @@ export function usePool(poolAddress: Address) {
   // Step 1 — static pool scalars
   const step1 = useReadContracts({
     contracts: [
-      { address: poolAddress, abi: POOL_ABI, functionName: "N"        },
-      { address: poolAddress, abi: POOL_ABI, functionName: "fee"      },
-      { address: poolAddress, abi: POOL_ABI, functionName: "numTicks" },
-      { address: poolAddress, abi: POOL_ABI, functionName: "slot0"    },
+      { address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "N"        },
+      { address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "fee"      },
+      { address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "numTicks" },
+      { address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "slot0"    },
     ],
   });
 
@@ -29,9 +30,9 @@ export function usePool(poolAddress: Address) {
   // Step 2 — per-asset and per-tick reads
   const step2 = useReadContracts({
     contracts: ready ? [
-      ...Array.from({ length: n },        (_, i) => ({ address: poolAddress, abi: POOL_ABI, functionName: "assetAt"  as const, args: [BigInt(i)] as const })),
-      ...Array.from({ length: n },        (_, i) => ({ address: poolAddress, abi: POOL_ABI, functionName: "reserves" as const, args: [BigInt(i)] as const })),
-      ...Array.from({ length: numTicks }, (_, i) => ({ address: poolAddress, abi: POOL_ABI, functionName: "ticks"    as const, args: [BigInt(i)] as const })),
+      ...Array.from({ length: n },        (_, i) => ({ address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "assetAt"  as const, args: [BigInt(i)] as const })),
+      ...Array.from({ length: n },        (_, i) => ({ address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "reserves" as const, args: [BigInt(i)] as const })),
+      ...Array.from({ length: numTicks }, (_, i) => ({ address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "ticks"    as const, args: [BigInt(i)] as const })),
     ] : [],
     query: { enabled: ready },
   });

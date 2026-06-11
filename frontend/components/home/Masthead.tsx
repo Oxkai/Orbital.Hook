@@ -6,9 +6,10 @@ const INDEX = [
   ["01", "Principles"],
   ["02", "Mechanics"],
   ["03", "Architecture"],
-  ["04", "Versus"],
-  ["05", "Deployed"],
-  ["06", "References"],
+  ["04", "Simulation"],
+  ["05", "Versus"],
+  ["06", "Deployed"],
+  ["07", "References"],
 ] as const;
 
 export function Masthead() {
@@ -23,7 +24,7 @@ export function Masthead() {
           <div className="grid grid-cols-12 gap-5">
             <h1
               aria-label="I. Orbital"
-              className="grid w-full col-span-12"
+              className="flex w-full items-center justify-between gap-6 col-span-12"
               style={{
                 fontFamily: typography.h1.family,
                 fontWeight: 400,
@@ -31,9 +32,27 @@ export function Masthead() {
                 lineHeight: "0.85",
               }}
             >
-              
               <span
-                className="justify-self-end  text-right mr-2"
+                role="img"
+                aria-label="Orbital"
+                style={{
+                  display: "inline-block",
+                  flexShrink: 0,
+                  width: "clamp(48px, 9vw, 120px)",
+                  height: "clamp(48px, 9vw, 120px)",
+                  backgroundColor: color.textPrimary,
+                  WebkitMaskImage: "url(/logo.svg)",
+                  maskImage: "url(/logo.svg)",
+                  WebkitMaskSize: "contain",
+                  maskSize: "contain",
+                  WebkitMaskRepeat: "no-repeat",
+                  maskRepeat: "no-repeat",
+                  WebkitMaskPosition: "center",
+                  maskPosition: "center",
+                }}
+              />
+              <span
+                className="text-right mr-2"
                 style={{
                   fontSize: "clamp(72px, 13vw, 200px)",
                   color: color.textPrimary,
@@ -81,7 +100,7 @@ export function Masthead() {
               { t: ", built as a ", v: "off" },
               { t: "Uniswap v4 hook", v: "on" },
               { t: " and live on ", v: "off" },
-              { t: "Unichain", v: "on" },
+              { t: "Unichain Sepolia", v: "on" },
               { t: ".", v: "green" },
             ]}
           />

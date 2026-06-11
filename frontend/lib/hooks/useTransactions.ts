@@ -4,147 +4,133 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { usePublicClient } from "wagmi";
 import { parseAbiItem, type Address, type AbiEvent } from "viem";
 import { POOL_ADDRESSES, TOKEN_META, DEPLOY_BLOCK } from "@/lib/contracts";
-const CHUNK        = 100n;     // the public RPC caps getLogs at 100 blocks
-const PAGE_SIZE    = 20;
-const DELAY_MS     = 150;
-const TS_BATCH     = 5;        // max parallel getBlock calls at once
+
+// Wide ranges work on a dedicated RPC (NEXT_PUBLIC_RPC_URL → Alchemy). The
+// public node caps eth_getLogs at 100 blocks; Alchemy handles 10k comfortably,
+// which is the whole reason this used to crawl.
+const CHUNK = 10_000n;
+const PAGE_SIZE = 20;
+const POLL_MS = 15_000;
+const TS_BATCH = 8;
 
 const WAD = 1e18;
-function fmt(raw: bigint) { return (Number(raw) / WAD).toFixed(2); }
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const fmt = (raw: bigint) => (Number(raw) / WAD).toFixed(2);
+
+const HOOK = POOL_ADDRESSES[0] as Address;
 
 export type TxType = "Swap" | "Add" | "Remove" | "Collect";
 
 export interface TxRecord {
-  type:        TxType;
-  hash:        `0x${string}`;
+  type: TxType;
+  hash: `0x${string}`;
   blockNumber: bigint;
-  timestamp:   number;   // unix seconds
-  actor:       Address;
-  amountIn:    string;   // e.g. "100.00 USDC"
-  amountOut:   string;   // e.g. "99.98 USDT"  (empty for non-swap)
+  timestamp: number; // unix seconds
+  actor: Address;
+  amountIn: string;
+  amountOut: string;
 }
+type RawTx = Omit<TxRecord, "timestamp">;
 
-const SWAP_EVENT    = parseAbiItem("event Swap(address indexed sender, uint8 assetIn, uint8 assetOut, uint256 amountIn, uint256 amountOut)") as AbiEvent;
-const MINT_EVENT    = parseAbiItem("event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts)") as AbiEvent;
-const BURN_EVENT    = parseAbiItem("event Burn(address indexed owner, uint256 indexed tickIdx, uint256 rWad, uint256[] amounts)") as AbiEvent;
-const COLLECT_EVENT = parseAbiItem("event Collect(address indexed owner, uint256 indexed tickIdx, uint256[] fees)") as AbiEvent;
+const SWAP = parseAbiItem("event Swap(address indexed sender, uint8 assetIn, uint8 assetOut, uint256 amountIn, uint256 amountOut)") as AbiEvent;
+const MINT = parseAbiItem("event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts)") as AbiEvent;
+const BURN = parseAbiItem("event Burn(address indexed owner, uint256 indexed tickIdx, uint256 rWad, uint256[] amounts)") as AbiEvent;
+const COLLECT = parseAbiItem("event Collect(address indexed owner, uint256 indexed tickIdx, uint256[] fees)") as AbiEvent;
 
-// Module-level cache so re-renders and pagination don't re-fetch known blocks
+// timestamps are immutable, so cache across renders/pages
 const tsCache = new Map<bigint, number>();
 
-async function fetchTimestamps(
-  client: ReturnType<typeof usePublicClient>,
-  blockNumbers: bigint[],
-): Promise<Map<bigint, number>> {
-  const unique  = [...new Set(blockNumbers)].filter(n => !tsCache.has(n));
+// Session snapshot: keeps the scanned page alive across route changes so
+// revisiting the transactions page is instant — only the new tail is polled.
+// Lives outside React, so unmount/remount doesn't discard it. Cleared on a
+// full page reload.
+let snapshot: { records: TxRecord[]; backCursor: bigint | null; headBlock: bigint; hasMore: boolean } | null = null;
 
-  // Fetch in small sequential batches to avoid hammering the RPC
+type Client = NonNullable<ReturnType<typeof usePublicClient>>;
+
+async function fetchTimestamps(client: Client, blocks: bigint[]): Promise<Map<bigint, number>> {
+  const unique = [...new Set(blocks)].filter((n) => !tsCache.has(n));
   for (let i = 0; i < unique.length; i += TS_BATCH) {
     const batch = unique.slice(i, i + TS_BATCH);
-    const results = await Promise.all(
-      batch.map(n => client!.getBlock({ blockNumber: n, includeTransactions: false }))
-    );
-    results.forEach(b => { if (b.timestamp) tsCache.set(b.number!, Number(b.timestamp)); });
+    const res = await Promise.all(batch.map((n) => client.getBlock({ blockNumber: n })));
+    res.forEach((b) => { if (b.timestamp) tsCache.set(b.number!, Number(b.timestamp)); });
   }
-
   const map = new Map<bigint, number>();
-  blockNumbers.forEach(n => { const t = tsCache.get(n); if (t) map.set(n, t); });
+  blocks.forEach((n) => { const t = tsCache.get(n); if (t) map.set(n, t); });
   return map;
 }
 
-// Scan one 9k-block range, return raw records (no timestamps yet)
-async function fetchChunk(
-  client: ReturnType<typeof usePublicClient>,
-  from: bigint,
-  to: bigint,
-  tokenSym: (i: number) => string,
-): Promise<Omit<TxRecord, "timestamp">[]> {
-  // Fetch from all known pools in parallel, then flatten
+// One ≤CHUNK-block window: pull all four events from the hook in parallel.
+async function fetchChunk(client: Client, from: bigint, to: bigint, sym: (i: number) => string): Promise<RawTx[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const poolAddrs = POOL_ADDRESSES as unknown as Address[];
   const [s, m, b, c]: any[][] = await Promise.all([
-    Promise.all(poolAddrs.map(a => client!.getLogs({ address: a, event: SWAP_EVENT,    fromBlock: from, toBlock: to }))).then(r => r.flat()),
-    Promise.all(poolAddrs.map(a => client!.getLogs({ address: a, event: MINT_EVENT,    fromBlock: from, toBlock: to }))).then(r => r.flat()),
-    Promise.all(poolAddrs.map(a => client!.getLogs({ address: a, event: BURN_EVENT,    fromBlock: from, toBlock: to }))).then(r => r.flat()),
-    Promise.all(poolAddrs.map(a => client!.getLogs({ address: a, event: COLLECT_EVENT, fromBlock: from, toBlock: to }))).then(r => r.flat()),
+    client.getLogs({ address: HOOK, event: SWAP, fromBlock: from, toBlock: to }),
+    client.getLogs({ address: HOOK, event: MINT, fromBlock: from, toBlock: to }),
+    client.getLogs({ address: HOOK, event: BURN, fromBlock: from, toBlock: to }),
+    client.getLogs({ address: HOOK, event: COLLECT, fromBlock: from, toBlock: to }),
   ]);
-
-  const records: Omit<TxRecord, "timestamp">[] = [];
-
+  const out: RawTx[] = [];
   for (const log of s) {
-    const a = log.args as { sender: Address; assetIn: bigint; assetOut: bigint; amountIn: bigint; amountOut: bigint };
-    records.push({ type: "Swap", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.sender,
-      amountIn:  `${fmt(a.amountIn)} ${tokenSym(Number(a.assetIn))}`,
-      amountOut: `${fmt(a.amountOut)} ${tokenSym(Number(a.assetOut))}` });
+    const a = log.args;
+    out.push({ type: "Swap", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.sender,
+      amountIn: `${fmt(a.amountIn)} ${sym(Number(a.assetIn))}`, amountOut: `${fmt(a.amountOut)} ${sym(Number(a.assetOut))}` });
   }
   for (const log of m) {
-    const a = log.args as { recipient: Address; rWad: bigint };
-    records.push({ type: "Add", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.recipient,
-      amountIn: `$${fmt(a.rWad)}`, amountOut: "" });
+    const a = log.args;
+    out.push({ type: "Add", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.recipient, amountIn: `$${fmt(a.rWad)}`, amountOut: "" });
   }
   for (const log of b) {
-    const a = log.args as { owner: Address; tickIdx: bigint; rWad: bigint };
-    records.push({ type: "Remove", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.owner,
-      amountIn: `$${fmt(a.rWad)} tick #${a.tickIdx}`, amountOut: "" });
+    const a = log.args;
+    out.push({ type: "Remove", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.owner, amountIn: `$${fmt(a.rWad)} tick #${a.tickIdx}`, amountOut: "" });
   }
   for (const log of c) {
-    const a = log.args as { owner: Address; tickIdx: bigint };
-    records.push({ type: "Collect", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.owner,
-      amountIn: `tick #${a.tickIdx}`, amountOut: "" });
+    const a = log.args;
+    out.push({ type: "Collect", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.owner, amountIn: `tick #${a.tickIdx}`, amountOut: "" });
   }
-
-  return records;
+  return out;
 }
 
 export function useTransactions(poolTokens: { symbol: string; address: string }[]) {
   const client = usePublicClient();
-  const [txs, setTxs]                   = useState<TxRecord[]>([]);
-  const [isLoading, setIsLoading]       = useState(true);
+  const [txs, setTxs] = useState<TxRecord[]>(() => snapshot?.records ?? []);
+  const [isLoading, setIsLoading] = useState(!snapshot);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMore, setHasMore]           = useState(true);
-  const [error, setError]               = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(snapshot?.hasMore ?? true);
+  const [error, setError] = useState<string | null>(null);
 
-  // cursor: the next "toBlock" to scan (scanning backwards)
-  const cursorRef = useRef<bigint | null>(null);
+  const backCursor = useRef<bigint | null>(snapshot?.backCursor ?? null); // next toBlock to scan downward
+  const headBlock = useRef<bigint>(snapshot?.headBlock ?? 0n); // highest block already covered (for tail poll)
 
-  const tokenSym = useCallback((idx: number) =>
-    poolTokens[idx]?.symbol ??
-    TOKEN_META[poolTokens[idx]?.address?.toLowerCase() ?? ""]?.symbol ??
-    `Asset#${idx}`,
+  const sym = useCallback((idx: number) =>
+    poolTokens[idx]?.symbol ?? TOKEN_META[poolTokens[idx]?.address?.toLowerCase() ?? ""]?.symbol ?? `Asset#${idx}`,
   [poolTokens]);
 
-  // Scan backwards from `startBlock`, collect up to `limit` records
-  const scanBack = useCallback(async (startBlock: bigint, limit: number) => {
-    const accumulated: Omit<TxRecord, "timestamp">[] = [];
-    let to = startBlock;
+  const withTs = useCallback(async (raw: RawTx[]): Promise<TxRecord[]> => {
+    const tsMap = await fetchTimestamps(client!, raw.map((r) => r.blockNumber));
+    return raw.map((r) => ({ ...r, timestamp: tsMap.get(r.blockNumber) ?? 0 }));
+  }, [client]);
 
-    while (accumulated.length < limit && to >= DEPLOY_BLOCK) {
+  // Scan backward from `startTo` in CHUNK windows until ≥ limit records or deploy.
+  const scanBack = useCallback(async (startTo: bigint, limit: number) => {
+    const acc: RawTx[] = [];
+    let to = startTo;
+    while (acc.length < limit && to >= DEPLOY_BLOCK) {
       const from = to - CHUNK + 1n < DEPLOY_BLOCK ? DEPLOY_BLOCK : to - CHUNK + 1n;
-      const chunk = await fetchChunk(client!, from, to, tokenSym);
-      accumulated.push(...chunk);
+      acc.push(...await fetchChunk(client!, from, to, sym));
+      if (from === DEPLOY_BLOCK) { to = DEPLOY_BLOCK - 1n; break; }
       to = from - 1n;
-      if (from === DEPLOY_BLOCK) break;
-      if (accumulated.length < limit) await sleep(DELAY_MS);
     }
+    acc.sort((a, b) => (a.blockNumber < b.blockNumber ? 1 : -1));
+    return { records: await withTs(acc), nextCursor: to >= DEPLOY_BLOCK ? to : null };
+  }, [client, sym, withTs]);
 
-    // Sort newest first, take limit
-    accumulated.sort((a, b) => (a.blockNumber < b.blockNumber ? 1 : -1));
-    const page = accumulated.slice(0, limit);
-
-    // Attach timestamps
-    const tsMap = await fetchTimestamps(client!, page.map(r => r.blockNumber));
-    const withTs: TxRecord[] = page.map(r => ({ ...r, timestamp: tsMap.get(r.blockNumber) ?? 0 }));
-
-    return { records: withTs, nextCursor: to >= DEPLOY_BLOCK ? to : null };
-  }, [client, tokenSym]);
-
-  // Initial load + periodic refresh
+  // Initial load + tail-only poll (only fetches blocks newer than headBlock).
   useEffect(() => {
     if (!client || poolTokens.length === 0) return;
     let cancelled = false;
 
     async function init() {
+      // Already scanned this session → show instantly, just refresh the tail.
+      if (snapshot && snapshot.records.length) { setIsLoading(false); await poll(); return; }
       setIsLoading(true);
       setError(null);
       try {
@@ -152,7 +138,8 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
         const { records, nextCursor } = await scanBack(latest, PAGE_SIZE);
         if (cancelled) return;
         setTxs(records);
-        cursorRef.current = nextCursor;
+        backCursor.current = nextCursor;
+        headBlock.current = latest;
         setHasMore(nextCursor !== null);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
@@ -165,33 +152,49 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
       if (cancelled) return;
       try {
         const latest = await client!.getBlockNumber();
-        const { records, nextCursor } = await scanBack(latest, PAGE_SIZE);
-        if (cancelled) return;
-        setTxs(records);
-        cursorRef.current = nextCursor;
-        setHasMore(nextCursor !== null);
+        if (latest <= headBlock.current) return;
+        let from = headBlock.current + 1n;
+        const fresh: RawTx[] = [];
+        while (from <= latest) {
+          const to = from + CHUNK - 1n > latest ? latest : from + CHUNK - 1n;
+          fresh.push(...await fetchChunk(client!, from, to, sym));
+          from = to + 1n;
+        }
+        headBlock.current = latest;
+        if (fresh.length === 0 || cancelled) return;
+        const withTime = await withTs(fresh);
+        setTxs((prev) => {
+          const seen = new Set(prev.map((t) => `${t.hash}-${t.blockNumber}`));
+          const merged = [...withTime.filter((t) => !seen.has(`${t.hash}-${t.blockNumber}`)), ...prev];
+          merged.sort((a, b) => (a.blockNumber < b.blockNumber ? 1 : -1));
+          return merged;
+        });
       } catch {
-        // silently ignore poll errors
+        // ignore transient poll errors
       }
     }
 
     init();
-    const interval = setInterval(poll, 15_000);
+    const interval = setInterval(poll, POLL_MS);
     return () => { cancelled = true; clearInterval(interval); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, poolTokens.length]);
 
-  // Load more (called on scroll)
+  // Keep the session snapshot current so revisiting the route is instant.
+  useEffect(() => {
+    if (txs.length) snapshot = { records: txs, backCursor: backCursor.current, headBlock: headBlock.current, hasMore };
+  }, [txs, hasMore]);
+
   const loadMore = useCallback(async () => {
-    if (!cursorRef.current || isLoadingMore || !hasMore) return;
+    if (backCursor.current === null || isLoadingMore || !hasMore) return;
     setIsLoadingMore(true);
     try {
-      const { records, nextCursor } = await scanBack(cursorRef.current, PAGE_SIZE);
-      setTxs(prev => [...prev, ...records]);
-      cursorRef.current = nextCursor;
+      const { records, nextCursor } = await scanBack(backCursor.current, PAGE_SIZE);
+      setTxs((prev) => [...prev, ...records]);
+      backCursor.current = nextCursor;
       setHasMore(nextCursor !== null);
     } catch {
-      // silently ignore pagination errors
+      // ignore
     } finally {
       setIsLoadingMore(false);
     }
@@ -203,10 +206,11 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
       const latest = await client.getBlockNumber();
       const { records, nextCursor } = await scanBack(latest, PAGE_SIZE);
       setTxs(records);
-      cursorRef.current = nextCursor;
+      backCursor.current = nextCursor;
+      headBlock.current = latest;
       setHasMore(nextCursor !== null);
     } catch {
-      // silently ignore
+      // ignore
     }
   }, [client, poolTokens.length, scanBack]);
 

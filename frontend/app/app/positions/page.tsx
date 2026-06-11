@@ -588,7 +588,7 @@ function PositionRow({
       )}
       {modal?.type === "burn" && (
         <ConfirmModal title={`Burn Position #${tokenId}`}
-          body="This permanently removes the position NFT. Decrease liquidity to zero and collect fees first."
+          body="This withdraws the entire position and burns its LP shares. Collect any owed fees first — they aren't claimed automatically."
           confirmLabel="Burn position" onConfirm={handleBurn} onClose={() => setModal(null)} isPending={isPending} danger />
       )}
     </>

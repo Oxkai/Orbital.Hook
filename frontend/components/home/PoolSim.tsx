@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { color, typography } from "@/constants";
 import { SectionLabel } from "./SectionLabel";
+import { Emphasized } from "./Emphasized";
 import {
   TOKENS,
   TICK_DEPEGS,
@@ -187,21 +188,34 @@ function VizPanel({ caption, meta, children }: { caption: string; meta: string; 
   );
 }
 
-function TokenRow({ label, active, disabledIdx, onPick }: { label: string; active: number; disabledIdx: number; onPick: (i: number) => void }) {
+// Compact token chips — the active one is filled; picking a conflicting token
+// auto-resolves the other side, so there's no greyed/disabled state.
+function TokChips({ active, onPick }: { active: number; onPick: (i: number) => void }) {
   return (
-    <div className="flex items-center gap-3">
-      <span style={{ width: 26, flexShrink: 0, fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", color: color.textMuted, textTransform: "uppercase" }}>{label}</span>
-      <div className="grid grid-cols-3 gap-1 flex-1">
-        {TOKENS.map((t, i) => {
-          const on = i === active;
-          const off = i === disabledIdx;
-          return (
-            <button key={t} type="button" disabled={off} onClick={() => onPick(i)} style={{ fontFamily: MONO, fontSize: "11px", letterSpacing: "0.06em", padding: "7px 0", color: on ? color.bg : off ? color.textMuted : color.textSecondary, backgroundColor: on ? color.accent : "transparent", border: `1px solid ${on ? color.accent : color.border}`, opacity: off ? 0.4 : 1, cursor: off ? "not-allowed" : "pointer", transition: "all 150ms" }}>
-              {t}
-            </button>
-          );
-        })}
-      </div>
+    <div className="flex gap-1">
+      {TOKENS.map((t, i) => {
+        const on = i === active;
+        return (
+          <button
+            key={t}
+            type="button"
+            onClick={() => onPick(i)}
+            style={{
+              fontFamily: MONO,
+              fontSize: 11,
+              letterSpacing: "0.04em",
+              padding: "4px 11px",
+              color: on ? color.bg : color.textSecondary,
+              backgroundColor: on ? color.accent : "transparent",
+              border: `1px solid ${on ? color.accent : color.border}`,
+              cursor: "pointer",
+              transition: "all 150ms",
+            }}
+          >
+            {t}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -226,6 +240,7 @@ export function PoolSim() {
 
   const pickIn = (k: number) => { setInTok(k); if (k === outTok) setOutTok((k + 1) % 3); setAmountStr(""); };
   const pickOut = (k: number) => { setOutTok(k); if (k === inTok) setInTok((k + 1) % 3); setAmountStr(""); };
+  const swapDir = () => { setInTok(outTok); setOutTok(inTok); setAmountStr(""); };
   const commit = () => { if (amount <= 0) return; setState(applySwap(state, inTok, outTok, amount)); setAmountStr(""); };
   const reset = () => { setState(initState()); setAmountStr(""); };
 
@@ -238,12 +253,29 @@ export function PoolSim() {
       <SectionLabel border chapter="V" section="04" path="ORBITAL / SIMULATION" />
 
       <div className="pb-12 pt-20">
-        <p style={{ fontFamily: typography.h1.family, fontSize: "clamp(40px, 5vw, 72px)", lineHeight: "1.05", letterSpacing: "-0.04em", color: color.textPrimary, fontWeight: 400 }}>
-          Two cuts of one sphere.{" "}
-          <span style={{ color: color.textMuted }}>
-            A $30M three-stable pool — the same trade through the tick planes, and along the two-token reserve curve.
-          </span>
-        </p>
+        <Emphasized
+          size="clamp(40px, 5vw, 72px)"
+          lineHeight="1.05"
+          letterSpacing="-0.04em"
+          fontFamily={typography.h1.family}
+          segments={[
+            { t: "See the pool in motion", v: "on" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "A ", v: "off" },
+            { t: "$30M pool", v: "on" },
+            { t: " of three stablecoins", v: "off" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "Make a swap", v: "on" },
+            { t: " and watch it two ways — ", v: "off" },
+            { t: "looking down the tick planes", v: "on" },
+            { t: ", and ", v: "off" },
+            { t: "along the curve", v: "on" },
+            { t: " between the two coins you trade", v: "off" },
+            { t: ".", v: "green" },
+          ]}
+        />
       </div>
 
       {/* A | B | C */}
@@ -260,51 +292,60 @@ export function PoolSim() {
 
         {/* Section C: swap + all readouts */}
         <div className="border border-dashed flex flex-col" style={{ borderColor: color.border, backgroundColor: color.surface1, minHeight: 360 }}>
-          <PanelHead caption="// SECTION C · SWAP & STATE" />
+          <PanelHead caption="// SECTION C · SWAP" />
 
-          {/* swap controls */}
-          <div className="px-5 pt-2 pb-4 flex flex-col gap-3">
-            <TokenRow label="IN" active={inTok} disabledIdx={outTok} onPick={pickIn} />
-            <TokenRow label="OUT" active={outTok} disabledIdx={inTok} onPick={pickOut} />
+          {/* swap card */}
+          <div className="px-5 pt-3 pb-5 flex flex-col gap-2">
+            {/* PAY */}
+            <div className="flex items-center justify-between">
+              <Mono dim>PAY</Mono>
+              <TokChips active={inTok} onPick={pickIn} />
+            </div>
+            <div className="flex items-stretch" style={{ border: inputBorder, backgroundColor: color.bg }}>
+              <input
+                className="psim-num"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={maxInM}
+                step={0.1}
+                placeholder="0.00"
+                value={amountStr}
+                onChange={(e) => setAmountStr(e.target.value)}
+                style={{ flex: 1, minWidth: 0, fontFamily: MONO, fontSize: 20, color: color.textPrimary, backgroundColor: "transparent", border: "none", padding: "13px 14px", outline: "none" }}
+              />
+              <span style={{ fontFamily: MONO, fontSize: 11, color: color.textMuted, alignSelf: "center", padding: "0 6px" }}>$M</span>
+              <button type="button" onClick={() => setAmountStr(maxInM.toFixed(2))} style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.06em", padding: "0 16px", color: color.textSecondary, backgroundColor: "transparent", border: "none", borderLeft: inputBorder, cursor: "pointer" }}>
+                MAX
+              </button>
+            </div>
+            <input type="range" min={0} max={maxInM || 1} step={(maxInM || 1) / 300} value={amount / 1e6} onChange={(e) => setAmountStr(e.target.value)} style={{ accentColor: color.accent, width: "100%" }} />
 
-            <div className="flex flex-col gap-2 mt-1">
-              <Mono dim>{"//"} AMOUNT IN ({TOKENS[inTok]}, $M)</Mono>
-              <div className="flex items-stretch gap-1">
-                <input
-                  className="psim-num"
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  max={maxInM}
-                  step={0.1}
-                  placeholder="0.00"
-                  value={amountStr}
-                  onChange={(e) => setAmountStr(e.target.value)}
-                  style={{ flex: 1, minWidth: 0, fontFamily: MONO, fontSize: 14, color: color.textPrimary, backgroundColor: color.bg, border: inputBorder, padding: "9px 12px", outline: "none" }}
-                />
-                <button type="button" onClick={() => setAmountStr(maxInM.toFixed(2))} style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.06em", padding: "0 14px", color: color.textSecondary, backgroundColor: "transparent", border: inputBorder, cursor: "pointer" }}>
-                  MAX
-                </button>
-              </div>
-              <input type="range" min={0} max={maxInM || 1} step={(maxInM || 1) / 300} value={amount / 1e6} onChange={(e) => setAmountStr(e.target.value)} style={{ accentColor: color.accent, width: "100%" }} />
+            {/* direction */}
+            <div className="flex justify-center my-0.5">
+              <button type="button" onClick={swapDir} title="Flip direction" style={{ fontFamily: MONO, fontSize: 14, lineHeight: 1, width: 36, height: 30, color: color.textSecondary, backgroundColor: color.surface2, border: inputBorder, cursor: "pointer", transition: "all 150ms" }}>
+                ⇅
+              </button>
             </div>
 
-            <div className="flex flex-col gap-1.5 border-t border-dashed pt-3" style={divider}>
-              <div className="flex items-baseline justify-between">
-                <Mono dim>RECEIVE</Mono>
-                <span style={{ fontFamily: MONO, fontSize: 14, color: color.textPrimary }}>{fmtM(out)} {TOKENS[outTok]}</span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <Mono dim>EFF. PRICE</Mono>
-                <span style={{ fontFamily: MONO, fontSize: 12, color: effPrice < 1 - TICK_DEPEGS[0] ? color.accent : color.textSecondary }}>{effPrice.toFixed(5)}</span>
-              </div>
+            {/* RECEIVE */}
+            <div className="flex items-center justify-between">
+              <Mono dim>RECEIVE</Mono>
+              <TokChips active={outTok} onPick={pickOut} />
+            </div>
+            <div className="flex items-baseline justify-between" style={{ border: inputBorder, backgroundColor: color.surface2, padding: "13px 14px" }}>
+              <span style={{ fontFamily: MONO, fontSize: 20, color: out > 0 ? color.textPrimary : color.textMuted }}>{fmtM(out)}</span>
+              <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.04em", color: effPrice < 1 - TICK_DEPEGS[0] ? color.accent : color.textMuted, transition: "color 200ms" }}>
+                1 {TOKENS[inTok]} ≈ {effPrice.toFixed(5)} {TOKENS[outTok]}
+              </span>
             </div>
 
-            <div className="flex gap-1">
-              <button type="button" onClick={commit} disabled={amount <= 0} className="flex-1" style={{ fontFamily: MONO, fontSize: "12px", letterSpacing: "0.08em", padding: "11px", textTransform: "uppercase", color: amount > 0 ? color.bg : color.textMuted, backgroundColor: amount > 0 ? color.accent : "transparent", border: `1px solid ${amount > 0 ? color.accent : color.border}`, cursor: amount > 0 ? "pointer" : "not-allowed", transition: "all 150ms" }}>
+            {/* actions */}
+            <div className="flex gap-1 mt-2">
+              <button type="button" onClick={commit} disabled={amount <= 0} className="flex-1" style={{ fontFamily: MONO, fontSize: "12px", letterSpacing: "0.08em", padding: "12px", textTransform: "uppercase", color: amount > 0 ? color.bg : color.textMuted, backgroundColor: amount > 0 ? color.accent : "transparent", border: `1px solid ${amount > 0 ? color.accent : color.border}`, cursor: amount > 0 ? "pointer" : "not-allowed", transition: "all 150ms" }}>
                 Commit swap
               </button>
-              <button type="button" onClick={reset} style={{ fontFamily: MONO, fontSize: "12px", letterSpacing: "0.08em", padding: "11px 16px", textTransform: "uppercase", color: color.textSecondary, backgroundColor: "transparent", border: `1px solid ${color.border}`, cursor: "pointer" }}>
+              <button type="button" onClick={reset} style={{ fontFamily: MONO, fontSize: "12px", letterSpacing: "0.08em", padding: "12px 16px", textTransform: "uppercase", color: color.textSecondary, backgroundColor: "transparent", border: `1px solid ${color.border}`, cursor: "pointer" }}>
                 Reset
               </button>
             </div>

@@ -11,15 +11,16 @@ import { type Address } from "viem";
 export const HOOK_ADDRESS    = "0x405E3C4541077C501854082cf3256926BeF6AA88" as Address; // OrbitalHook (USDC/USDT/DAI/FRAX)
 export const POOL_MANAGER    = "0x00B036B58a818B1BC34d502D3fE730Db729e62AC" as Address; // canonical
 export const SWAP_ROUTER     = "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540" as Address; // our v4Router04 -> canonical PoolManager
-export const QUOTER_ADDRESS  = "0x56DcD40A3F2D466F48E7F48BdBe5cc9b92aE4472" as Address; // canonical V4Quoter
+export const QUOTER_ADDRESS  = "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472" as Address; // canonical V4Quoter
 export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as Address;
 
-// Back-compat aliases for components written against the standalone AMM.
-// The hook is both the "pool" (engine state) and the swap target.
+// The OrbitalHook is both the "pool" (engine state + LP surface) and the swap
+// target. LP positions are soulbound ERC-6909 shares on the hook (tokenId =
+// tickIdx) — the Positions/LP pages read & write the hook directly via
+// HOOK_LP_ABI; there is no separate PositionManager.
 export const POOL_ADDRESS    = HOOK_ADDRESS;
 export const POOL_ADDRESSES  = [HOOK_ADDRESS] as const;
 export const ROUTER_ADDRESS  = SWAP_ROUTER;
-export const PM_ADDRESS       = POOL_MANAGER;
 
 // Registered assets, named by symbol. The hook internally stores them
 // sorted-ascending by address; the frontend looks them up via TOKEN_META.
@@ -127,7 +128,10 @@ const POOL_KEY_COMPONENTS = [
   { name: "hooks",       type: "address" },
 ] as const;
 
-// V4Quoter — quoteExactInputSingle reverts internally to return data; call via eth_call (useSimulateContract).
+// V4Quoter — quoteExactInputSingle is `nonpayable` on-chain but read-only via
+// eth_call (it reverts internally and returns the decoded result). We type it
+// `view` so the frontend can read it with `useReadContract` (a plain eth_call,
+// no connected wallet required) instead of `useSimulateContract`.
 export const QUOTER_ABI = [
   {
     type: "function", name: "quoteExactInputSingle",
@@ -144,7 +148,7 @@ export const QUOTER_ABI = [
       { name: "amountOut",   type: "uint256" },
       { name: "gasEstimate", type: "uint256" },
     ],
-    stateMutability: "nonpayable",
+    stateMutability: "view",
   },
 ] as const;
 
@@ -186,33 +190,6 @@ export const HOOK_LP_ABI = [
       { name: "kWad",      type: "uint256", indexed: false },
       { name: "rWad",      type: "uint256", indexed: false },
       { name: "amounts",   type: "uint256[]", indexed: false },
-    ],
-  },
-] as const;
-
-// NOTE: PM_ABI is retained only so the LP/positions pages still compile.
-// Those pages target the standalone AMM PositionManager and are NOT wired to
-// the v4 hook yet (out of scope — swap widget only). They will not function.
-export const PM_ABI = [
-  {
-    type: "function", name: "positions",
-    inputs: [{ name: "tokenId", type: "uint256" }],
-    outputs: [
-      { name: "pool",      type: "address" },
-      { name: "tickIndex", type: "uint256" },
-      { name: "kWad",      type: "uint256" },
-      { name: "rWad",      type: "uint256" },
-    ],
-    stateMutability: "view",
-  },
-  { type: "function", name: "balanceOf", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
-  { type: "function", name: "ownerOf",   inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ type: "address" }], stateMutability: "view" },
-  {
-    type: "event", name: "Transfer",
-    inputs: [
-      { name: "from",    type: "address", indexed: true },
-      { name: "to",      type: "address", indexed: true },
-      { name: "tokenId", type: "uint256", indexed: true },
     ],
   },
 ] as const;

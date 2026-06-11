@@ -1,5 +1,6 @@
 import { color, typography } from "@/constants";
 import { SectionLabel } from "./SectionLabel";
+import { Emphasized } from "./Emphasized";
 
 const MONO = "var(--font-mono)";
 
@@ -54,22 +55,28 @@ export function Architecture() {
       <SectionLabel border chapter="IV" section="03" path="ORBITAL / ARCHITECTURE" />
 
       <div className="pb-12 pt-20">
-        <p
-          style={{
-            fontFamily: typography.h1.family,
-            fontSize: "clamp(40px, 5vw, 72px)",
-            lineHeight: "1.05",
-            letterSpacing: "-0.04em",
-            color: color.textPrimary,
-            fontWeight: 400,
-          }}
-        >
-          Six pools, one hook.{" "}
-          <span style={{ color: color.textMuted }}>
-            Four stablecoins make six v4 pools — every one bound to a single OrbitalHook that holds one shared
-            sphere. They quote off the same reserves and settle through the v4 PoolManager.
-          </span>
-        </p>
+        <Emphasized
+          size="clamp(40px, 5vw, 72px)"
+          lineHeight="1.05"
+          letterSpacing="-0.04em"
+          fontFamily={typography.h1.family}
+          segments={[
+            { t: "Six pools", v: "on" },
+            { t: ", ", v: "off" },
+            { t: "one hook", v: "on" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "Four stablecoins", v: "on" },
+            { t: " make ", v: "off" },
+            { t: "six trading pairs", v: "on" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "Every pair points at the same hook, which holds ", v: "off" },
+            { t: "one shared pool of reserves", v: "on" },
+            { t: " — so they all trade against the same liquidity", v: "off" },
+            { t: ".", v: "green" },
+          ]}
+        />
       </div>
 
       {/* Diagram */}

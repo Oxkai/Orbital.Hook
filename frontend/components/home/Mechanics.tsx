@@ -1,5 +1,6 @@
 import { color, typography } from "@/constants";
 import { SectionLabel } from "./SectionLabel";
+import { Emphasized } from "./Emphasized";
 import { Tex } from "@/components/Tex";
 
 const MONO = "var(--font-mono)";
@@ -97,21 +98,35 @@ export function Mechanics() {
       <SectionLabel border chapter="III" section="02" path="ORBITAL / MECHANICS" />
 
       <div className="pb-12 pt-20">
-        <p
-          style={{
-            fontFamily: typography.h1.family,
-            fontSize: "clamp(40px, 5vw, 72px)",
-            lineHeight: "1.05",
-            letterSpacing: "-0.04em",
-            color: color.textPrimary,
-            fontWeight: 400,
-          }}
-        >
-          The whole curve, in three shapes.{" "}
-          <span style={{ color: color.textMuted }}>
-            A sphere for the reserves, a plane for every LP position, and a torus that folds them into one O(1) swap.
-          </span>
-        </p>
+        <Emphasized
+          size="clamp(40px, 5vw, 72px)"
+          lineHeight="1.05"
+          letterSpacing="-0.04em"
+          fontFamily={typography.h1.family}
+          segments={[
+            { t: "The curve", v: "on" },
+            { t: " is built from ", v: "off" },
+            { t: "three shapes", v: "on" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "A ", v: "off" },
+            { t: "sphere", v: "on" },
+            { t: " holds the reserves", v: "off" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "A ", v: "off" },
+            { t: "plane", v: "on" },
+            { t: " marks each LP's range", v: "off" },
+            { t: ".", v: "green" },
+            " ",
+            { t: "A ", v: "off" },
+            { t: "torus", v: "on" },
+            { t: " folds them together — so a swap ", v: "off" },
+            { t: "costs the same to compute", v: "on" },
+            { t: " no matter how many coins or ticks", v: "off" },
+            { t: ".", v: "green" },
+          ]}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-1 md:grid-cols-3 mb-24">

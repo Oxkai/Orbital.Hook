@@ -54,7 +54,7 @@ export function BurnPositionModal({ tokenId, hash, tokens, finalLiquidity, onClo
         <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
           {[
             { label: "Liquidity at burn", value: fmtUSD(finalLiquidity), accent: finalLiquidity > 0 ? "#E89B3A" : color.textMuted },
-            { label: "NFT status",        value: "Destroyed",            accent: accent },
+            { label: "LP shares",         value: "Burned",               accent: accent },
           ].map(s => (
             <div key={s.label} style={{ flex: 1, padding: "10px 12px", backgroundColor: color.surface2, border: `1px solid ${color.borderSubtle}` }}>
               <div style={{ ...M, fontSize: "9px", letterSpacing: "0.07em", textTransform: "uppercase" as const, color: color.textMuted, marginBottom: 4 }}>{s.label}</div>
@@ -74,7 +74,7 @@ export function BurnPositionModal({ tokenId, hash, tokens, finalLiquidity, onClo
 
         <div style={{ padding: "10px 0 16px" }}>
           <span style={{ ...M, fontSize: "10px", color: color.textMuted }}>
-            The position NFT no longer exists. This action is permanent and cannot be reversed.
+            The position&apos;s LP shares have been burned. This action is permanent and cannot be reversed.
           </span>
         </div>
       </div>

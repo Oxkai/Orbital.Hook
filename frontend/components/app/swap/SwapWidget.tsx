@@ -13,12 +13,14 @@ import {
   ArrowSquareOut,
 } from "@phosphor-icons/react";
 import { TokenDAI, TokenUSDT, TokenUSDC, TokenFRAX } from "@token-icons/react";
-import { useAccount, useConnect, useConnectors, useWriteContract, useSimulateContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useConnect, useConnectors, useWriteContract, useReadContract, useWaitForTransactionReceipt } from "wagmi";
 import { type Address, type Hash, maxUint256 } from "viem";
 import { color, typography } from "@/constants";
 import { usePool } from "@/lib/hooks/usePool";
 import { useTokenBalances, useTokenAllowances } from "@/lib/hooks/useTokenBalances";
 import { POOL_ADDRESS, QUOTER_ADDRESS, ROUTER_ADDRESS, ERC20_ABI, ROUTER_ABI, QUOTER_ABI, buildPoolKey } from "@/lib/contracts";
+import { unichainSepolia } from "@/lib/wagmi";
+import { UnichainMark } from "@/components/app/shared/UnichainMark";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TOKEN_ICON_MAP: Record<string, React.ComponentType<any>> = {
@@ -417,6 +419,7 @@ function SwapInfoPanel({ tokenIn, tokenOut, tokens, numIn, amountOut, slippage, 
 
 // ─── Main widget ──────────────────────────────────────────────────────────────
 
+
 export function SwapWidget() {
   const [tokenIn,      setTokenIn]      = useState(0);
   const [tokenOut,     setTokenOut]     = useState(1);
@@ -474,7 +477,10 @@ export function SwapWidget() {
     ? buildPoolKey(inAddr, outAddr)
     : undefined;
 
-  const { data: quoteData } = useSimulateContract({
+  // Plain eth_call quote — no connected wallet needed (works pre-connect),
+  // always against Unichain Sepolia regardless of the wallet's chain.
+  const { data: quoteData } = useReadContract({
+    chainId:      unichainSepolia.id,
     address:      QUOTER_ADDRESS,
     abi:          QUOTER_ABI,
     functionName: "quoteExactInputSingle",
@@ -485,7 +491,7 @@ export function SwapWidget() {
   });
 
   // quoteExactInputSingle returns (amountOut, gasEstimate).
-  const amountOut    = quoteData?.result ? Number((quoteData.result as readonly [bigint, bigint])[0]) / 1e18 : 0;
+  const amountOut    = quoteData ? Number((quoteData as readonly [bigint, bigint])[0]) / 1e18 : 0;
   const amountOutStr = amountOut > 0 ? amountOut.toFixed(5) : "";
 
   const inBalance      = tokensWithBalance[tokenIn]?.balance ?? 0;
@@ -595,17 +601,36 @@ export function SwapWidget() {
         >
           Swap
         </span>
-        <button
-          onClick={() => setShowSettings(v => !v)}
-          className="flex items-center justify-center w-7 h-7 hover:opacity-100 opacity-70 transition-opacity"
-          style={{ cursor: "pointer" }}
-        >
-          <GearSix
-            size={14}
-            color={showSettings ? color.textPrimary : color.textMuted}
-            weight="regular"
-          />
-        </button>
+        <div className="flex items-center gap-2.5">
+          <div
+            className="flex items-center gap-1.5 px-2.5 h-7"
+            style={{ backgroundColor: color.surface2 }}
+          >
+            <UnichainMark size={13} />
+            <span
+              style={{
+                fontFamily: typography.caption.family,
+                fontSize: "11px",
+                letterSpacing: "0.02em",
+                color: color.textSecondary,
+                whiteSpace: "nowrap",
+              }}
+            >
+              Unichain Sepolia
+            </span>
+          </div>
+          <button
+            onClick={() => setShowSettings(v => !v)}
+            className="flex items-center justify-center w-7 h-7 hover:opacity-100 opacity-70 transition-opacity"
+            style={{ cursor: "pointer" }}
+          >
+            <GearSix
+              size={14}
+              color={showSettings ? color.textPrimary : color.textMuted}
+              weight="regular"
+            />
+          </button>
+        </div>
       </div>
 
       {/* ── Settings (when open) ─────────────────────────────────── */}

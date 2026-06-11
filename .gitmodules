@@ -7,3 +7,6 @@
 [submodule "orbitalHook/lib/hookmate"]
 	path = orbitalHook/lib/hookmate
 	url = https://github.com/akshatmittal/hookmate
+[submodule "orbitalHook/lib/reactive-lib"]
+	path = orbitalHook/lib/reactive-lib
+	url = https://github.com/Reactive-Network/reactive-lib

@@ -49,7 +49,7 @@ library TorusMath {
 
     /// @notice Compute LHS = (alphaInt − rInt√n)² + (wNorm − sBound)², WAD-scaled.
     function torusLHS(TorusState memory s) internal pure returns (uint256) {
-        uint256 sqrtN = s.sqrtN; // cached √n·WAD; avoids a Babylonian sqrt per call
+        uint256 sqrtN = s.sqrtN; // cached √n·WAD; avoids recomputing sqrt(n·WAD²) per call
 
         // alphaTot = Σxᵢ / √n
         uint256 alphaTot = FullMath.mulDiv(s.sumX, WAD, sqrtN);

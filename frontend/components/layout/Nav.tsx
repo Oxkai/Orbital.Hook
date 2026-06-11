@@ -53,18 +53,25 @@ export function Nav() {
       }}
     >
       <div className="col-span-4 grid items-center">
-        <Link href="/" className="inline-grid grid-flow-col auto-cols-max items-center gap-2">
-        <span
-          style={{
-            fontFamily: typography.p2.family,
-            fontSize: "14px",
-            fontWeight: 500,
-            letterSpacing: "0.1em",
-            color: color.textPrimary,
-          }}
-        >
-          ORBITAL
-        </span>
+        <Link href="/" aria-label="Orbital home" className="inline-grid grid-flow-col auto-cols-max items-center gap-2">
+          <span
+            role="img"
+            aria-label="Orbital"
+            style={{
+              display: "inline-block",
+              width: 26,
+              height: 26,
+              backgroundColor: color.textPrimary,
+              WebkitMaskImage: "url(/logo.svg)",
+              maskImage: "url(/logo.svg)",
+              WebkitMaskSize: "contain",
+              maskSize: "contain",
+              WebkitMaskRepeat: "no-repeat",
+              maskRepeat: "no-repeat",
+              WebkitMaskPosition: "center",
+              maskPosition: "center",
+            }}
+          />
         </Link>
       </div>
 

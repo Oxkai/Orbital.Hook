@@ -6,6 +6,7 @@ import { ArrowRight, CurrencyDollar, TrendUp, Coins, Pulse, Copy, Check, ArrowSq
 import { TokenDAI, TokenUSDT, TokenUSDC, TokenFRAX } from "@token-icons/react";
 import { color, typography } from "@/constants";
 import { fmtUSD, type Pool } from "@/lib/mock/data";
+import { UnichainMark } from "@/components/app/shared/UnichainMark";
 
 const TOKEN_ICON_MAP: Record<string, React.ElementType> = {
   DAI: TokenDAI, USDT: TokenUSDT, USDC: TokenUSDC, FRAX: TokenFRAX,
@@ -165,8 +166,12 @@ export function PoolCard({ pool }: PoolCardProps) {
           </div>
         </div>
         <span
-          className="flex items-center gap-1.5 shrink-0 group-hover:opacity-100 opacity-60 transition-opacity"
-          style={body("caption", color.textMuted)}
+          className="flex items-center gap-1.5 shrink-0 h-8 px-3.5 group-hover:opacity-90 transition-colors"
+          style={{
+            ...body("caption", color.textPrimary),
+            backgroundColor: color.surface2,
+            border: `1px solid ${color.border}`,
+          }}
         >
           Details
           <ArrowRight size={13} weight="regular" />
@@ -195,7 +200,10 @@ export function PoolCard({ pool }: PoolCardProps) {
             <ArrowSquareOut size={12} weight="regular" />
           </a>
         </div>
-        <span style={body("caption", color.textMuted)}>Unichain Sepolia</span>
+        <span className="flex items-center gap-1.5 shrink-0" style={body("caption", color.textMuted)}>
+          <UnichainMark size={11} />
+          Unichain Sepolia
+        </span>
       </div>
 
       {/* ── Stats row ────────────────────────────────────────────────── */}
