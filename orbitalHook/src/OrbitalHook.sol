@@ -31,15 +31,19 @@ interface IERC20Decimals {
 /// @dev Single engine state shared across all N(N-1)/2 pair-pools that share this hook.
 ///      Token custody lives in the v4 PoolManager via ERC-6909 claim tokens; this hook
 ///      tracks the abstract reserve vector and routes settlement through `unlockCallback`.
-///      All reserve/amount values are WAD-scaled — v1 assumes every registered asset is
-///      an 18-decimal token.
+///      The engine works entirely in WAD (1e18). Tokens with fewer than 18 decimals
+///      (e.g. 6-decimal USDC/USDT) are supported via a per-asset scale factor
+///      `10^(18-decimals)` applied only at the token-transfer boundaries — raw amounts
+///      are scaled up to WAD on the way in and down to raw on the way out, rounding in
+///      the pool's favour. The engine, ticks, and all public WAD quantities are
+///      untouched. Tokens with MORE than 18 decimals are rejected at deploy.
 ///
 ///      TOKEN ASSUMPTIONS (enforced loosely / by convention, not fully on-chain):
-///      registered assets MUST be standard 18-decimal ERC-20s with no fee-on-transfer
-///      and no rebasing. The hook credits `reserves[i] += amt` and mints `amt` claim
-///      tokens assuming the PoolManager received exactly `amt`; a fee-on-transfer or
-///      rebasing token would leave claim tokens unbacked. Native ETH is unsupported
-///      (the constructor's `decimals()` probe reverts for `address(0)`).
+///      registered assets MUST be standard ERC-20s (≤ 18 decimals) with no
+///      fee-on-transfer and no rebasing. The hook assumes the PoolManager receives
+///      exactly the requested amount; a fee-on-transfer or rebasing token would leave
+///      claim tokens unbacked. Native ETH is unsupported (the constructor's
+///      `decimals()` probe reverts for `address(0)`).
 contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausable {
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
@@ -64,6 +68,15 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     /// @notice Pool fee in hundredths of a bip (e.g. 100 = 1bp).
     uint24 public immutable fee;
 
+    /// @notice Minimum pool fee, in hundredths of a bip (10 = 0.1bp = 10 ppm).
+    /// @dev    The torus invariant is accepted within a 1 ppm tolerance, so each
+    ///         swap can leave the pool off the manifold by up to ~1 ppm in either
+    ///         direction. Requiring the fee to comfortably exceed that tolerance
+    ///         means a swapper can never farm the rounding band for profit (the
+    ///         fee on any round-trip dominates the worst-case drift). Blocks
+    ///         zero/near-zero-fee pools at deploy.
+    uint24 public constant MIN_FEE = 10;
+
     /// @dev Cached √N·WAD (= sqrt(N·WAD²)). N is immutable, so this geometric
     ///      constant is computed once at deploy instead of being re-derived via
     ///      an integer sqrt on every call — it is recomputed ~30×
@@ -73,6 +86,10 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
     Currency[] private _assets;
     mapping(Currency => uint8) private _assetIndexPlusOne;
+    /// @dev Per-asset multiplier `10^(18-decimals)` to convert raw token units to
+    ///      WAD. 1 for 18-decimal tokens; 1e12 for 6-decimal (USDC/USDT). Applied
+    ///      only at the token-transfer boundaries — the engine stays in WAD.
+    mapping(uint8 => uint256) private _scale;
 
     // ─────────────────────────────────────────────────────────────
     // Engine state (mirrors contracts/src/core/OrbitalPool.sol)
@@ -89,8 +106,8 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     Slot0 public slot0;
 
     mapping(uint8 => uint256) public reserves; // virtual x⃗, WAD
-    mapping(uint8 => uint256) public feesAccrued; // raw token units (== WAD here)
-    mapping(uint8 => uint256) public feeGrowthGlobal; // WAD per unit rInt
+    mapping(uint8 => uint256) public feesAccrued; // WAD (scaled to raw on collect)
+    mapping(uint8 => uint256) public feeGrowthGlobal; // WAD per unit interior rInt
 
     TickLib.Tick[] public ticks;
     /// @dev O(1) lookup of LIVE INTERIOR ticks by their `k` value, encoded as
@@ -103,6 +120,14 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
     mapping(bytes32 => PositionLib.Position) public positions;
     mapping(bytes32 => mapping(uint8 => uint256)) public feeGrowthInsideLast;
+    /// @dev Per-tick, per-asset range-fee accounting (Uniswap-v3 style). A tick
+    ///      only earns fees while INTERIOR; `tickFeeGrowthInside` is the cumulative
+    ///      growth frozen across boundary spells, and `tickFeeGrowthSnapshot` is
+    ///      `feeGrowthGlobal` captured at the tick's last interior entry. Together
+    ///      they ensure a boundary (depegged) tick accrues nothing, so the sum of
+    ///      all positions' owed fees never exceeds `feesAccrued`.
+    mapping(uint256 => mapping(uint8 => uint256)) private tickFeeGrowthInside;
+    mapping(uint256 => mapping(uint8 => uint256)) private tickFeeGrowthSnapshot;
     mapping(bytes32 => mapping(uint8 => uint256)) public tokensOwed;
 
     // ─────────────────────────────────────────────────────────────
@@ -126,12 +151,17 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     error TooManyCrossings();
     error CrossingPartialExceedsRemaining();
     error CrossingPartialExceedsOutputReserve();
+    error CrossingInputUnderflow();
     error NothingOwed();
     error FeeBucketShort();
     error SharesAreSoulbound();
-    error AssetNotEighteenDecimals(Currency asset, uint8 decimals);
+    error AssetDecimalsTooHigh(Currency asset, uint8 decimals);
     error SwapAmountTooLarge(uint256 amountIn);
+    error SwapAmountTooSmall(uint256 amountIn);
+    error InteriorRadiusCapExceeded();
     error TooManyTicks();
+    error FeeTooLow(uint24 fee);
+    error BurnBlockedByBoundaryTicks();
 
     event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts);
     event Burn(address indexed owner, uint256 indexed tickIdx, uint256 rWad, uint256[] amounts);
@@ -185,6 +215,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         uint256 len = assets_.length;
         if (len < MIN_ASSETS || len > MAX_ASSETS) revert InvalidAssetCount(len);
         N = uint8(len);
+        if (fee_ < MIN_FEE) revert FeeTooLow(fee_);
         fee = fee_;
         sqrtN = SphereMath.sqrt(uint256(len) * WAD * WAD);
 
@@ -192,10 +223,12 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         for (uint256 i = 0; i < len; ++i) {
             Currency c = assets_[i];
             if (i > 0 && Currency.unwrap(c) <= Currency.unwrap(prev)) revert AssetsNotSortedOrUnique();
-            // Engine math is WAD-scaled. Allowing non-18-decimal tokens would
-            // silently corrupt the reserve vector. Reject loudly at deploy.
+            // The engine is WAD-scaled. Tokens with ≤ 18 decimals are supported
+            // via a per-asset scale factor applied at the transfer boundaries;
+            // > 18 decimals would need to scale *down* (precision loss), so reject.
             uint8 dec = IERC20Decimals(Currency.unwrap(c)).decimals();
-            if (dec != 18) revert AssetNotEighteenDecimals(c, dec);
+            if (dec > 18) revert AssetDecimalsTooHigh(c, dec);
+            _scale[uint8(i)] = 10 ** uint256(18 - dec);
             _assets.push(c);
             _assetIndexPlusOne[c] = uint8(i + 1);
             prev = c;
@@ -216,39 +249,6 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
     function unpause() external onlyOwner {
         _unpause();
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Guardian (automated depeg circuit-breaker)
-    //
-    // A `guardian` is an automation endpoint — in this deployment the
-    // Reactive Network callback contract — allowed to pause the pool the
-    // instant an external oracle reports a constituent stablecoin has
-    // depegged, faster than any human keeper. It can ONLY pause (a
-    // fail-safe action); resuming the pool stays owner-only so a human
-    // reviews the situation before liquidity is re-enabled.
-    // ─────────────────────────────────────────────────────────────
-
-    /// @notice Trusted automation endpoint allowed to call {guardianPause}.
-    address public guardian;
-
-    event GuardianUpdated(address indexed previous, address indexed current);
-    event GuardianPaused(address indexed caller);
-
-    error NotGuardian();
-
-    function setGuardian(address newGuardian) external onlyOwner {
-        emit GuardianUpdated(guardian, newGuardian);
-        guardian = newGuardian;
-    }
-
-    /// @notice Emergency pause triggered by the guardian (e.g. an on-chain
-    ///         depeg signal relayed via Reactive Network). Idempotent-safe:
-    ///         reverts only on authorization, not if already paused.
-    function guardianPause() external {
-        if (msg.sender != guardian && msg.sender != owner()) revert NotGuardian();
-        emit GuardianPaused(msg.sender);
-        _pause();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -339,12 +339,14 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         if (params.amountSpecified >= 0) revert ExactOutputNotSupported();
         if (slot0.rInt == 0) revert NotEnoughLiquidity();
 
-        uint256 amountIn = uint256(-params.amountSpecified);
-        if (amountIn == 0) revert ZeroSwapInput();
+        // `amountIn` is in the input token's RAW units (what the PoolManager
+        // accounts and the trader pays). The engine works in WAD.
+        uint256 amountInRaw = uint256(-params.amountSpecified);
+        if (amountInRaw == 0) revert ZeroSwapInput();
         // Cap input at the BeforeSwapDelta int128 range so the cast at return
         // doesn't silently wrap and emit a negative-looking delta. Also bounds
         // the int256 intermediates inside the quartic solver well within range.
-        if (amountIn > uint256(uint128(type(int128).max))) revert SwapAmountTooLarge(amountIn);
+        if (amountInRaw > uint256(uint128(type(int128).max))) revert SwapAmountTooLarge(amountInRaw);
 
         (Currency cIn, Currency cOut) = params.zeroForOne
             ? (key.currency0, key.currency1)
@@ -352,8 +354,14 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         uint8 assetIn = indexOf(cIn);
         uint8 assetOut = indexOf(cOut);
 
-        uint256 feeAmount = FullMath.mulDiv(amountIn, fee, 1_000_000);
-        uint256 amountInNet = amountIn - feeAmount;
+        // Scale the raw input up to WAD for the engine and fee accounting.
+        uint256 amountInWad = _toWad(assetIn, amountInRaw);
+        uint256 feeAmount = FullMath.mulDiv(amountInWad, fee, 1_000_000);
+        // A trade so small the fee floors to 0 would escape the MIN_FEE >
+        // invariant-tolerance guarantee (the swap could nudge the pool inside the
+        // 1 ppm band for free). Reject it — it's economically meaningless dust.
+        if (feeAmount == 0) revert SwapAmountTooSmall(amountInRaw);
+        uint256 amountInNet = amountInWad - feeAmount;
         _accumulateFee(assetIn, feeAmount);
 
         // Segmenting solver: handles within-tick and tick-crossing in one pass.
@@ -368,7 +376,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
         if (amountOut == 0) revert ZeroSwapOutput();
 
-        // Commit final sumX/sumXSq + reserves[in/out].
+        // Commit final sumX/sumXSq + reserves[in/out] (all WAD).
         // sumX/sumXSq deltas telescope over partials so a single update with
         // (amountInNet, amountOut) and pre-trade xi/xj gives the correct totals.
         _updateReserves(assetIn, assetOut, amountInNet, amountOut);
@@ -378,14 +386,20 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             if (!ok) revert InvariantBroken();
         }
 
-        cIn.take(poolManager, address(this), amountIn, true);
-        cOut.settle(poolManager, address(this), amountOut, true);
+        // Scale the WAD output back down to the out token's raw units, rounding
+        // down so the pool never owes more than it holds.
+        uint256 amountOutRaw = _toRawDown(assetOut, amountOut);
+        if (amountOutRaw == 0) revert ZeroSwapOutput();
+        if (amountOutRaw > uint256(uint128(type(int128).max))) revert SwapAmountTooLarge(amountOutRaw);
 
-        emit Swap(msg.sender, assetIn, assetOut, amountIn, amountOut);
+        emit Swap(msg.sender, assetIn, assetOut, amountInRaw, amountOutRaw);
+
+        cIn.take(poolManager, address(this), amountInRaw, true);
+        cOut.settle(poolManager, address(this), amountOutRaw, true);
 
         return (
             this.beforeSwap.selector,
-            toBeforeSwapDelta(int128(uint128(amountIn)), -int128(uint128(amountOut))),
+            toBeforeSwapDelta(int128(uint128(amountInRaw)), -int128(uint128(amountOutRaw))),
             0
         );
     }
@@ -426,6 +440,17 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     ///      interior, burn and collect all keep working). 128 distinct
     ///      concentration points is generous for a stableswap.
     uint256 internal constant MAX_TICKS = 128;
+
+    /// @dev Cap on the total interior radius (and therefore on reserve magnitude).
+    ///      `SwapAmountTooLarge` bounds the swap *input*, but the tick-crossing
+    ///      coefficients scale with RESERVE magnitude (e.g. `bCoef ≈ 2·xi`,
+    ///      `cCoef ≈ sumXSq`), squared inside `QuadraticSolver`. Unbounded reserves
+    ///      could push `bCoef²`/`8·cCoef·WAD` past int256 and revert the crossing
+    ///      path (a partial DoS). Mints only run while `kBound == 0`, so `rInt` is
+    ///      the whole pool radius then; capping it caps reserves for the pool's
+    ///      lifetime (swaps and crossings conserve total radius). 1e34 WAD ≈ 1e16
+    ///      18-decimal tokens — far above any real pool, with >1e6× int256 margin.
+    uint256 internal constant MAX_RINT = 1e34;
 
     function _solveWithCrossings(SwapState memory state, uint256[] memory res, uint8 assetIn, uint8 assetOut)
         internal
@@ -521,18 +546,18 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         uint8 assetOut,
         uint256 crossTickIdx
     ) internal view returns (XoverCoeffs memory q) {
-        uint256 sqrtN = ts.sqrtN; // cached √N·WAD (see immutable `sqrtN`)
+        uint256 sqrtNc = ts.sqrtN; // cached √N·WAD (immutable `sqrtN` threaded via TorusState)
 
         uint256 kNormCross = FullMath.mulDiv(ticks[crossTickIdx].k, WAD, ticks[crossTickIdx].r);
         uint256 alphaIntTarget = FullMath.mulDiv(kNormCross, ts.rInt, WAD);
-        uint256 targetSumX = FullMath.mulDiv(alphaIntTarget + ts.kBound, sqrtN, WAD);
+        uint256 targetSumX = FullMath.mulDiv(alphaIntTarget + ts.kBound, sqrtNc, WAD);
 
         q.dPositive = targetSumX >= ts.sumX;
         q.D = q.dPositive ? targetSumX - ts.sumX : ts.sumX - targetSumX;
 
         uint256 targetSumXSq;
         {
-            uint256 rIntSqrtN = FullMath.mulDiv(ts.rInt, sqrtN, WAD);
+            uint256 rIntSqrtN = FullMath.mulDiv(ts.rInt, sqrtNc, WAD);
             uint256 t1Abs = alphaIntTarget >= rIntSqrtN ? alphaIntTarget - rIntSqrtN : rIntSqrtN - alphaIntTarget;
             uint256 rIntSq = FullMath.mulDiv(ts.rInt, ts.rInt, WAD);
             uint256 t1AbsSq = FullMath.mulDiv(t1Abs, t1Abs, WAD);
@@ -572,7 +597,17 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         XoverCoeffs memory q = _xoverCoeffs(state.torus, res, assetIn, assetOut, crossTickIdx);
 
         partialOut = QuadraticSolver.solveSmallestNonNegativeRoot(q.bCoef, q.cCoef);
-        partialIn = q.dPositive ? q.D + partialOut : (partialOut >= q.D ? partialOut - q.D : 0);
+        if (q.dPositive) {
+            partialIn = q.D + partialOut;
+        } else {
+            // !dPositive ⇒ D > 0 and partialIn = partialOut − D. If the solver
+            // returns partialOut < D the segment would hand out `partialOut` for
+            // ZERO input — a conservation violation. Revert instead of silently
+            // clamping partialIn to 0 and relying on the 1 ppm invariant check to
+            // (maybe) catch the off-manifold result.
+            if (partialOut < q.D) revert CrossingInputUnderflow();
+            partialIn = partialOut - q.D;
+        }
 
         if (partialOut >= res[assetOut]) revert CrossingPartialExceedsOutputReserve();
         if (partialIn > state.amountInRemaining) revert CrossingPartialExceedsRemaining();
@@ -587,15 +622,23 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             state.torus.rInt -= t.r;
             state.torus.kBound += t.k;
             state.torus.sBound += s;
-            // Going interior → boundary: drop the map entry so the next mint
-            // at this k creates a fresh interior tick instead of merging.
+            // Going interior → boundary: freeze fee accrual by banking the growth
+            // earned since the last entry; the tick earns nothing while out.
+            for (uint8 i = 0; i < N; ++i) {
+                tickFeeGrowthInside[tickIdx][i] += feeGrowthGlobal[i] - tickFeeGrowthSnapshot[tickIdx][i];
+            }
+            // Drop the map entry so the next mint at this k creates a fresh
+            // interior tick instead of merging.
             delete _interiorTickByK[t.k];
         } else {
             state.torus.rInt += t.r;
             state.torus.kBound -= t.k;
             state.torus.sBound -= s;
-            // Boundary → interior recovery: re-register this tick as the live
-            // interior representative of its k.
+            // Boundary → interior recovery: resume accrual from the current global.
+            for (uint8 i = 0; i < N; ++i) {
+                tickFeeGrowthSnapshot[tickIdx][i] = feeGrowthGlobal[i];
+            }
+            // Re-register this tick as the live interior representative of its k.
             _interiorTickByK[t.k] = tickIdx + 1;
         }
 
@@ -637,8 +680,8 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     }
 
     function _alphaNormOf(TorusMath.TorusState memory ts, uint256 sumX) internal pure returns (uint256) {
-        uint256 sqrtN = ts.sqrtN; // cached √N·WAD (see immutable `sqrtN`)
-        uint256 alphaTot = FullMath.mulDiv(sumX, WAD, sqrtN);
+        uint256 sqrtNc = ts.sqrtN; // cached √N·WAD (immutable `sqrtN` threaded via TorusState)
+        uint256 alphaTot = FullMath.mulDiv(sumX, WAD, sqrtNc);
         uint256 alphaInt = alphaTot >= ts.kBound ? alphaTot - ts.kBound : 0;
         return ts.rInt > 0 ? FullMath.mulDiv(alphaInt, WAD, ts.rInt) : type(uint256).max;
     }
@@ -804,27 +847,35 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         // Update reserves, sumX, sumXSq, rInt.
         _applyMintToTorus(amounts, m.rWad);
 
+        // Bound total radius so the crossing-path solver coefficients stay within
+        // int256 (see MAX_RINT). kBound == 0 here (mints are gated on it), so rInt
+        // is the whole pool radius.
+        if (slot0.rInt > MAX_RINT) revert InteriorRadiusCapExceeded();
+
         // Position bookkeeping.
         bytes32 pKey = PositionLib.positionKey(m.recipient, tickIdx);
         PositionLib.Position storage pos = positions[pKey];
         if (pos.r > 0) {
-            _updatePositionFees(pKey, pos.r);
+            _updatePositionFees(pKey, pos.r, tickIdx);
             pos.r += m.rWad;
         } else {
             pos.tickIndex = tickIdx;
             pos.r = m.rWad;
         }
         for (uint8 i = 0; i < N; ++i) {
-            feeGrowthInsideLast[pKey][i] = feeGrowthGlobal[i];
+            feeGrowthInsideLast[pKey][i] = _tickInsideGrowth(tickIdx, i);
         }
 
         // Pull tokens to PoolManager (direct ERC-20 OR via Permit2), then
         // convert the resulting +amt delta into ERC-6909 claim tokens held by
         // the hook so net delta on each currency is zero by unlock end.
         for (uint8 i = 0; i < N; ++i) {
-            uint256 amt = amounts[i];
-            if (amt == 0) continue;
+            uint256 amtWad = amounts[i];
+            if (amtWad == 0) continue;
             Currency c = _assets[i];
+            // Convert the WAD deposit to the token's raw units, rounding UP so the
+            // pool is never under-funded against the WAD credited to reserves.
+            uint256 amt = _toRawUp(i, amtWad);
             if (m.usePermit2) {
                 poolManager.sync(c);
                 permit2.transferFrom(m.recipient, address(poolManager), uint160(amt), Currency.unwrap(c));
@@ -861,6 +912,34 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         for (uint8 i = 0; i < N; ++i) {
             out[i] = reserves[i];
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Decimal scaling — raw token units <-> WAD. The engine is WAD;
+    // these are applied only where real tokens cross the PoolManager.
+    // ─────────────────────────────────────────────────────────────
+
+    /// @notice Per-asset multiplier `10^(18-decimals)` (1 for 18-decimal tokens).
+    function scaleOf(uint8 i) external view returns (uint256) {
+        return _scale[i];
+    }
+
+    /// @dev Raw token amount -> WAD (exact; scale is an integer multiplier).
+    function _toWad(uint8 i, uint256 raw) internal view returns (uint256) {
+        return raw * _scale[i];
+    }
+
+    /// @dev WAD -> raw, rounding DOWN. Used for pay-outs so the pool never
+    ///      sends more than it holds (rounding favours the pool).
+    function _toRawDown(uint8 i, uint256 wad) internal view returns (uint256) {
+        return wad / _scale[i];
+    }
+
+    /// @dev WAD -> raw, rounding UP. Used for deposits so the pool is never
+    ///      under-funded against the WAD credited to reserves.
+    function _toRawUp(uint8 i, uint256 wad) internal view returns (uint256) {
+        uint256 s = _scale[i];
+        return (wad + s - 1) / s;
     }
 
     function _computeDepositAmounts(uint256 rWad) internal view returns (uint256[] memory amounts) {
@@ -917,6 +996,12 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             );
             tickIdx = ticks.length - 1;
         }
+        // Fresh (or recycled) interior tick: start its fee-growth snapshot at the
+        // current global so it accrues only from now, and clear any recycled state.
+        for (uint8 i = 0; i < N; ++i) {
+            tickFeeGrowthSnapshot[tickIdx][i] = feeGrowthGlobal[i];
+            tickFeeGrowthInside[tickIdx][i] = 0;
+        }
         _interiorTickByK[kWad] = tickIdx + 1;
     }
 
@@ -945,16 +1030,29 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         feeGrowthGlobal[assetIn] += FullMath.mulDiv(feeAmount, WAD, rInt);
     }
 
-    function _updatePositionFees(bytes32 pKey, uint256 posR) internal {
+    /// @dev Cumulative fee growth credited to `tickIdx` for asset `i`, counting
+    ///      only the time the tick has been INTERIOR. For an interior tick this is
+    ///      the frozen total plus the live growth since its last entry; for a
+    ///      boundary tick it's just the frozen total (it earns nothing while out).
+    ///      `feeGrowthGlobal` only increases and the snapshot is set to it on
+    ///      entry, so the subtraction never underflows.
+    function _tickInsideGrowth(uint256 tickIdx, uint8 i) internal view returns (uint256) {
+        uint256 g = tickFeeGrowthInside[tickIdx][i];
+        if (ticks[tickIdx].isInterior) {
+            g += feeGrowthGlobal[i] - tickFeeGrowthSnapshot[tickIdx][i];
+        }
+        return g;
+    }
+
+    function _updatePositionFees(bytes32 pKey, uint256 posR, uint256 tickIdx) internal {
         for (uint8 i = 0; i < N; ++i) {
-            uint256 g = feeGrowthGlobal[i];
+            uint256 inside = _tickInsideGrowth(tickIdx, i);
             uint256 last = feeGrowthInsideLast[pKey][i];
-            if (g != last) {
+            if (inside != last) {
                 if (posR > 0) {
-                    uint256 growth = g - last;
-                    tokensOwed[pKey][i] += FullMath.mulDiv(posR, growth, WAD);
+                    tokensOwed[pKey][i] += FullMath.mulDiv(posR, inside - last, WAD);
                 }
-                feeGrowthInsideLast[pKey][i] = g;
+                feeGrowthInsideLast[pKey][i] = inside;
             }
         }
     }
@@ -977,9 +1075,24 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         PositionLib.Position storage pos = positions[pKey];
         if (pos.r < b.rWad) revert NotEnoughLiquidity();
 
-        // Settle fees against the OLD position size before modifying it.
-        _updatePositionFees(pKey, pos.r);
+        // Withdrawals are only valid while the pool is fully interior (kBound == 0),
+        // mirroring the mint guard (`MintBlockedByBoundaryTicks`). The payout is
+        // pro-rata of the TOTAL reserve vector by `rWad / rInt`, which is only exact
+        // when every tick is interior: `reserves[]` is the whole pool, while `rInt`
+        // excludes any boundary tick's radius. With a boundary tick present, the
+        // pro-rata mis-accounts — and burning the last interior tick would pay out
+        // 100% of reserves (including the parked boundary tokens) while the
+        // `rInt > 0` invariant check is skipped, silently stranding the boundary
+        // LP. Gating on kBound makes the accounting provably exact in every reachable
+        // burn. A position becomes withdrawable again once its coin re-pegs and the
+        // tick recovers to interior. Correct exit *during* a depeg (per-tick reserve
+        // attribution) is deferred to v2.
+        if (slot0.kBound != 0) revert BurnBlockedByBoundaryTicks();
 
+        // Settle fees against the OLD position size before modifying it.
+        _updatePositionFees(pKey, pos.r, b.tickIdx);
+
+        // kBound == 0 above guarantees every live tick is interior.
         TickLib.Tick storage t = ticks[b.tickIdx];
         amounts = _computeWithdrawAmounts(b.rWad);
 
@@ -988,24 +1101,9 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             if (amounts[i] < b.minAmounts[i]) revert SlippageExceeded(i, amounts[i], b.minAmounts[i]);
         }
 
-        // Update tick aggregates: interior shrinks rInt directly; boundary scales
-        // k/s proportionally to preserve kNorm so a later interior→boundary cross
-        // back is consistent.
-        //
-        // ORDERING NOTE: in the boundary branch, kRemove / sRemove use the
-        // *pre-burn* `t.r` as the denominator. The `t.r -= b.rWad` write below
-        // must stay after this block — moving it up would silently break the
-        // proportional scale.
-        if (t.isInterior) {
-            slot0.rInt -= b.rWad;
-        } else {
-            uint256 kRemove = FullMath.mulDiv(t.k, b.rWad, t.r);
-            uint256 sFull = TorusMath.computeS(t.r, t.k, N);
-            uint256 sRemove = FullMath.mulDiv(sFull, b.rWad, t.r);
-            slot0.kBound -= kRemove;
-            slot0.sBound -= sRemove;
-            t.k -= kRemove;
-        }
+        // Tick is interior (guaranteed by the kBound == 0 gate above), so the
+        // burn simply shrinks the interior radius.
+        slot0.rInt -= b.rWad;
 
         // Update sumX, sumXSq, reserves.
         {
@@ -1033,33 +1131,38 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             delete positions[pKey];
         }
 
-        // If the tick is now fully drained, retire its slot. An interior tick
-        // still carries its original k, so unmap it; a boundary tick's k was
-        // proportionally scaled to 0 above, so it isn't (and wasn't) in the map.
-        // Either way, recycle the array slot via the free-list.
+        // If the tick is now fully drained, retire its slot: unmap its k (the
+        // tick is interior per the gate) and recycle the array slot via the
+        // free-list.
         if (t.r == 0) {
-            if (t.isInterior) delete _interiorTickByK[t.k];
+            delete _interiorTickByK[t.k];
             _freeTickIndices.push(b.tickIdx);
         }
 
         // Burn the LP's ERC-6909 share.
         _burn(b.owner, b.tickIdx, b.rWad);
 
-        // Pay owner each asset as raw ERC-20; hook covers the debt by burning claim tokens.
+        // Engine state is now final — validate the invariant and emit BEFORE any
+        // token movement (checks-effects-interactions). The payout loop below only
+        // transfers tokens; it does not touch reserves/slot0.
+        if (slot0.rInt > 0) {
+            (bool ok,) = TorusMath.checkInvariant(_buildTorusState());
+            if (!ok) revert InvariantBroken();
+        }
+        emit Burn(b.owner, b.tickIdx, b.rWad, amounts);
+
+        // Interactions: pay owner each asset as raw ERC-20; hook covers the debt by
+        // burning claim tokens. WAD -> raw rounds DOWN so the pool never pays out
+        // more than it holds.
         for (uint8 i = 0; i < N; ++i) {
-            uint256 amt = amounts[i];
+            uint256 amtWad = amounts[i];
+            if (amtWad == 0) continue;
+            uint256 amt = _toRawDown(i, amtWad);
             if (amt == 0) continue;
             Currency c = _assets[i];
             c.take(poolManager, b.owner, amt, false);
             c.settle(poolManager, address(this), amt, true);
         }
-
-        if (slot0.rInt > 0) {
-            (bool ok,) = TorusMath.checkInvariant(_buildTorusState());
-            if (!ok) revert InvariantBroken();
-        }
-
-        emit Burn(b.owner, b.tickIdx, b.rWad, amounts);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -1070,27 +1173,43 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         bytes32 pKey = PositionLib.positionKey(cdata.owner, cdata.tickIdx);
         PositionLib.Position storage pos = positions[pKey];
 
-        _updatePositionFees(pKey, pos.r);
+        _updatePositionFees(pKey, pos.r, cdata.tickIdx);
 
         fees = new uint256[](N);
+        uint256[] memory payRaw = new uint256[](N);
         bool any;
+
+        // Effects: settle all fee accounting first (checks-effects-interactions),
+        // recording the raw amount to pay per asset.
         for (uint8 i = 0; i < N; ++i) {
             uint256 owed = tokensOwed[pKey][i];
             if (owed == 0) continue;
             if (feesAccrued[i] < owed) revert FeeBucketShort();
 
-            tokensOwed[pKey][i] = 0;
-            feesAccrued[i] -= owed;
-            fees[i] = owed;
-            any = true;
+            // WAD -> raw, rounding down (pool's favour). Any sub-raw-unit
+            // remainder stays in tokensOwed so it is paid once it grows past one
+            // raw unit, rather than being silently wiped.
+            uint256 owedRaw = _toRawDown(i, owed);
+            if (owedRaw == 0) continue;
+            uint256 paidWad = owedRaw * _scale[i];
 
-            Currency c = _assets[i];
-            c.take(poolManager, cdata.owner, owed, false);
-            c.settle(poolManager, address(this), owed, true);
+            tokensOwed[pKey][i] = owed - paidWad;
+            feesAccrued[i] -= paidWad;
+            fees[i] = paidWad;
+            payRaw[i] = owedRaw;
+            any = true;
         }
 
         if (!any) revert NothingOwed();
-
         emit Collect(cdata.owner, cdata.tickIdx, fees);
+
+        // Interactions: pay out only after all state is settled.
+        for (uint8 i = 0; i < N; ++i) {
+            uint256 owedRaw = payRaw[i];
+            if (owedRaw == 0) continue;
+            Currency c = _assets[i];
+            c.take(poolManager, cdata.owner, owedRaw, false);
+            c.settle(poolManager, address(this), owedRaw, true);
+        }
     }
 }

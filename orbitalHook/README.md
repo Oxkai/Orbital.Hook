@@ -27,24 +27,6 @@ The hook keeps the pool as a point on an N-sphere and consolidates every LP tick
 - **Low slippage near peg.** Concentrating depth in the band where stablecoins actually trade keeps quotes close to 1:1 for ordinary size.
 - **Depeg isolation.** When one coin breaks peg its tick snaps to the boundary and exits; the remaining coins keep trading 1:1 instead of the bad coin draining the pool.
 - **O(1) regardless of scale.** The torus `slot0` means swap cost doesn't grow with the number of coins or ticks.
-- **Automatic circuit-breaker.** A `guardian` role lets a Reactive Network watcher pause the pool the instant an external oracle reports a depeg — before the on-pool price catches up. See [Reactive integration](#reactive-network-integration).
-
----
-
-## Reactive Network integration
-
-A keeper-free depeg circuit-breaker, kept *out* of the audited core — the only hook change is a `guardian` address and a fail-safe `guardianPause()`.
-
-```
- Origin chain          Reactive Lasna (5318007)        Unichain Sepolia (1301)
- Chainlink feed ─log─▶ OrbitalDepegReactive ─callback─▶ OrbitalDepegCallback ─▶ hook.guardianPause()
-```
-
-- [**`src/reactive/OrbitalDepegReactive.sol`**](src/reactive/OrbitalDepegReactive.sol) — subscribes to a Chainlink `AnswerUpdated` feed; emits a cross-chain `Callback` when the price leaves the peg band.
-- [**`src/reactive/OrbitalDepegCallback.sol`**](src/reactive/OrbitalDepegCallback.sol) — the Reactive callback proxy calls it; it is the hook's `guardian` and calls `guardianPause()`.
-- **Hook surface** — `setGuardian(address)` (owner-only), `guardianPause()` (guardian or owner; **pause-only**), `unpause()` stays **owner-only** so a human reviews before resuming.
-
-Unichain Sepolia (1301) is a supported Reactive *destination* (callback proxy `0x9299472A6399Fd1027ebF067571Eb3e3D7837FC4`), so the hook is the callback target directly. Deploy steps + env vars: [`src/reactive/README.md`](src/reactive/README.md) and [`script/DeployReactive.s.sol`](script/DeployReactive.s.sol).
 
 ---
 
@@ -54,7 +36,7 @@ v1 — research artifact, not audited, not production. Working end-to-end (121 t
 
 **Engine**
 - [x] Asset registry — N tokens per pool, sorted, unique, immutable
-- [x] 18-decimal guard (`AssetNotEighteenDecimals` on registration)
+- [x] Decimal scaling for ≤18-decimal tokens (6dp USDC/USDT supported; >18 rejected)
 - [x] `beforeSwap` full segmenting solver (within-tick + tick crossings)
 - [x] Per-tick fee growth + per-position checkpoints (v3-style)
 
@@ -68,13 +50,11 @@ v1 — research artifact, not audited, not production. Working end-to-end (121 t
 
 **Safety & ops**
 - [x] Admin pause — Ownable2Step + Pausable
-- [x] Guardian role + `guardianPause()` — fail-safe pause for automation
-- [x] Reactive Network depeg circuit-breaker (`src/reactive/`)
 - [x] Deploy + seed + simulation scripts; CREATE2-mined hook
 - [x] Live + seeded on Unichain Sepolia (121 tests passing)
 
 **Deferred to v2**
-- [ ] Decimal normalization for non-18-decimal tokens
+- [ ] Exit during a depeg (burns are blocked while any tick is on boundary — symmetric with mints — pending per-tick reserve attribution; positions withdraw once the coin re-pegs and the tick recovers to interior)
 - [ ] TWAP oracle
 - [ ] Native ETH support
 - [ ] ERC-721 positions (transferable)
@@ -98,11 +78,7 @@ forge test          # 121 passing
 
 ```
 src/
-├── OrbitalHook.sol          one contract: storage + v4 hook + LP entry + engine + guardian
-├── reactive/                Reactive Network depeg circuit-breaker
-│   ├── OrbitalDepegReactive.sol   watches a Chainlink feed, emits cross-chain Callback
-│   ├── OrbitalDepegCallback.sol   destination receiver → hook.guardianPause()
-│   └── README.md            flow diagram + rationale
+├── OrbitalHook.sol          one contract: storage + v4 hook + LP entry + engine
 └── libraries/               math (shared with ../../contracts/src/lib/)
     ├── FullMath.sol         512-bit mulDiv — full-precision intermediate products
     ├── SphereMath.sol       sphere invariant, radius, equal-price point
@@ -111,16 +87,17 @@ src/
     └── PositionLib.sol      LP position struct + fee-checkpoint accounting
 
 test/
-├── OrbitalHook.t.sol        constructor / hooks / LP / swap / crossing / admin / guardian
+├── OrbitalHook.t.sol           constructor / hooks / LP / swap / crossing / admin
+├── Solvency.invariant.t.sol    stateful invariant: pool never owes more than it holds
 ├── SphereMath.t.sol
 ├── TickLib.t.sol
 ├── TorusMath.t.sol
-└── Benchmark.t.sol          capital-efficiency / depth checks
+├── QuadraticSolver.t.sol       fuzzed solver residual / bounds / stability
+└── Benchmark.t.sol             capital-efficiency / depth checks
 
 script/
 ├── Deploy.s.sol             mock tokens → CREATE2-mined hook → 6 pools → tiered seed
 ├── DeployPeriphery.s.sol    v4 SwapRouter + Quoter against an existing PoolManager
-├── DeployReactive.s.sol     Reactive breaker — callback (Unichain) + reactive (Lasna)
 └── SeedActivity.s.sol       exercises the live pool — swaps across pairs + adds a tick
 ```
 
@@ -142,13 +119,13 @@ The hook address is CREATE2-mined so its low bits encode these flags:
 constructor(
     IPoolManager poolManager,
     IAllowanceTransfer permit2,  // canonical Permit2, for the signature LP path
-    Currency[] memory assets,    // N tokens, ascending by address, unique, all 18-decimal
+    Currency[] memory assets,    // N tokens, ascending by address, unique, ≤ 18 decimals
     uint24 fee,                  // hundredths of a bip (e.g. 100 = 1 bp)
     address admin                // Ownable2Step owner; can pause/unpause
 )
 ```
 
-After deployment, each pair `(assets[i], assets[j])` is registered as a v4 pool via `PoolManager.initialize` with `PoolKey.hooks = address(orbitalHook)` and `PoolKey.lpFee = 0`. Non-18-decimal assets revert at construction.
+After deployment, each pair `(assets[i], assets[j])` is registered as a v4 pool via `PoolManager.initialize` with `PoolKey.hooks = address(orbitalHook)` and `PoolKey.lpFee = 0`. Tokens with fewer than 18 decimals (e.g. 6dp USDC) are scaled to WAD internally; assets with more than 18 decimals revert at construction.
 
 ---
 
@@ -195,15 +172,15 @@ Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the offic
 
 | Contract | Address |
 |---|---|
-| OrbitalHook | [`0x405E3C4541077C501854082cf3256926BeF6AA88`](https://sepolia.uniscan.xyz/address/0x405E3C4541077C501854082cf3256926BeF6AA88) |
+| OrbitalHook | [`0x08E32551Cf10f042721E1387e7Be8538beC02A88`](https://sepolia.uniscan.xyz/address/0x08E32551Cf10f042721E1387e7Be8538beC02A88) |
 | PoolManager (v4, canonical) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
 | V4Quoter (canonical) | `0x56DcD40A3F2D466F48E7F48BdBe5cc9b92aE4472` |
 | SwapRouter (v4) | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
 | Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| USDC (mock) | `0x3f53c9ae1ae5D34D8A89986ea456da8e69916725` |
-| USDT (mock) | `0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90` |
-| DAI (mock) | `0x345581C18e6b15D02b303A4E7Cc2F0671591acbE` |
-| FRAX (mock) | `0x1D49545CccDA551d5f5b2Ec95Fc53C34432016cF` |
+| USDC (mock) | `0x26301b1f7Ec55Cea35111b79E1Df986c314B4a93` |
+| USDT (mock) | `0x37FC8Eade109847a5CA65cf25A7Cf8a1d003fEEd` |
+| DAI (mock) | `0x35ff498cE5FC23Ba5536044F8358C194386c9832` |
+| FRAX (mock) | `0x76b1B6078f392Ef3101f7b01E7B593aB1BeA9d6b` |
 | Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
 
-Four mock 18-decimal stablecoins → 6 pair pools registered against the hook → tiered seed across 4 tiers (depeg bounds 0.95 / 0.90 / 0.85 / 0.80, ~$10M rInt) → `SeedActivity` runs a swap wave and adds a 5th tick. Live state: **~$24M TVL across 5 ticks, all interior, kBound = 0**. The hook address suffix `...6AA88` encodes its permission flags (CREATE2-mined).
+Four mock 18-decimal stablecoins → 6 pair pools registered against the hook → tiered seed across 4 tiers (depeg bounds 0.95 / 0.90 / 0.85 / 0.80, ~$10M rInt) → `SeedActivity` runs a swap wave and adds a 5th tick. Live state: **~$24M TVL across 5 ticks, all interior, kBound = 0**. The hook address suffix `...02A88` encodes its permission flags (CREATE2-mined).

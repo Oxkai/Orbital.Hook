@@ -4,7 +4,7 @@ The web app for **Orbital**, an N-asset stableswap built as a **Uniswap v4 hook*
 
 **Live → https://orbital-hook.vercel.app/**
 
-Contracts live in [`../orbitalHook`](../orbitalHook) — including a [Reactive Network depeg circuit-breaker](../orbitalHook/src/reactive/README.md) that auto-pauses the pool when an oracle reports a stablecoin depeg. The deployed addresses the app talks to are in [`lib/contracts.ts`](lib/contracts.ts).
+Contracts live in [`../orbitalHook`](../orbitalHook). The deployed addresses the app talks to are in [`lib/contracts.ts`](lib/contracts.ts).
 
 ## Stack
 

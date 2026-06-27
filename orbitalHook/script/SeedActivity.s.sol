@@ -21,14 +21,14 @@ import {TickLib} from "../src/libraries/TickLib.sol";
 ///          --broadcast --slow --private-key $PRIVATE_KEY
 contract SeedActivityScript is Script {
     // Filled from the Unichain Sepolia Deploy.s.sol + DeployPeriphery.s.sol output.
-    OrbitalHook internal constant HOOK = OrbitalHook(0x405E3C4541077C501854082cf3256926BeF6AA88);
+    OrbitalHook internal constant HOOK = OrbitalHook(0x08E32551Cf10f042721E1387e7Be8538beC02A88);
     IUniswapV4Router04 internal constant ROUTER =
         IUniswapV4Router04(payable(0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540));
 
-    address internal constant A = 0x3f53c9ae1ae5D34D8A89986ea456da8e69916725; // USDC
-    address internal constant B = 0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90; // USDT
-    address internal constant C = 0x345581C18e6b15D02b303A4E7Cc2F0671591acbE; // DAI
-    address internal constant D = 0x1D49545CccDA551d5f5b2Ec95Fc53C34432016cF; // FRAX
+    address internal constant A = 0x26301b1f7Ec55Cea35111b79E1Df986c314B4a93; // USDC
+    address internal constant B = 0x37FC8Eade109847a5CA65cf25A7Cf8a1d003fEEd; // USDT
+    address internal constant C = 0x35ff498cE5FC23Ba5536044F8358C194386c9832; // DAI
+    address internal constant D = 0x76b1B6078f392Ef3101f7b01E7B593aB1BeA9d6b; // FRAX
 
     uint8 internal constant N = 4;
 

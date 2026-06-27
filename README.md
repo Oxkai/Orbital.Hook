@@ -4,7 +4,7 @@
 
 A Uniswap v4 hook that turns a single pool into an N-asset stablecoin AMM. All the stablecoins (USDC, USDT, DAI, FRAX) share one reserve book inside the hook, which swaps them on the Orbital sphere/torus curve instead of Uniswap's constant-product math. The result is concentrated liquidity for a whole basket of dollars, running on top of v4.
 
-> **UHI9 theme: Impermanent Loss & Yield Systems.** Orbital is built to reduce impermanent loss for stablecoin LPs. Liquidity concentrated near the peg keeps IL close to zero while earning more fees per dollar, and if a coin breaks its peg the pool fences it off automatically, capping the tail loss that drains Curve-style stable LPs. A Reactive Network circuit-breaker sits on top as an oracle-driven safety net.
+> **UHI9 theme: Impermanent Loss & Yield Systems.** Orbital is built to reduce impermanent loss for stablecoin LPs. Liquidity concentrated near the peg keeps IL close to zero while earning more fees per dollar, and if a coin breaks its peg the pool fences it off automatically, capping the tail loss that drains Curve-style stable LPs.
 
 Live app → <https://orbital-hook.vercel.app/> · Unichain Sepolia · 121 tests passing
 
@@ -102,37 +102,7 @@ Inside `beforeSwap` the hook runs the Orbital engine and returns a `BeforeSwapDe
 - **Capital efficiency from virtual reserves.** A tick removes the curve below its depeg bound, so a small amount of real capital behaves like a much larger reserve near peg. It is Uniswap v3's virtual liquidity, generalized to the N-sphere.
 - **N coins, not 2.** A single pool prices a whole basket of dollars off one sphere, so you can add another stablecoin without standing up a new market.
 - **Depeg isolation contains impermanent loss.** When a coin breaks peg, its tick exits to the boundary and the rest keep trading 1:1, so the broken coin doesn't drain the pool. This is exactly the tail IL that wrecks flat stable LPs, where a depeg dumps the whole pool into the broken coin. Orbital caps it by construction.
-- **Automatic circuit-breaker.** A Reactive Network watcher pauses the pool the moment an external oracle reports a depeg, before the on-pool price has even caught up (details below).
 - **Built on v4, not beside it.** The hook only supplies the curve; custody, accounting, and the unlock/settle flow are all v4's, so the pools are reachable by any v4 router or aggregator.
-
----
-
-## Depeg circuit-breaker (Reactive Network)
-
-The pool already isolates a depegged coin through its geometry, but it only notices a depeg once trades have pushed its internal price there, which is exactly when LPs are losing value. To close that gap we added an external, oracle-driven safety net built on **[Reactive Network](https://reactive.network/)**.
-
-```
- Origin chain                 Reactive Lasna                 Unichain Sepolia (1301)
- Chainlink feed   ──log──▶   OrbitalDepegReactive  ──callback──▶  OrbitalDepegCallback
- AnswerUpdated              price out of peg band?               └─▶ hook.guardianPause()
-```
-
-1. **`OrbitalDepegReactive`**, deployed on Reactive Lasna, subscribes to a Chainlink feed's `AnswerUpdated` event for one of the pool's stablecoins. When the price leaves the peg band it emits a cross-chain `Callback`.
-2. The Reactive callback proxy on Unichain Sepolia invokes **`OrbitalDepegCallback`**, which is registered as the hook's `guardian` and calls `OrbitalHook.guardianPause()`.
-3. The pool pauses, faster than any human or keeper could react. The breaker can only pause, which is the fail-safe direction; `unpause()` stays owner-only, so a person reviews the situation before liquidity resumes.
-
-`reactive-lib` stays out of the audited core. The only change to the hook is a `guardian` role. The breaker contracts and a two-step deploy script live in [`orbitalHook/src/reactive/`](orbitalHook/src/reactive/README.md).
-
-**Reactive infrastructure (testnet).** A testnet origin and destination must pair with the Reactive Lasna testnet; mainnets and testnets can't be mixed.
-
-| Role | Chain | Address |
-|---|---|---|
-| Destination callback proxy | Unichain Sepolia (1301) | `0x9299472A6399Fd1027ebF067571Eb3e3D7837FC4` |
-| Reactive system contract | Reactive Lasna (5318007) | `0x0000000000000000000000000000000000fffFfF` |
-| [`OrbitalDepegCallback`](orbitalHook/src/reactive/OrbitalDepegCallback.sol) (destination receiver → `guardianPause`) | Unichain Sepolia (1301) | deploy via [`DeployReactive.s.sol`](orbitalHook/script/DeployReactive.s.sol)`:deployCallback` |
-| [`OrbitalDepegReactive`](orbitalHook/src/reactive/OrbitalDepegReactive.sol) (watcher → emits `Callback`) | Reactive Lasna (5318007) | deploy via [`DeployReactive.s.sol`](orbitalHook/script/DeployReactive.s.sol)`:deployReactive` |
-
-Reactive Lasna RPC is `https://lasna-rpc.rnk.dev/`. Both breaker contracts ship in the repo and deploy from the script above, given one chosen Chainlink feed and a funded key.
 
 ---
 
@@ -238,8 +208,7 @@ Manage everything in one place. Each tick you hold is its own ERC-6909 share tha
 
 ```
 UHI/
-├── orbitalHook/        Solidity: the v4 hook + Reactive depeg breaker (see orbitalHook/README.md)
-│   └── src/reactive/   Reactive Network circuit-breaker contracts
+├── orbitalHook/        Solidity: the v4 hook (see orbitalHook/README.md)
 └── frontend/           Next.js app: swap, pools, positions, sim (see frontend/README.md)
 ```
 
@@ -251,21 +220,21 @@ Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the offic
 
 | Contract | Address |
 |---|---|
-| [OrbitalHook](orbitalHook/src/OrbitalHook.sol) | `0x405E3C4541077C501854082cf3256926BeF6AA88` |
+| [OrbitalHook](orbitalHook/src/OrbitalHook.sol) | `0x08E32551Cf10f042721E1387e7Be8538beC02A88` |
 | PoolManager (v4, canonical) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
 | V4Quoter (canonical) | `0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472` |
 | SwapRouter (v4) | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
 | Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| USDC (mock) | `0x3f53c9ae1ae5D34D8A89986ea456da8e69916725` |
-| USDT (mock) | `0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90` |
-| DAI (mock) | `0x345581C18e6b15D02b303A4E7Cc2F0671591acbE` |
-| FRAX (mock) | `0x1D49545CccDA551d5f5b2Ec95Fc53C34432016cF` |
+| USDC (mock) | `0x26301b1f7Ec55Cea35111b79E1Df986c314B4a93` |
+| USDT (mock) | `0x37FC8Eade109847a5CA65cf25A7Cf8a1d003fEEd` |
+| DAI (mock) | `0x35ff498cE5FC23Ba5536044F8358C194386c9832` |
+| FRAX (mock) | `0x76b1B6078f392Ef3101f7b01E7B593aB1BeA9d6b` |
 | Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
 
 The pool is seeded with about **$24M TVL across 5 ticks**, all interior. The initial seed places four tiers at depeg bounds 0.95 / 0.90 / 0.85 / 0.80, and the activity simulation adds a fifth tick after a balanced swap wave.
 
 - Live app: <https://orbital-hook.vercel.app/>
-- Hook explorer: <https://sepolia.uniscan.xyz/address/0x405E3C4541077C501854082cf3256926BeF6AA88>
+- Hook explorer: <https://sepolia.uniscan.xyz/address/0x08E32551Cf10f042721E1387e7Be8538beC02A88>
 
 ---
 
@@ -289,5 +258,4 @@ Foundry uses `via_ir = true` (required by the Orbital math libraries). Clone wit
 
 - Paradigm Orbital paper: <https://www.paradigm.xyz/2025/06/orbital>
 - Uniswap v4 docs: <https://docs.uniswap.org/contracts/v4/overview>
-- Reactive Network docs: <https://dev.reactive.network/>
 - Our standalone Orbital AMM that shares the same engine: [`../contracts`](../contracts) (parent project)
