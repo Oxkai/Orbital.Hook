@@ -6,7 +6,7 @@ A Uniswap v4 hook that turns a single pool into an N-asset stablecoin AMM. All t
 
 > **UHI9 theme: Impermanent Loss & Yield Systems.** Orbital is built to reduce impermanent loss for stablecoin LPs. Liquidity concentrated near the peg keeps IL close to zero while earning more fees per dollar, and if a coin breaks its peg the pool fences it off automatically, capping the tail loss that drains Curve-style stable LPs. A Reactive Network circuit-breaker sits on top as an oracle-driven safety net.
 
-Live app → <https://orbital-hook.vercel.app/> · Unichain Sepolia · 121 tests passing
+Live app → <https://orbital-hook.vercel.app/> · Unichain Sepolia · Reactive Lasna
 
 ---
 
@@ -127,12 +127,13 @@ The pool already isolates a depegged coin through its geometry, but it only noti
 
 | Role | Chain | Address |
 |---|---|---|
+| [`OrbitalDepegReactive`](orbitalHook/src/reactive/OrbitalDepegReactive.sol) (watcher → emits `Callback`) | Reactive Lasna (5318007) | `0xa854E3ee9eFa1936034dE51CCD6e6fB66F4309cF` |
+| [`OrbitalDepegCallback`](orbitalHook/src/reactive/OrbitalDepegCallback.sol) (destination receiver → `guardianPause`, hook `guardian`) | Unichain Sepolia (1301) | `0x7f5A05f555ee3F270d63ACa998CDBa421E458A73` |
+| [`MockChainlinkFeed`](orbitalHook/src/reactive/MockChainlinkFeed.sol) (triggerable demo feed) | Unichain Sepolia (1301) | `0x959dfEAb43690fB0037B9a8E5746Df942A1C3A81` |
 | Destination callback proxy | Unichain Sepolia (1301) | `0x9299472A6399Fd1027ebF067571Eb3e3D7837FC4` |
 | Reactive system contract | Reactive Lasna (5318007) | `0x0000000000000000000000000000000000fffFfF` |
-| [`OrbitalDepegCallback`](orbitalHook/src/reactive/OrbitalDepegCallback.sol) (destination receiver → `guardianPause`) | Unichain Sepolia (1301) | deploy via [`DeployReactive.s.sol`](orbitalHook/script/DeployReactive.s.sol)`:deployCallback` |
-| [`OrbitalDepegReactive`](orbitalHook/src/reactive/OrbitalDepegReactive.sol) (watcher → emits `Callback`) | Reactive Lasna (5318007) | deploy via [`DeployReactive.s.sol`](orbitalHook/script/DeployReactive.s.sol)`:deployReactive` |
 
-Reactive Lasna RPC is `https://lasna-rpc.rnk.dev/`. Both breaker contracts ship in the repo and deploy from the script above, given one chosen Chainlink feed and a funded key.
+Reactive Lasna RPC is `https://lasna-rpc.rnk.dev/`. Both breaker contracts ship in the repo and deploy with the steps in [`orbitalHook/src/reactive/DEPLOY.md`](orbitalHook/src/reactive/DEPLOY.md). The addresses above are the live testnet deployment; in the demo the watcher subscribes to the mock feed on Unichain Sepolia (a valid Reactive origin) and pauses the hook on the same chain when the price leaves the peg band.
 
 ---
 
@@ -251,21 +252,21 @@ Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the offic
 
 | Contract | Address |
 |---|---|
-| [OrbitalHook](orbitalHook/src/OrbitalHook.sol) | `0x405E3C4541077C501854082cf3256926BeF6AA88` |
+| [OrbitalHook](orbitalHook/src/OrbitalHook.sol) (guardian-enabled) | `0x7FA9c378ee27156E3De1F7d9006e99e3734f2a88` |
 | PoolManager (v4, canonical) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
 | V4Quoter (canonical) | `0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472` |
 | SwapRouter (v4) | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
 | Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| USDC (mock) | `0x3f53c9ae1ae5D34D8A89986ea456da8e69916725` |
-| USDT (mock) | `0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90` |
-| DAI (mock) | `0x345581C18e6b15D02b303A4E7Cc2F0671591acbE` |
-| FRAX (mock) | `0x1D49545CccDA551d5f5b2Ec95Fc53C34432016cF` |
+| USDC (mock) | `0xb121A64E48777A85E5C523952a45d438B54D83dD` |
+| USDT (mock) | `0x5205921cb07fd21abBBDa07009bfB20A3291cA0B` |
+| DAI (mock) | `0x056eF6D92777a2640023A3c49da34BE63E178159` |
+| FRAX (mock) | `0x14789E93563b4Db8367Efc248Ed064e421Cd80f6` |
 | Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
 
-The pool is seeded with about **$24M TVL across 5 ticks**, all interior. The initial seed places four tiers at depeg bounds 0.95 / 0.90 / 0.85 / 0.80, and the activity simulation adds a fifth tick after a balanced swap wave.
+This is the guardian-enabled deployment used with the Reactive breaker (its `guardian` is the `OrbitalDepegCallback` above). The pool is seeded with mock-token liquidity across four interior ticks at depeg bounds 0.95 / 0.90 / 0.85 / 0.80.
 
 - Live app: <https://orbital-hook.vercel.app/>
-- Hook explorer: <https://sepolia.uniscan.xyz/address/0x405E3C4541077C501854082cf3256926BeF6AA88>
+- Hook explorer: <https://sepolia.uniscan.xyz/address/0x7FA9c378ee27156E3De1F7d9006e99e3734f2a88>
 
 ---
 

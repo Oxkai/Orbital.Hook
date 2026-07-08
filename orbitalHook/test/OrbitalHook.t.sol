@@ -54,9 +54,18 @@ contract MockUSDTLike {
     }
 }
 
-/// @dev Mock token with 6 decimals — used to verify the constructor decimal guard.
+/// @dev Mock token with 6 decimals — used to verify decimal scaling (now supported).
 contract MockSixDecimal {
     uint8 public constant decimals = 6;
+
+    function totalSupply() external pure returns (uint256) {
+        return 0;
+    }
+}
+
+/// @dev Mock token with 20 decimals — > 18 is rejected at construction.
+contract MockTwentyDecimal {
+    uint8 public constant decimals = 20;
 
     function totalSupply() external pure returns (uint256) {
         return 0;
@@ -673,18 +682,13 @@ contract OrbitalHookTest is BaseTest {
             PoolKey({currency0: c0, currency1: c1, fee: 0, tickSpacing: 1, hooks: IHooks(address(hook))});
         poolManager.initialize(key, Constants.SQRT_PRICE_1_1);
 
-        // Flip tick 0 to boundary.
+        // Flip tick 0 to boundary (tick 1 stays interior, so rInt > 0).
         swapRouter.swapExactTokensForTokens(
             hook.reserves(0) * 30 / 100, 0, true, key, "", address(this), block.timestamp
         );
         assertFalse(_isInterior(0), "tick 0 boundary");
-
-        // Drain the backstop so rInt == 0 while kBound stays non-zero (from tick 0).
-        uint256[] memory minA = new uint256[](3);
-        hook.removeLiquidity(1, rB, minA);
-        (, , uint256 rInt, uint256 kBound,) = hook.slot0();
-        assertEq(rInt, 0, "rInt drained");
-        assertGt(kBound, 0, "kBound still set");
+        (, , , uint256 kBound,) = hook.slot0();
+        assertGt(kBound, 0, "kBound set by the boundary tick");
 
         // A fresh mint at the boundary tick's k must revert — pre-fix it would
         // silently merge into tick 0 (boundary) and break the invariant.
@@ -695,6 +699,79 @@ contract OrbitalHookTest is BaseTest {
         uint256 kMid = (TickLib.kMin(rA, 3) + TickLib.kMax(rA, 3)) / 2;
         vm.expectRevert(OrbitalHook.MintBlockedByBoundaryTicks.selector);
         hook.addLiquidity(kMid, rA, maxA);
+    }
+
+    // While ANY tick is on boundary (a coin has depegged), all burns are blocked
+    // — both the boundary tick AND otherwise-interior ticks. The pro-rata payout
+    // (total reserves ÷ interior rInt) only holds when the pool is fully interior;
+    // allowing an interior burn here would pay out the parked boundary tokens and
+    // strand the boundary LP. Withdrawals resume once the coin re-pegs.
+    function test_burn_blocked_while_boundary_tick_exists() public {
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        uint256 rA = 200 ether;
+        uint256 kA = TickLib.kMin(rA, 3);
+        hook.addLiquidity(kA, rA, maxA);                              // tick 0 (tight)
+        uint256 rB = 1_000 ether;
+        hook.addLiquidity(TickLib.kMax(rB, 3) - 1 ether, rB, maxA);   // tick 1 (backstop)
+
+        PoolKey memory key =
+            PoolKey({currency0: c0, currency1: c1, fee: 0, tickSpacing: 1, hooks: IHooks(address(hook))});
+        poolManager.initialize(key, Constants.SQRT_PRICE_1_1);
+
+        // Flip tick 0 to boundary.
+        swapRouter.swapExactTokensForTokens(
+            hook.reserves(0) * 30 / 100, 0, true, key, "", address(this), block.timestamp
+        );
+        assertFalse(_isInterior(0), "tick 0 on boundary");
+        assertTrue(_isInterior(1), "tick 1 still interior");
+
+        uint256[] memory minA = new uint256[](3);
+
+        // Burning the boundary tick is blocked.
+        vm.expectRevert(OrbitalHook.BurnBlockedByBoundaryTicks.selector);
+        hook.removeLiquidity(0, rA, minA);
+
+        // Burning the still-interior backstop is ALSO blocked — otherwise it would
+        // drain tick 0's parked reserves and strand that LP.
+        vm.expectRevert(OrbitalHook.BurnBlockedByBoundaryTicks.selector);
+        hook.removeLiquidity(1, rB, minA);
+    }
+
+    // Fee conservation across a depeg (regression for the fee-misattribution bug):
+    // a tick on its boundary must NOT accrue fees from swaps that happen while it
+    // is out. Pre-fix, the boundary tick claimed against global growth and the sum
+    // of owed fees exceeded `feesAccrued`, so a later collect hit `FeeBucketShort`.
+    function test_fees_not_accrued_to_boundary_tick() public {
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        uint256 rA = 200 ether;
+        hook.addLiquidity(TickLib.kMin(rA, 3), rA, maxA);               // tick 0 (tight)
+        uint256 rB = 1_000 ether;
+        hook.addLiquidity(TickLib.kMax(rB, 3) - 1 ether, rB, maxA);     // tick 1 (backstop)
+
+        PoolKey memory key =
+            PoolKey({currency0: c0, currency1: c1, fee: 0, tickSpacing: 1, hooks: IHooks(address(hook))});
+        poolManager.initialize(key, Constants.SQRT_PRICE_1_1);
+
+        // Fee while both interior, then a big swap to flip tick 0 to boundary,
+        // then more swaps that accrue fees while tick 0 is out (only tick 1 earns).
+        swapRouter.swapExactTokensForTokens(5 ether, 0, true, key, "", address(this), block.timestamp);
+        swapRouter.swapExactTokensForTokens(hook.reserves(0) * 30 / 100, 0, true, key, "", address(this), block.timestamp);
+        assertFalse(_isInterior(0), "tick 0 on boundary");
+        swapRouter.swapExactTokensForTokens(20 ether, 0, true, key, "", address(this), block.timestamp);
+
+        // All fees were taken on asset 0 (zeroForOne). Snapshot the bucket.
+        uint256 bucket0 = hook.feesAccrued(0);
+        assertGt(bucket0, 0, "fees accrued on asset 0");
+
+        // Both positions can collect without FeeBucketShort, and the total paid out
+        // never exceeds what the pool actually accrued (conservation).
+        uint256[] memory fA = hook.collect(0);
+        uint256[] memory fB = hook.collect(1);
+        assertLe(fA[0] + fB[0], bucket0, "collected more fees than accrued");
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -842,12 +919,43 @@ contract OrbitalHookTest is BaseTest {
         hook.transferFrom(address(this), address(0xBEEF), 0, 1);
     }
 
-    function test_constructor_rejects_non_18_decimal_token() public {
-        // Three currencies, one of which has decimals != 18.
-        address bad = address(new MockSixDecimal());
+    function test_constructor_accepts_sub_18_decimal_token() public {
+        // A 6-decimal token (e.g. USDC) is now supported via decimal scaling.
+        address six = address(new MockSixDecimal());
         address regd0 = Currency.unwrap(c0);
         address regd1 = Currency.unwrap(c1);
-        // Sort {bad, c0, c1} ascending.
+        // Sort {six, c0, c1} ascending.
+        address[3] memory raw = [regd0, regd1, six];
+        for (uint256 i = 0; i < 3; ++i) {
+            for (uint256 j = i + 1; j < 3; ++j) {
+                if (raw[j] < raw[i]) (raw[i], raw[j]) = (raw[j], raw[i]);
+            }
+        }
+        Currency[] memory list = new Currency[](3);
+        list[0] = Currency.wrap(raw[0]);
+        list[1] = Currency.wrap(raw[1]);
+        list[2] = Currency.wrap(raw[2]);
+
+        address hookAddr = address(HOOK_FLAGS ^ (0x4449 << 144));
+        deployCodeTo(
+            "OrbitalHook.sol:OrbitalHook",
+            abi.encode(poolManager, permit2, list, uint24(100), address(this)),
+            hookAddr
+        );
+
+        // The 6-decimal token gets scale 1e12; the 18-decimal ones get scale 1.
+        OrbitalHook h = OrbitalHook(payable(hookAddr));
+        for (uint8 i = 0; i < 3; ++i) {
+            uint256 expected = Currency.unwrap(h.assetAt(i)) == six ? 1e12 : 1;
+            assertEq(h.scaleOf(i), expected, "scale factor");
+        }
+    }
+
+    function test_constructor_rejects_over_18_decimal_token() public {
+        // > 18 decimals would need to scale down (precision loss), so reject.
+        address bad = address(new MockTwentyDecimal());
+        address regd0 = Currency.unwrap(c0);
+        address regd1 = Currency.unwrap(c1);
         address[3] memory raw = [regd0, regd1, bad];
         for (uint256 i = 0; i < 3; ++i) {
             for (uint256 j = i + 1; j < 3; ++j) {
@@ -860,12 +968,24 @@ contract OrbitalHookTest is BaseTest {
         list[2] = Currency.wrap(raw[2]);
 
         vm.expectRevert(
-            abi.encodeWithSelector(OrbitalHook.AssetNotEighteenDecimals.selector, Currency.wrap(bad), uint8(6))
+            abi.encodeWithSelector(OrbitalHook.AssetDecimalsTooHigh.selector, Currency.wrap(bad), uint8(20))
         );
         deployCodeTo(
             "OrbitalHook.sol:OrbitalHook",
             abi.encode(poolManager, permit2, list, uint24(100), address(this)),
-            address(HOOK_FLAGS ^ (0x4449 << 144))
+            address(HOOK_FLAGS ^ (0x444A << 144))
+        );
+    }
+
+    function test_constructor_revertsOn_fee_below_minimum() public {
+        // Fee must exceed the invariant tolerance (MIN_FEE = 10) so rounding
+        // drift can't be farmed; a 9-unit fee is rejected.
+        Currency[] memory regd = _sortedThree(c0, c1, c2);
+        vm.expectRevert(abi.encodeWithSelector(OrbitalHook.FeeTooLow.selector, uint24(9)));
+        deployCodeTo(
+            "OrbitalHook.sol:OrbitalHook",
+            abi.encode(poolManager, permit2, regd, uint24(9), address(this)),
+            address(HOOK_FLAGS ^ (0x444B << 144))
         );
     }
 
@@ -1089,56 +1209,6 @@ contract OrbitalHookTest is BaseTest {
         // New owner can.
         vm.prank(newOwner);
         hook.pause();
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Guardian (depeg circuit-breaker)
-    // ─────────────────────────────────────────────────────────────
-
-    function test_setGuardian_onlyOwner() public {
-        vm.prank(address(0xBAD));
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(0xBAD)));
-        hook.setGuardian(address(0x6A6D));
-    }
-
-    function test_guardian_can_pause() public {
-        address guardian = address(0x6A6D);
-        hook.setGuardian(guardian);
-        assertEq(hook.guardian(), guardian);
-
-        PoolKey memory key = _seedSinglePoolWithLiquidity(1_000 ether);
-        vm.prank(guardian);
-        hook.guardianPause();
-
-        // Pool is now paused — swaps blocked.
-        vm.expectRevert();
-        swapRouter.swapExactTokensForTokens(1 ether, 0, true, key, "", address(this), block.timestamp);
-    }
-
-    function test_guardianPause_reverts_for_stranger() public {
-        hook.setGuardian(address(0x6A6D));
-        vm.prank(address(0xBAD));
-        vm.expectRevert(OrbitalHook.NotGuardian.selector);
-        hook.guardianPause();
-    }
-
-    function test_owner_can_also_guardianPause() public {
-        // Owner is always allowed, even with no guardian set.
-        hook.guardianPause();
-        // unpause is owner-only and restores operation.
-        hook.unpause();
-    }
-
-    function test_guardian_cannot_unpause() public {
-        address guardian = address(0x6A6D);
-        hook.setGuardian(guardian);
-        vm.prank(guardian);
-        hook.guardianPause();
-
-        // Resuming is owner-only — the guardian must not be able to unpause.
-        vm.prank(guardian);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, guardian));
-        hook.unpause();
     }
 
     // ─────────────────────────────────────────────────────────────

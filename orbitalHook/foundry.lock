@@ -5,6 +5,9 @@
   "lib/hookmate": {
     "rev": "33408fbc15e083eb0bc4205fa37cb6ba0a926f44"
   },
+  "lib/reactive-lib": {
+    "rev": "f6990ce3526928d039fec78855b2004ff8d65c9f"
+  },
   "lib/uniswap-hooks": {
     "rev": "e59fe72c110c3862eec9b332530dce49ca506bbb"
   }

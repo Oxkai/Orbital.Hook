@@ -5,6 +5,7 @@ import {Script, console2} from "forge-std/Script.sol";
 
 import {OrbitalDepegCallback} from "../src/reactive/OrbitalDepegCallback.sol";
 import {OrbitalDepegReactive} from "../src/reactive/OrbitalDepegReactive.sol";
+import {MockChainlinkFeed} from "../src/reactive/MockChainlinkFeed.sol";
 
 interface IOrbitalGuardianAdmin {
     function setGuardian(address newGuardian) external;
@@ -13,8 +14,8 @@ interface IOrbitalGuardianAdmin {
 
 /// @notice Deploys the Reactive Network depeg circuit-breaker for Orbital.
 ///
-/// The breaker spans two chains and is deployed in three steps, in order:
-///
+/// Steps, in order:
+///   STEP 0 — origin chain: deploy a triggerable mock Chainlink feed (demo).
 ///   STEP 1 — destination chain (Unichain Sepolia, 1301): deploy the callback
 ///            receiver and wire it as the hook's guardian.
 ///   STEP 2 — Reactive Lasna testnet (5318007): deploy the reactive watcher,
@@ -25,30 +26,20 @@ interface IOrbitalGuardianAdmin {
 ///
 /// Env vars:
 ///   HOOK              deployed OrbitalHook address (destination chain)
-///   CALLBACK_SENDER   Unichain Sepolia callback proxy
-///                     = 0x9299472A6399Fd1027ebF067571Eb3e3D7837FC4
-///   CALLBACK_CONTRACT address printed by step 1 (used by step 2)
+///   CALLBACK_SENDER   destination-chain callback proxy
+///                     (Unichain Sepolia = 0x9299472A6399Fd1027ebF067571Eb3e3D7837FC4)
+///   CALLBACK_CONTRACT address printed by deployCallback() (used by deployReactive())
 ///   ORIGIN_CHAIN_ID   chain emitting the Chainlink AnswerUpdated events
 ///   PRICE_FEED        Chainlink aggregator to watch (the stablecoin's USD feed)
 ///   ASSET             the stablecoin address that feed prices
 ///   DEST_CHAIN_ID     destination chain id (1301 for Unichain Sepolia)
 ///   LOWER_BOUND       peg-band floor in feed decimals  (e.g. 98000000  = $0.98 @ 8dp)
 ///   UPPER_BOUND       peg-band ceiling in feed decimals (e.g. 102000000 = $1.02 @ 8dp)
+///   DEPEG_PRICE       (triggerDepeg only) out-of-band price to push (e.g. 90000000)
 ///
-/// STEP 1 — on Unichain Sepolia:
-///   forge script script/DeployReactive.s.sol:DeployReactiveScript \
-///     --sig "deployCallback()" --rpc-url $UNICHAIN_SEPOLIA_RPC \
-///     --broadcast --private-key $PRIVATE_KEY
-///   # then: cast send $HOOK "setGuardian(address)" $CALLBACK_CONTRACT  (run by deployCallback)
-///
-/// STEP 2 — on Reactive Lasna (https://lasna-rpc.rnk.dev/):
-///   forge script script/DeployReactive.s.sol:DeployReactiveScript \
-///     --sig "deployReactive()" --rpc-url https://lasna-rpc.rnk.dev/ \
-///     --broadcast --private-key $PRIVATE_KEY
-///
-/// IMPORTANT: deploy both steps from the SAME account — the callback's `rvm_id`
-/// is bound to its deployer, and the reactive contract's callbacks are issued
-/// under that same RVM id.
+/// IMPORTANT: deploy the callback and the reactive watcher from the SAME
+/// account — the callback's `rvm_id` is bound to its deployer, and the reactive
+/// contract's callbacks are issued under that same RVM id.
 contract DeployReactiveScript is Script {
     /// STEP 1 — destination chain (Unichain Sepolia).
     function deployCallback() external {
@@ -72,6 +63,10 @@ contract DeployReactiveScript is Script {
     }
 
     /// STEP 2 — Reactive Lasna.
+    /// NOTE: deploy with `forge create` (not this script's broadcast) because the
+    /// RSC constructor calls the Lasna system-contract precompile, which forge's
+    /// local simulation cannot execute. This function is kept for reference; the
+    /// canonical path is the `forge create ...` command in DEPLOY.md.
     function deployReactive() external {
         uint256 originChainId = vm.envUint("ORIGIN_CHAIN_ID");
         address feed = vm.envAddress("PRICE_FEED");
@@ -93,5 +88,28 @@ contract DeployReactiveScript is Script {
         console2.log("OrbitalDepegReactive:", address(reactive));
         console2.log("Watching feed:", feed);
         console2.log("Origin chain:", originChainId);
+    }
+
+    /// STEP 0 (origin chain) — deploy a triggerable mock Chainlink feed for the
+    /// demo. Starts pegged at $1.00 (8 decimals). Set its printed address as
+    /// PRICE_FEED for deployReactive().
+    function deployMockFeed() external {
+        vm.startBroadcast();
+        MockChainlinkFeed feed = new MockChainlinkFeed("USDC / USD (mock)", 100_000_000);
+        vm.stopBroadcast();
+        console2.log("MockChainlinkFeed:", address(feed));
+        console2.log("Set PRICE_FEED=%s for deployReactive()", address(feed));
+    }
+
+    /// DEMO TRIGGER (origin chain) — push an out-of-band price to the mock feed,
+    /// which fires AnswerUpdated -> the RSC -> the cross-chain pause.
+    /// Env: PRICE_FEED, DEPEG_PRICE (e.g. 90000000 = $0.90).
+    function triggerDepeg() external {
+        address feed = vm.envAddress("PRICE_FEED");
+        int256 price = vm.envInt("DEPEG_PRICE");
+        vm.startBroadcast();
+        MockChainlinkFeed(feed).updateAnswer(price);
+        vm.stopBroadcast();
+        console2.log("Pushed depeg price to feed:", feed);
     }
 }
