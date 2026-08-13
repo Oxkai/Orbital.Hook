@@ -9,7 +9,10 @@ import { useVolume24h } from "@/lib/hooks/useVolume24h";
 
 const WAD = 1e18;
 
-export function usePool(poolAddress: Address) {
+/** `withVolume` runs a log scan costing tens of requests — only the pool
+ *  detail page shows the number, and enabling it everywhere starved the
+ *  balance and reserve reads on the public RPC. Off by default. */
+export function usePool(poolAddress: Address, opts: { withVolume?: boolean } = {}) {
   // Step 1 — static pool scalars
   const step1 = useReadContracts({
     contracts: [
@@ -37,7 +40,8 @@ export function usePool(poolAddress: Address) {
     query: { enabled: ready },
   });
 
-  // Parse step2
+  // Parse step2. `step2.data` can be present while individual calls inside the
+  // multicall failed, so each entry is checked rather than assumed.
   const tokenAddrs = Array.from({ length: n }, (_, i) =>
     (step2.data?.[i]?.result as Address | undefined) ?? ("0x" as Address)
   );
@@ -48,6 +52,11 @@ export function usePool(poolAddress: Address) {
     const r = step2.data?.[2 * n + i]?.result as readonly [bigint, bigint, boolean, bigint, bigint] | undefined;
     return r;
   });
+
+  // Every asset address must have resolved before the pool is usable. Without
+  // this the unresolved ones all collapse to the "0x" placeholder, which both
+  // renders ghost tokens and gives React duplicate keys.
+  const addressesResolved = tokenAddrs.length > 0 && tokenAddrs.every(a => a.length === 42);
 
   const tokens = tokenAddrs.map(addr => {
     const meta = TOKEN_META[addr.toLowerCase()] ?? { symbol: addr.slice(0, 6), name: addr, color: "#888", decimals: 18 };
@@ -72,9 +81,9 @@ export function usePool(poolAddress: Address) {
   const rInt   = Number(slot0?.[2] ?? 0n) / WAD;
   const sumX   = slot0?.[0] ?? 0n;
 
-  const { volume24h, fees24h } = useVolume24h(fee);
+  const { volume24h, fees24h } = useVolume24h(fee, opts.withVolume === true);
 
-  const pool: Pool | null = ready && step2.data ? {
+  const pool: Pool | null = ready && step2.data && addressesResolved ? {
     address:             poolAddress,
     name:                tokens.map(t => t.symbol).join(" / "),
     tokens,
@@ -99,7 +108,7 @@ export function usePool(poolAddress: Address) {
 
   return {
     pool,
-    isLoading: step1.isLoading || step2.isLoading,
+    isLoading: step1.isLoading || step2.isLoading || (ready && !addressesResolved && !step2.isError),
     isError:   step1.isError   || step2.isError,
     refetch:   () => { step1.refetch(); step2.refetch(); },
   };

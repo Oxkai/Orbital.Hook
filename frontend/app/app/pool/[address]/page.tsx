@@ -15,31 +15,15 @@ import {
   Pulse,
   Circle,
 } from "@phosphor-icons/react";
-import { TokenDAI, TokenUSDT, TokenUSDC, TokenFRAX } from "@token-icons/react";
 import { color, typography } from "@/constants";
-
-const TOKEN_ICON_MAP: Record<string, React.ElementType> = {
-  DAI: TokenDAI, USDT: TokenUSDT, USDC: TokenUSDC, FRAX: TokenFRAX,
-};
-const TOKEN_COLOR_MAP: Record<string, string> = {
-  CRVUSD: "#FF6B35",
-};
-function TokenIcon({ symbol, size = 16 }: { symbol: string; size?: number }) {
-  const Icon = TOKEN_ICON_MAP[symbol.toUpperCase()];
-  if (Icon) return <Icon size={size} variant="branded" />;
-  const bg = TOKEN_COLOR_MAP[symbol.toUpperCase()] ?? "#555";
-  return (
-    <span style={{ width: size, height: size, borderRadius: "50%", backgroundColor: bg, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: Math.max(6, size * 0.38), color: "#fff", fontFamily: "var(--font-mono)", fontWeight: 700, letterSpacing: "-0.02em" }}>
-      {symbol.slice(0, 2).toUpperCase()}
-    </span>
-  );
-}
 
 import { usePool }   from "@/lib/hooks/usePool";
 import { useTransactions, type TxType } from "@/lib/hooks/useTransactions";
 import { DepthChart } from "@/components/app/pool/DepthChart";
 import { fmtUSD }   from "@/lib/mock/data";
 import { type Address } from "viem";
+import { explorerAddressUrl, explorerTxUrl } from "@/lib/wagmi";
+import { TokenIcon } from "@/components/app/shared/TokenIcon";
 
 const TABS = ["Overview", "Liquidity", "Transactions"] as const;
 type Tab = typeof TABS[number];
@@ -200,7 +184,7 @@ function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["p
   const boundaryCount = pool.ticks.filter(t => !t.isInterior).length;
   const isHealthy     = boundaryCount === 0;
   const activeTicks   = pool.ticks.length - boundaryCount;
-  const explorer      = `https://sepolia.uniscan.xyz/address/${pool.address}`;
+  const explorer      = explorerAddressUrl(pool.address);
 
   return (
     <div className="flex flex-col gap-8">
@@ -315,7 +299,7 @@ function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["p
             <div className="flex h-2 gap-px overflow-hidden">
               {pool.tokens.map((t, i) => (
                 <div
-                  key={t.address}
+                  key={`${t.address}-${i}`}
                   style={{
                     width: `${totalReserves > 0 ? (pool.reserves[i] / totalReserves) * 100 : 0}%`,
                     backgroundColor: t.color,
@@ -334,7 +318,7 @@ function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["p
             const isDepegged = pool.depeggedTokenIndices.includes(i);
             return (
               <InfoRow
-                key={t.address}
+                key={`${t.address}-${i}`}
                 icon={<TokenIcon symbol={t.symbol} size={16} />}
                 label={t.symbol}
               >
@@ -473,8 +457,6 @@ function LiquidityTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["
 
 // ─── Transactions tab ─────────────────────────────────────────────────────────
 
-const EXPLORER = "https://sepolia.uniscan.xyz";
-
 const TYPE_COLOR: Record<TxType, string> = {
   Swap:    "#60A5FA",
   Add:     color.success,
@@ -600,7 +582,7 @@ function TransactionsTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool
                 {timeAgo(tx.timestamp)}
               </span>
               <a
-                href={`${EXPLORER}/tx/${tx.hash}`}
+                href={explorerTxUrl(tx.hash)}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1 hover:opacity-100 opacity-70 transition-opacity"
@@ -620,7 +602,7 @@ function TransactionsTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool
                     {timeAgo(tx.timestamp)}
                   </span>
                   <a
-                    href={`${EXPLORER}/tx/${tx.hash}`}
+                    href={explorerTxUrl(tx.hash)}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center gap-1"
@@ -692,7 +674,7 @@ function shortAddr(addr: string) {
 export default function PoolDetailPage({ params }: { params: Promise<{ address: string }> }) {
   const { address: poolAddr } = use(params);
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
-  const { pool, isLoading } = usePool(poolAddr as Address);
+  const { pool, isLoading } = usePool(poolAddr as Address, { withVolume: true });
 
   const pairLabel = pool ? pool.tokens.map(t => t.symbol).join(" / ") : "Pool";
 
@@ -718,7 +700,7 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
               {pool && (
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <a
-                    href={`https://sepolia.uniscan.xyz/address/${poolAddr}`}
+                    href={explorerAddressUrl(poolAddr)}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 hover:opacity-100 opacity-80 transition-opacity"

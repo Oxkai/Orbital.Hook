@@ -52,7 +52,7 @@ function Box({
 export function Architecture() {
   return (
     <section className="mx-6 my-1">
-      <SectionLabel border chapter="IV" section="03" path="ORBITAL / ARCHITECTURE" />
+      <SectionLabel border chapter="VI" section="05" path="ORBITAL / ARCHITECTURE" />
 
       <div className="pb-12 pt-20">
         <Emphasized

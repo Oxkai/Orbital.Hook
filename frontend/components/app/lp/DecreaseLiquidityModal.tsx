@@ -39,7 +39,7 @@ export function DecreaseLiquidityModal({ tokenId, hash, amounts, rWadRemoved, rW
         {amounts.map(t => (
           <div key={t.symbol} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${color.borderSubtle}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: t.color, flexShrink: 0, display: "inline-block" }} />
+              <span style={{ width: 8, height: 8, backgroundColor: t.color, flexShrink: 0, display: "inline-block" }} />
               <span style={{ ...M, fontSize: "11px", color: color.textSecondary }}>{t.symbol}</span>
             </div>
             <div style={{ textAlign: "right" as const }}>

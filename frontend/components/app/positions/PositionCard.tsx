@@ -38,8 +38,8 @@ export function PositionCard({ position }: PositionCardProps) {
             #{tokenId}
           </span>
           <div className="flex items-center gap-1.5 flex-wrap">
-            {pool.tokens.map(t => (
-              <TokenPill key={t.address} token={t} size="sm" />
+            {pool.tokens.map((t, i) => (
+              <TokenPill key={`${t.address}-${i}`} token={t} size="sm" />
             ))}
           </div>
         </div>
@@ -107,8 +107,8 @@ export function PositionCard({ position }: PositionCardProps) {
           <div className="flex flex-wrap gap-4">
             {pool.tokens.map((t, i) => (
               feesOwed[i] > 0 && (
-                <div key={t.address} className="flex items-center gap-1.5">
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.color, display: "inline-block" }} />
+                <div key={`${t.address}-${i}`} className="flex items-center gap-1.5">
+                  <span style={{ width: 6, height: 6, backgroundColor: t.color, display: "inline-block" }} />
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color: color.success }}>
                     {feesOwed[i].toFixed(4)} {t.symbol}
                   </span>

@@ -12,53 +12,17 @@ import {
   Circle,
   ArrowSquareOut,
 } from "@phosphor-icons/react";
-import { TokenDAI, TokenUSDT, TokenUSDC, TokenFRAX } from "@token-icons/react";
 import { useAccount, useConnect, useConnectors, useWriteContract, useReadContract, useWaitForTransactionReceipt } from "wagmi";
 import { type Address, type Hash, maxUint256 } from "viem";
 import { color, typography } from "@/constants";
 import { usePool } from "@/lib/hooks/usePool";
 import { useTokenBalances, useTokenAllowances } from "@/lib/hooks/useTokenBalances";
-import { POOL_ADDRESS, QUOTER_ADDRESS, ROUTER_ADDRESS, ERC20_ABI, ROUTER_ABI, QUOTER_ABI, buildPoolKey } from "@/lib/contracts";
-import { unichainSepolia } from "@/lib/wagmi";
+import { POOL_ADDRESS, QUOTER_ADDRESS, ROUTER_ADDRESS, ERC20_ABI, MOCK_ERC20_ABI, ROUTER_ABI, QUOTER_ABI, buildPoolKey } from "@/lib/contracts";
+import { unichainSepolia, explorerTxUrl } from "@/lib/wagmi";
 import { UnichainMark } from "@/components/app/shared/UnichainMark";
+import { TokenIcon } from "@/components/app/shared/TokenIcon";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const TOKEN_ICON_MAP: Record<string, React.ComponentType<any>> = {
-  DAI:  TokenDAI,
-  USDT: TokenUSDT,
-  USDC: TokenUSDC,
-  FRAX: TokenFRAX,
-};
-const TOKEN_COLOR_MAP: Record<string, string> = {
-  CRVUSD: "#FF6B35",
-};
-
-function TokenIcon({ symbol, size = 28 }: { symbol: string; size?: number }) {
-  const Icon = TOKEN_ICON_MAP[symbol.toUpperCase()];
-  if (Icon) return <Icon size={size} variant="branded" />;
-  const fallbackBg = TOKEN_COLOR_MAP[symbol.toUpperCase()] ?? "#555";
-  const inner = Math.round(size * 0.6);
-  return (
-    <span
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        backgroundColor: fallbackBg,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        fontSize: Math.max(6, inner * 0.42),
-        color: "#fff",
-        fontFamily: typography.caption.family,
-        fontWeight: 700,
-      }}
-    >
-      {symbol.slice(0, 2).toUpperCase()}
-    </span>
-  );
-}
 
 const LBL = {
   fontFamily: typography.caption.family,
@@ -138,7 +102,7 @@ function TokenDropdown({ tokens, selected, excluded, onSelect, onClose }: Dropdo
     >
       {tokens.map((token, idx) => (
         <button
-          key={token.address}
+          key={`${token.address}-${idx}`}
           onClick={() => { onSelect(idx); onClose(); }}
           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-(--color-surface-2) transition-colors"
           style={{ backgroundColor: idx === selected ? color.surface2 : color.surface1 }}
@@ -164,7 +128,7 @@ function TokenDropdown({ tokens, selected, excluded, onSelect, onClose }: Dropdo
 
 // ─── Token box ────────────────────────────────────────────────────────────────
 
-function TokenBox({ mode, token, otherIdx, tokenIdx, tokens, value, onChange, onTokenSelect, isConnected }: {
+function TokenBox({ mode, token, otherIdx, tokenIdx, tokens, value, onChange, onTokenSelect, isConnected, balanceReady = true, onFaucet }: {
   mode: "in" | "out";
   token: { symbol: string; address: string; color: string; balance: number };
   tokenIdx: number;
@@ -174,10 +138,15 @@ function TokenBox({ mode, token, otherIdx, tokenIdx, tokens, value, onChange, on
   onChange?: (v: string) => void;
   onTokenSelect: (idx: number) => void;
   isConnected: boolean;
+  balanceReady?: boolean;
+  onFaucet?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const numVal = parseFloat(value) || 0;
-  const balanceStr = !isConnected ? "—" : fmtBalance(token.balance);
+  // An unread balance is unknown, not zero. Showing 0.0000 while the read is
+  // still in flight reads as "you have nothing" and is wrong more often than
+  // it is right on a rate-limited RPC.
+  const balanceStr = !isConnected ? "—" : !balanceReady ? "…" : fmtBalance(token.balance);
 
   return (
     <div className="relative px-5 py-5" style={{ backgroundColor: color.surface1 }}>
@@ -187,8 +156,19 @@ function TokenBox({ mode, token, otherIdx, tokenIdx, tokens, value, onChange, on
           {mode === "in" ? "You pay" : "You receive"}
         </span>
         {mode === "in" && (
-          <span style={body("caption", color.textMuted)}>
-            Balance {balanceStr}
+          <span className="flex items-center gap-2.5">
+            {isConnected && balanceReady && token.balance === 0 && onFaucet && (
+              <button
+                onClick={onFaucet}
+                className="hover:opacity-100 opacity-70 transition-opacity"
+                style={{ ...body("caption", color.accent), cursor: "pointer" }}
+              >
+                Get test tokens
+              </button>
+            )}
+            <span style={body("caption", color.textMuted)}>
+              Balance {balanceStr}
+            </span>
           </span>
         )}
       </div>
@@ -419,7 +399,6 @@ function SwapInfoPanel({ tokenIn, tokenOut, tokens, numIn, amountOut, slippage, 
 
 // ─── Main widget ──────────────────────────────────────────────────────────────
 
-
 export function SwapWidget() {
   const [tokenIn,      setTokenIn]      = useState(0);
   const [tokenOut,     setTokenOut]     = useState(1);
@@ -427,7 +406,7 @@ export function SwapWidget() {
   const [showSettings, setShowSettings] = useState(false);
   const [deadline,     setDeadline]     = useState(10);
   const [slippage,     setSlippage]     = useState(0.5);
-  const [swapResult,   setSwapResult]   = useState<{ success: boolean; hash?: string; msg: string } | null>(null);
+  const [swapResult,   setSwapResult]   = useState<{ status: "pending" | "success" | "error"; hash?: string; msg: string } | null>(null);
   const [pendingHash,  setPendingHash]  = useState<Hash | undefined>(undefined);
   const resultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -436,17 +415,22 @@ export function SwapWidget() {
   const connectors               = useConnectors();
   const { writeContract, isPending } = useWriteContract();
 
-  function showResult(result: { success: boolean; hash?: string; msg: string }) {
+  // A pending swap stays on screen until the receipt lands. Auto-dismissing it
+  // would hide the outcome, and the previous version claimed "Confirmed" the
+  // moment the wallet returned a hash, which is only submission.
+  function showResult(result: { status: "pending" | "success" | "error"; hash?: string; msg: string }) {
     if (resultTimer.current) clearTimeout(resultTimer.current);
     setSwapResult(result);
-    resultTimer.current = setTimeout(() => setSwapResult(null), 5000);
+    if (result.status !== "pending") {
+      resultTimer.current = setTimeout(() => setSwapResult(null), 6000);
+    }
   }
 
   const { pool, refetch: refetchPool } = usePool(POOL_ADDRESS);
   const tokens   = pool?.tokens ?? [];
   const tokenAddrs = tokens.map(t => t.address as Address);
 
-  const { balances, refetch: refetchBalances } = useTokenBalances(tokenAddrs, address);
+  const { balances, isReady: balanceReady, refetch: refetchBalances } = useTokenBalances(tokenAddrs, address);
   const { allowances, refetch: refetchAllowances } = useTokenAllowances(tokenAddrs, address, ROUTER_ADDRESS);
 
   const { isSuccess: txConfirmed } = useWaitForTransactionReceipt({
@@ -457,6 +441,9 @@ export function SwapWidget() {
   useEffect(() => {
     if (!txConfirmed) return;
     setPendingHash(undefined);
+    setSwapResult(prev => (prev && prev.status === "pending" ? { ...prev, status: "success" } : prev));
+    if (resultTimer.current) clearTimeout(resultTimer.current);
+    resultTimer.current = setTimeout(() => setSwapResult(null), 6000);
     refetchPool();
     refetchBalances();
     refetchAllowances();
@@ -495,7 +482,7 @@ export function SwapWidget() {
   const amountOutStr = amountOut > 0 ? amountOut.toFixed(5) : "";
 
   const inBalance      = tokensWithBalance[tokenIn]?.balance ?? 0;
-  const isInsufficient = numIn > inBalance;
+  const isInsufficient = balanceReady && numIn > inBalance;
   const needsApproval  = isConnected && address
     ? (allowances[tokenIn] ?? 0n) < BigInt(Math.round(numIn * 1e18))
     : false;
@@ -510,16 +497,41 @@ export function SwapWidget() {
   const handleInSelect  = useCallback((idx: number) => { if (idx === tokenOut) flip(); else setTokenIn(idx); }, [tokenIn, tokenOut, flip]);
   const handleOutSelect = useCallback((idx: number) => { if (idx === tokenIn)  flip(); else setTokenOut(idx); }, [tokenIn, tokenOut, flip]);
 
+  // The four pool assets are mock stablecoins with an open `mint`, so a fresh
+  // wallet can fund itself instead of needing tokens sent from the deployer.
+  function handleFaucet() {
+    if (!address || !tokenAddrs[tokenIn]) return;
+    const sym = tokensWithBalance[tokenIn]?.symbol ?? "Token";
+    writeContract(
+      {
+        address: tokenAddrs[tokenIn],
+        abi: MOCK_ERC20_ABI,
+        functionName: "mint",
+        args: [address, 100_000n * 10n ** 18n],
+      },
+      {
+        onSuccess: (hash) => {
+          setPendingHash(hash);
+          showResult({ status: "pending", hash, msg: `100,000 ${sym} minted` });
+        },
+        onError: (e) => showResult({ status: "error", msg: e.message.split("\n")[0] }),
+      }
+    );
+  }
+
   function handleApprove() {
     if (!address) return;
     writeContract(
       { address: tokenAddrs[tokenIn], abi: ERC20_ABI, functionName: "approve", args: [ROUTER_ADDRESS, maxUint256] },
       {
         onSuccess: (hash) => {
-          refetchAllowances();
-          showResult({ success: true, hash, msg: `${tokensWithBalance[tokenIn]?.symbol ?? "Token"} approved` });
+          // Wait for the receipt before refetching: the previous version read
+          // the allowance back immediately, still saw zero, and left the button
+          // stuck on "Approve" until a manual refresh.
+          setPendingHash(hash);
+          showResult({ status: "pending", hash, msg: `${tokensWithBalance[tokenIn]?.symbol ?? "Token"} approved` });
         },
-        onError: (e) => showResult({ success: false, msg: e.message.split("\n")[0] }),
+        onError: (e) => showResult({ status: "error", msg: e.message.split("\n")[0] }),
       }
     );
   }
@@ -552,9 +564,9 @@ export function SwapWidget() {
         onSuccess: (hash) => {
           setAmountIn("");
           setPendingHash(hash);
-          showResult({ success: true, hash, msg: `Swapped ${numIn.toFixed(4)} ${inSym} → ${amountOut.toFixed(4)} ${outSym}` });
+          showResult({ status: "pending", hash, msg: `Swapped ${numIn.toFixed(4)} ${inSym} → ${amountOut.toFixed(4)} ${outSym}` });
         },
-        onError: (e) => showResult({ success: false, msg: e.message.split("\n")[0] }),
+        onError: (e) => showResult({ status: "error", msg: e.message.split("\n")[0] }),
       }
     );
   }
@@ -654,6 +666,8 @@ export function SwapWidget() {
               tokenIdx={tokenIn} otherIdx={tokenOut} tokens={tokensWithBalance}
               value={amountIn} onChange={setAmountIn} onTokenSelect={handleInSelect}
               isConnected={isConnected}
+              balanceReady={balanceReady}
+              onFaucet={handleFaucet}
             />
           </div>
 
@@ -733,7 +747,9 @@ export function SwapWidget() {
 
       {/* ── Result modal ─────────────────────────────────────── */}
       {swapResult && (() => {
-        const successColor = swapResult.success ? color.success : color.error;
+        const isPending    = swapResult.status === "pending";
+        const isSuccess    = swapResult.status === "success";
+        const successColor = isSuccess ? color.success : isPending ? color.warning : color.error;
         const halves       = swapResult.msg.replace("Swapped ", "").split(" → ");
         const [inAmt = "", inSym = ""]   = (halves[0] ?? "").split(" ");
         const [outAmt = "", outSym = ""] = (halves[1] ?? "").split(" ");
@@ -765,8 +781,8 @@ export function SwapWidget() {
                 style={{ backgroundColor: color.surface1 }}
               >
                 <StatusPill
-                  healthy={swapResult.success}
-                  label={swapResult.success ? "Confirmed" : "Failed"}
+                  healthy={isSuccess}
+                  label={isPending ? "Confirming…" : isSuccess ? "Confirmed" : "Failed"}
                 />
                 <button
                   onClick={() => setSwapResult(null)}
@@ -850,7 +866,7 @@ export function SwapWidget() {
               >
                 {swapResult.hash ? (
                   <a
-                    href={`https://sepolia.uniscan.xyz/tx/${swapResult.hash}`}
+                    href={explorerTxUrl(swapResult.hash)}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 hover:opacity-100 opacity-70 transition-opacity"

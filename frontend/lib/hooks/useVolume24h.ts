@@ -12,13 +12,13 @@ const SWAP_EVENT = parseAbiItem(
   "event Swap(address indexed sender, uint8 assetIn, uint8 assetOut, uint256 amountIn, uint256 amountOut)"
 ) as AbiEvent;
 
-export function useVolume24h(fee: number) {
+export function useVolume24h(fee: number, enabled: boolean = true) {
   const client = usePublicClient();
   const [volume24h, setVolume24h] = useState(0);
   const [fees24h,   setFees24h]   = useState(0);
 
   useEffect(() => {
-    if (!client) return;
+    if (!client || !enabled) return;
     let cancelled = false;
 
     async function load() {
@@ -54,7 +54,7 @@ export function useVolume24h(fee: number) {
     load();
     const interval = setInterval(load, 60_000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [client, fee]);
+  }, [client, fee, enabled]);
 
   return { volume24h, fees24h };
 }

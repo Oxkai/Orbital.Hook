@@ -49,7 +49,7 @@ const PILLARS: Pillar[] = [
 export function Pillars() {
   return (
     <section className="mx-6">
-      <SectionLabel border chapter="II" section="01" path="ORBITAL / PRINCIPLES" />
+      <SectionLabel border chapter="IV" section="03" path="ORBITAL / PRINCIPLES" />
 
       <div className="grid grid-cols-12 gap-5 pt-20 pb-12">
         <h2
@@ -116,7 +116,7 @@ export function Pillars() {
                   textTransform: "uppercase",
                 }}
               >
-                <span className="col-span-12 md:col-span-2">{`// II / 01 / ${letter}`}</span>
+                <span className="col-span-12 md:col-span-2">{`// IV / 03 / ${letter}`}</span>
                 <span className="col-span-12 md:col-span-10">{`// PRINCIPLES / ${p.tag}`}</span>
 
               </div>

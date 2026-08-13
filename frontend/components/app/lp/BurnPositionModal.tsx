@@ -44,7 +44,7 @@ export function BurnPositionModal({ tokenId, hash, tokens, finalLiquidity, onClo
           <span style={{ ...M, fontSize: "9px", letterSpacing: "0.06em", color: color.textMuted, marginRight: 4 }}>POOL</span>
           {tokens.map(t => (
             <div key={t.symbol} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: t.color, display: "inline-block" }} />
+              <span style={{ width: 7, height: 7, backgroundColor: t.color, display: "inline-block" }} />
               <span style={{ ...M, fontSize: "10px", color: color.textSecondary }}>{t.symbol}</span>
             </div>
           ))}

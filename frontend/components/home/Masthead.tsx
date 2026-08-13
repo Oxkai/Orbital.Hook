@@ -3,13 +3,15 @@ import { Emphasized } from "./Emphasized";
 import { SectionLabel } from "./SectionLabel";
 
 const INDEX = [
-  ["01", "Principles"],
-  ["02", "Mechanics"],
-  ["03", "Architecture"],
-  ["04", "Simulation"],
-  ["05", "Versus"],
-  ["06", "Deployed"],
-  ["07", "References"],
+  ["01", "Problem"],
+  ["02", "Solution"],
+  ["03", "Principles"],
+  ["04", "Mechanics"],
+  ["05", "Architecture"],
+  ["06", "Simulation"],
+  ["07", "Versus"],
+  ["08", "Deployed"],
+  ["09", "References"],
 ] as const;
 
 export function Masthead() {
@@ -17,14 +19,14 @@ export function Masthead() {
     <>
       {/* I. Giant title */}
       <section
-        className="mx-6"
+        className="mx-6 overflow-hidden"
       >
         <SectionLabel  chapter="I" section="00" path="Orbital" />
         <div className="relative pt-16 pb-10 md:pt-24 md:pb-16">
           <div className="grid grid-cols-12 gap-5">
             <h1
               aria-label="I. Orbital"
-              className="flex w-full items-center justify-between gap-6 col-span-12"
+              className="flex w-full min-w-0 items-center justify-between gap-3 md:gap-6 col-span-12"
               style={{
                 fontFamily: typography.h1.family,
                 fontWeight: 400,
@@ -38,8 +40,8 @@ export function Masthead() {
                 style={{
                   display: "inline-block",
                   flexShrink: 0,
-                  width: "clamp(48px, 9vw, 120px)",
-                  height: "clamp(48px, 9vw, 120px)",
+                  width: "clamp(40px, 9vw, 120px)",
+                  height: "clamp(40px, 9vw, 120px)",
                   backgroundColor: color.textPrimary,
                   WebkitMaskImage: "url(/logo.svg)",
                   maskImage: "url(/logo.svg)",
@@ -52,9 +54,9 @@ export function Masthead() {
                 }}
               />
               <span
-                className="text-right mr-2"
+                className="text-right whitespace-nowrap"
                 style={{
-                  fontSize: "clamp(72px, 13vw, 200px)",
+                  fontSize: "clamp(44px, 12.5vw, 200px)",
                   color: color.textPrimary,
                   fontWeight: 500,
                   letterSpacing: "-0.055em",

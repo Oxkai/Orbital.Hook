@@ -4,6 +4,7 @@ import {
   HOOK_ADDRESS, POOL_MANAGER, SWAP_ROUTER, QUOTER_ADDRESS,
   TOKEN_ADDRESSES,
 } from "@/lib/contracts";
+import { explorerAddressUrl } from "@/lib/wagmi";
 
 type Contract = { name: string; address: string };
 
@@ -65,7 +66,7 @@ function GroupHeader({ code, label, count }: { code: string; label: string; coun
 function Row({ c, index }: { c: Contract; index: string }) {
   return (
     <a
-      href={`https://sepolia.uniscan.xyz/address/${c.address}`}
+      href={explorerAddressUrl(c.address)}
       target="_blank"
       rel="noopener noreferrer"
       className="group grid grid-cols-12 items-center gap-5 px-5 py-4 border-b border-dashed transition-colors hover:bg-white/[0.03]"
@@ -142,7 +143,7 @@ function Row({ c, index }: { c: Contract; index: string }) {
 export function Deployed() {
   return (
     <section className="mx-6 my-1">
-      <SectionLabel border chapter="VII" section="06" path="ORBITAL / ON-CHAIN" />
+      <SectionLabel border chapter="IX" section="08" path="ORBITAL / ON-CHAIN" />
 
       <div className="pt-10 pb-14">
         <div className="mb-10">

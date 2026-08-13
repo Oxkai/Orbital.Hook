@@ -55,7 +55,7 @@ const ROWS: Row[] = [
 export function VsTable() {
   return (
     <section className="mx-6 my-1">
-      <SectionLabel border chapter="VI" section="05" path="ORBITAL / COMPARISON" />
+      <SectionLabel border chapter="VIII" section="07" path="ORBITAL / COMPARISON" />
 
       <div className="pt-10 pb-14">
         <div className="mb-10">

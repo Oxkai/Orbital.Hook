@@ -41,7 +41,7 @@ export function CollectFeesModal({ tokenId, hash, fees, onClose }: {
             <div key={t.symbol}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0 4px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: t.color, flexShrink: 0, display: "inline-block" }} />
+                  <span style={{ width: 8, height: 8, backgroundColor: t.color, flexShrink: 0, display: "inline-block" }} />
                   <span style={{ ...M, fontSize: "11px", color: color.textSecondary }}>{t.symbol}</span>
                 </div>
                 <div>

@@ -1,5 +1,5 @@
 export const fontFamily = {
-  sans: "Roboto, system-ui, -apple-system, sans-serif",
+  sans: "var(--font-sans), Roboto, system-ui, -apple-system, sans-serif",
 } as const;
 
 export const letterSpacing = {

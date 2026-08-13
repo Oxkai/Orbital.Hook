@@ -250,7 +250,7 @@ export function PoolSim() {
   return (
     <section className="mx-6 my-1">
       <style>{`.psim-num::-webkit-outer-spin-button,.psim-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}.psim-num{-moz-appearance:textfield}`}</style>
-      <SectionLabel border chapter="V" section="04" path="ORBITAL / SIMULATION" />
+      <SectionLabel border chapter="VII" section="06" path="ORBITAL / SIMULATION" />
 
       <div className="pb-12 pt-20">
         <Emphasized

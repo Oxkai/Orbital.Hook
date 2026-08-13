@@ -9,7 +9,6 @@ import { useTokenBalances, useTokenAllowances } from "@/lib/hooks/useTokenBalanc
 import { fmtUSD } from "@/lib/mock/data";
 import { POOL_ADDRESSES, HOOK_ADDRESS, HOOK_LP_ABI, ERC20_ABI } from "@/lib/contracts";
 import { type Address, type Hash, maxUint256 } from "viem";
-import { TokenDAI, TokenUSDT, TokenUSDC, TokenFRAX } from "@token-icons/react";
 import { X, Circle, CurrencyDollar, Pulse, TrendUp } from "@phosphor-icons/react";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -25,24 +24,9 @@ import { DecreaseLiquidityModal } from "@/components/app/lp/DecreaseLiquidityMod
 import { CollectFeesModal }       from "@/components/app/lp/CollectFeesModal";
 import { BurnPositionModal }      from "@/components/app/lp/BurnPositionModal";
 import type { TokenAmount }       from "@/components/app/lp/IncreaseLiquidityModal";
+import { TokenIcon } from "@/components/app/shared/TokenIcon";
 
 const WAD = 1e18;
-
-const TOKEN_ICON_MAP: Record<string, React.ElementType> = {
-  DAI: TokenDAI, USDT: TokenUSDT, USDC: TokenUSDC, FRAX: TokenFRAX,
-};
-const TOKEN_COLOR_MAP: Record<string, string> = { CRVUSD: "#FF6B35" };
-
-function TokenIcon({ symbol, size = 22 }: { symbol: string; size?: number }) {
-  const Icon = TOKEN_ICON_MAP[symbol.toUpperCase()];
-  if (Icon) return <Icon size={size} variant="branded" />;
-  const bg = TOKEN_COLOR_MAP[symbol.toUpperCase()] ?? "#555";
-  return (
-    <span style={{ width: size, height: size, borderRadius: "50%", backgroundColor: bg, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: Math.max(6, size * 0.38), color: "#fff", fontFamily: typography.caption.family, fontWeight: 700 }}>
-      {symbol.slice(0, 2).toUpperCase()}
-    </span>
-  );
-}
 
 const LBL = {
   fontFamily: typography.caption.family,
@@ -469,7 +453,7 @@ function PositionRow({
             <div className="flex shrink-0 items-center">
               {pool?.tokens.map((t, i) => (
                 <span
-                  key={t.address}
+                  key={`${t.address}-${i}`}
                   style={{
                     marginLeft: i === 0 ? 0 : -8,
                     outline: `2px solid ${color.surface1}`,

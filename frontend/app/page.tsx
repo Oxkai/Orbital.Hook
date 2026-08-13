@@ -1,6 +1,8 @@
 import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 import { Masthead } from "@/components/home/Masthead";
+import { Problems } from "@/components/home/Problems";
+import { Solution } from "@/components/home/Solution";
 import { Pillars } from "@/components/home/Pillars";
 import { Mechanics } from "@/components/home/Mechanics";
 import { Architecture } from "@/components/home/Architecture";
@@ -15,6 +17,8 @@ export default function Home() {
       <Nav />
       <main className="flex flex-col">
         <Masthead />
+        <Problems />
+        <Solution />
         <Pillars />
         <Mechanics />
         <Architecture />

@@ -526,15 +526,15 @@ function Step2({ depegPrice, n, tokens, reserves, balances, usdAmount, setUsdAmo
         <div>
           <span style={{ ...LBL, color: color.textMuted, paddingLeft: 4 }}>Token Splits</span>
           <div className="flex flex-col gap-px mt-3">
-            {splits.map(({ token, pct, usd }) => (
+            {splits.map(({ token, pct, usd }, i) => (
               <div
-                key={token.address}
+                key={`${token.address}-${i}`}
                 className="px-5 py-3.5 flex flex-col gap-2"
                 style={{ backgroundColor: color.surface1 }}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: token.color, display: "inline-block" }} />
+                    <span style={{ width: 8, height: 8, backgroundColor: token.color, display: "inline-block" }} />
                     <span style={body("p3", color.textSecondary)}>{token.symbol}</span>
                   </div>
                   <div className="flex items-center gap-4">
@@ -647,14 +647,14 @@ function Step3({ depegPrice, n, tokens, reserves, amount, allowances, fee, slipp
       <div>
         <span style={{ ...LBL, color: color.textMuted, paddingLeft: 4 }}>Token Breakdown</span>
         <div className="flex flex-col gap-px mt-3">
-          {splits.map(({ token, pct, usd }) => (
+          {splits.map(({ token, pct, usd }, i) => (
             <div
-              key={token.address}
+              key={`${token.address}-${i}`}
               className="flex items-center justify-between gap-3 px-5 py-3.5"
               style={{ backgroundColor: color.surface1 }}
             >
               <div className="flex items-center gap-2.5">
-                <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: token.color, display: "inline-block" }} />
+                <span style={{ width: 8, height: 8, backgroundColor: token.color, display: "inline-block" }} />
                 <span style={body("p3", color.textSecondary)}>{token.symbol}</span>
               </div>
               <div className="flex items-center gap-4">
@@ -802,14 +802,14 @@ function SuccessState({ depegPrice, amount, tokens, reserves, n }: {
       <div className="w-full" style={{ textAlign: "left" as const }}>
         <span style={{ ...LBL, color: color.textMuted, paddingLeft: 4 }}>Deposited</span>
         <div className="flex flex-col gap-px mt-3">
-          {splits.map(({ token, usd }) => (
+          {splits.map(({ token, usd }, i) => (
             <div
-              key={token.address}
+              key={`${token.address}-${i}`}
               className="flex items-center justify-between px-5 py-3.5"
               style={{ backgroundColor: color.surface1 }}
             >
               <div className="flex items-center gap-2.5">
-                <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: token.color, display: "inline-block" }} />
+                <span style={{ width: 8, height: 8, backgroundColor: token.color, display: "inline-block" }} />
                 <span style={body("p3", color.textSecondary)}>{token.symbol}</span>
               </div>
               <span style={{ ...body("p3", color.textPrimary), fontWeight: 500 }}>{fmtUSD(usd)}</span>

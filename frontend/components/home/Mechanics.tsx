@@ -95,7 +95,7 @@ function MechanicsCard({ card }: { card: typeof CARDS[number] }) {
 export function Mechanics() {
   return (
     <section className="mx-6 my-1">
-      <SectionLabel border chapter="III" section="02" path="ORBITAL / MECHANICS" />
+      <SectionLabel border chapter="V" section="04" path="ORBITAL / MECHANICS" />
 
       <div className="pb-12 pt-20">
         <Emphasized
