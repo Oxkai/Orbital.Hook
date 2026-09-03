@@ -1,4 +1,4 @@
-# Orbital Hook, engine
+# Orbital Hook: the engine
 
 A Uniswap v4 hook implementing the Orbital N-asset stableswap from [Paradigm (2025)](https://www.paradigm.xyz/2025/06/orbital).
 
@@ -32,11 +32,11 @@ The hook keeps the pool as a point on an N-sphere and consolidates every LP tick
 
 ## Status
 
-v1, research artifact, not audited, not production. Working end-to-end (152 tests) and live on Unichain Sepolia.
+v1 research artifact. Not audited, not production. Working end-to-end (152 tests) and live on Unichain Sepolia.
 
 **Engine**
 - [x] Asset registry, N tokens per pool, sorted, unique, immutable
-- [x] Decimal scaling for ≤18-decimal tokens (6dp USDC/USDT supported; >18 rejected)
+- [x] Decimal scaling for ≤18-decimal tokens (6dp USDC/USDT supported; >18 rejected), proven by a mixed-decimal solvency invariant rather than assumed
 - [x] `beforeSwap` full segmenting solver (within-tick + tick crossings)
 - [x] Per-tick fee growth + per-position checkpoints (v3-style)
 
@@ -50,6 +50,7 @@ v1, research artifact, not audited, not production. Working end-to-end (152 test
 
 **Safety & ops**
 - [x] Admin pause, Ownable2Step + Pausable
+- [x] Deposit boundary enforced: a short transfer reverts with `TokenTransferShortfall`, so a fee-on-transfer or negatively-rebasing token fails closed instead of leaving claim tokens unbacked
 - [x] Deploy + seed + simulation scripts; CREATE2-mined hook
 - [x] Live + seeded on Unichain Sepolia (152 tests passing)
 
@@ -69,6 +70,14 @@ v1, research artifact, not audited, not production. Working end-to-end (152 test
 forge build
 forge test          # 152 passing
 ```
+
+| Suite | What it proves |
+|---|---|
+| `Solvency.invariant.t.sol` | Stateful fuzz, **256 runs / 128k calls**, run twice: once all-18-decimal and once mixed 6/6/18. Custody always covers reserves plus accrued fees, and rounding only ever favours the pool. The all-18 profile leaves every raw↔WAD conversion a no-op, so it says nothing about the scaling layer; the mixed profile is the one that exercises it. |
+| `MixedDecimalsLifecycle.t.sol` | Deterministic add → swap → collect → partial burn → full burn on a 6dp book, with every step asserted to *succeed*. Also asserts a fee-on-transfer token is refused at the deposit boundary with `TokenTransferShortfall`. |
+| `OrbitalHook.t.sol` | 57 tests over the hook surface: constructor guards, permissions, LP entry, swaps, tick crossings, boundary behaviour, pause, ownership. |
+| `SphereMath` · `TorusMath` · `TickLib` · `QuadraticSolver` | Library units, including fuzzed solver residual and stability bounds. |
+| `Benchmark.t.sol` | Slippage against depth, swap size and N. Not assertions, a console study. |
 
 `via_ir = true` (solc 0.8.30) is required, the `TorusMath` library hits stack-too-deep without it. We implemented the complete Orbital math from the paper, the sphere invariant, tick planes, torus consolidation, and the segmenting quartic solver. The same engine backs our standalone Orbital AMM in [`../../contracts/`](../../contracts/); this hook adapts it to the v4 surface.
 
@@ -165,19 +174,34 @@ collect(uint256 tickIdx)                                                 // → 
 
 ---
 
-## Deploy
+## Cross-chain extension
 
-```bash
-forge script script/Deploy.s.sol \
-  --rpc-url https://sepolia.unichain.org --broadcast --slow \
-  --private-key $PRIVATE_KEY
-```
+Optional, and not required to use the pool. [`src/crosschain/OrbitalIntentSettler.sol`](src/crosschain/OrbitalIntentSettler.sol) implements [ERC-7683](https://eips.ethereum.org/EIPS/eip-7683) so an order opened on one chain can be filled on another.
 
-`Deploy.s.sol` mines the hook address (`HookMiner` from `lib/uniswap-hooks`), deploys the four mock tokens, initializes the 6 pair pools, and seeds tiered liquidity across depeg bounds 0.95 / 0.90 / 0.85 / 0.80 (~$10M rInt). The deep, layered seed keeps quotes near 1:1 for ordinary flow, while the segmenting solver handles tick crossings when a swap is large enough to reach a boundary.
+- **The fill routes through this hook.** A filler supplying a different stable than the order asks for gets converted in one hop through the local Orbital book. Because every asset shares one book, a filler needs inventory in only one asset per chain rather than all N.
+- **Settlement is an authenticated Hyperlane message.** The origin releases escrow only when its Mailbox delivers a message whose `(domain, sender)` matches a registered peer. No arbiter, no bond, no dispute game. `handle` is idempotent, so redelivery cannot double-pay.
+- **Liveness.** If the proof never arrives the user reclaims the escrow after `fillDeadline + refundBuffer`.
 
 ---
 
-## Deployed, Unichain Sepolia (chainId 1301)
+## Deploy
+
+```bash
+export HYPERLANE_MAILBOX=0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD   # for the settler
+export V4_ROUTER=0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540         # Unichain has no canonical one
+
+forge script script/DeployTestnet.s.sol \
+  --rpc-url unichain_sepolia --broadcast --slow \
+  --private-key $PRIVATE_KEY
+```
+
+`DeployTestnet.s.sol` is chain-agnostic: it resolves the PoolManager and router by `chainId`, deploys four mock stables with a **realistic decimal mix** (USDC/USDT 6dp, DAI/FRAX 18dp), CREATE2-mines the hook address, initializes the 6 pair pools, seeds four tiers, and deploys the settler.
+
+Tiers are graduated at depeg bounds **0.97 / 0.93 / 0.88 / 0.80** for a total of 12M rInt (~$24M TVL). The tight top tier carries ordinary near-peg flow, which is where the low slippage comes from; the 0.80 tier is a deliberately wide backstop that normal swaps cannot reach, so at least one interior tick always survives a crossing and `kBound` can return to 0. Without that, a boundary tick would freeze mint and burn for the whole pool.
+
+---
+
+## Deployed
 
 Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the official `PoolManager`, `SwapRouter`, and `V4Quoter`.
 
@@ -185,7 +209,7 @@ Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the offic
 |---|---|
 | OrbitalHook | [`0xaf7450d89B674d11284Fa82693eF15612169aa88`](https://sepolia.uniscan.xyz/address/0xaf7450d89B674d11284Fa82693eF15612169aa88) |
 | PoolManager (v4, canonical) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
-| V4Quoter (canonical) | `0x56DcD40A3F2D466F48E7F48BdBe5cc9b92aE4472` |
+| V4Quoter (canonical) | `0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472` |
 | SwapRouter (v4) | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
 | Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
 | USDC (mock) | `0x4df69b21843F42a43a3CBe1C2712278404a0f394` |
@@ -194,4 +218,8 @@ Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the offic
 | FRAX (mock) | `0x5F1e60520d796bdAE086b8aA2D88fb039f76CaD7` |
 | Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
 
-Four mock 18-decimal stablecoins → 6 pair pools registered against the hook → tiered seed across 4 tiers (depeg bounds 0.95 / 0.90 / 0.85 / 0.80, ~$10M rInt) → `SeedActivity` runs a swap wave and adds a 5th tick. Live state: **~$24M TVL across 5 ticks, all interior, kBound = 0**. The hook address suffix `...02A88` encodes its permission flags (CREATE2-mined).
+Four mock stables with a realistic decimal mix (USDC/USDT **6dp**, DAI/FRAX **18dp**) → 6 pair pools registered against the hook → a four-tier seed of 12M rInt (~$24M TVL) → `SimulateMultiLPLive` adds three independent LPs on three further ticks.
+
+Live state: **$25.5M TVL across 7 ticks, all interior, `kBound = 0`**. The hook address suffix `...9aa88` encodes its permission flags (CREATE2-mined).
+
+The same engine is deployed on Base Sepolia and Arbitrum Sepolia for the cross-chain extension; see [`deployments.json`](deployments.json) for every address.
