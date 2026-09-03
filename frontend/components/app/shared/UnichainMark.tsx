@@ -1,10 +1,10 @@
 // Unichain logo mark.
-export function UnichainMark({ size = 12 }: { size?: number }) {
+export function UnichainMark({ size = 12, color = "#fc0fa4" }: { size?: number; color?: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 116 115" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+    <svg style={{ display: "block", verticalAlign: "top" }} width={size} height={size} viewBox="0 0 116 115" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
       <path
         d="M115.476 56.406C84.3089 56.406 59.07 31.1416 59.07 0H56.8819V56.406H0.47583V58.594C31.6429 58.594 56.8819 83.8584 56.8819 115H59.07V58.594H115.476V56.406Z"
-        fill="#fc0fa4"
+        fill={color}
       />
     </svg>
   );

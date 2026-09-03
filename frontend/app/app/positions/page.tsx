@@ -566,13 +566,13 @@ function PositionRow({
           onConfirm={handleDecrease} onClose={() => setModal(null)} isPending={isPending} />
       )}
       {modal?.type === "collect" && (
-        <ConfirmModal title={`Collect fees — Position #${tokenId}`}
+        <ConfirmModal title={`Collect fees, Position #${tokenId}`}
           body="Collected fees will be sent to your wallet. Your liquidity position remains unchanged."
           confirmLabel="Collect fees" onConfirm={handleCollect} onClose={() => setModal(null)} isPending={isPending} />
       )}
       {modal?.type === "burn" && (
         <ConfirmModal title={`Burn Position #${tokenId}`}
-          body="This withdraws the entire position and burns its LP shares. Collect any owed fees first — they aren't claimed automatically."
+          body="This withdraws the entire position and burns its LP shares. Collect any owed fees first; they aren't claimed automatically."
           confirmLabel="Burn position" onConfirm={handleBurn} onClose={() => setModal(null)} isPending={isPending} danger />
       )}
     </>

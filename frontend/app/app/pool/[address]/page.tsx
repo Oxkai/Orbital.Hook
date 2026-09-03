@@ -28,7 +28,7 @@ import { TokenIcon } from "@/components/app/shared/TokenIcon";
 const TABS = ["Overview", "Liquidity", "Transactions"] as const;
 type Tab = typeof TABS[number];
 
-// Section / kicker label — Roboto caption, uppercase
+// Section / kicker label: Roboto caption, uppercase
 const LBL = {
   fontFamily: typography.caption.family,
   fontSize: typography.caption.size,
@@ -37,7 +37,7 @@ const LBL = {
   fontWeight: 500,
 };
 
-// Row body text — Roboto, tabular numerals for clean alignment
+// Row body text: Roboto, tabular numerals for clean alignment
 function body(size: "p1" | "p2" | "p3" | "caption" = "p2", c: string = color.textPrimary) {
   const t = typography[size];
   return {
@@ -50,7 +50,7 @@ function body(size: "p1" | "p2" | "p3" | "caption" = "p2", c: string = color.tex
   };
 }
 
-// Mono — reserved for hashes and on-chain identifiers only
+// Mono: reserved for hashes and on-chain identifiers only
 function mono(size = "12px", c: string = color.textPrimary) {
   return {
     fontFamily: "var(--font-mono)" as const,
@@ -365,7 +365,7 @@ function LiquidityTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["
       </SectionLabel>
 
       <div className="flex flex-col gap-px">
-        {/* Column headers — desktop */}
+        {/* Column headers: desktop */}
         <div
           className="hidden sm:grid items-center px-5 py-2.5"
           style={{
@@ -498,7 +498,7 @@ function TypePill({ type }: { type: TxType }) {
 }
 
 function TransactionsTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["pool"]> }) {
-  const { txs, isLoading, isLoadingMore, hasMore, loadMore, error } = useTransactions(pool.tokens);
+  const { txs, isLoading, isLoadingMore, hasMore, loadMore, error } = useTransactions();
 
   return (
     <div>
@@ -513,7 +513,7 @@ function TransactionsTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool
       </SectionLabel>
 
       <div className="flex flex-col gap-px">
-        {/* Column headers — desktop */}
+        {/* Column headers: desktop */}
         <div
           className="hidden sm:grid items-center px-5 py-2.5"
           style={{

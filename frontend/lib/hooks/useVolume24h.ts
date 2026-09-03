@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePublicClient } from "wagmi";
 import { parseAbiItem, type AbiEvent } from "viem";
 import { POOL_ADDRESS, DEPLOY_BLOCK } from "@/lib/contracts";
+import { PRIMARY_CHAIN_ID } from "@/lib/crosschain";
 
 const WAD = 1e18;
 const SECONDS_PER_DAY = 86_400;
@@ -13,7 +14,10 @@ const SWAP_EVENT = parseAbiItem(
 ) as AbiEvent;
 
 export function useVolume24h(fee: number, enabled: boolean = true) {
-  const client = usePublicClient();
+  // Pinned to the primary chain: these pages show one deployment, and
+  // resolving the client from the connected wallet meant they silently read
+  // the wrong network (or none) whenever it was on a different chain.
+  const client = usePublicClient({ chainId: PRIMARY_CHAIN_ID });
   const [volume24h, setVolume24h] = useState(0);
   const [fees24h,   setFees24h]   = useState(0);
 

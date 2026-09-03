@@ -141,7 +141,7 @@ function StepBar({ step }: { step: 1 | 2 | 3 }) {
   );
 }
 
-// ─── Step 1 — set range ───────────────────────────────────────────────────────
+// ─── Step 1: set range ───────────────────────────────────────────────────────
 
 function Step1({
   depegPrice, setDepegPrice,
@@ -373,7 +373,7 @@ function Step1({
             <p style={{ ...body("caption", color.textSecondary), lineHeight: 1.65, paddingTop: 12 }}>
               Each tick is an independent sphere AMM. When reserves reach its plane boundary (your depeg threshold),
               the tick pauses and stops accepting swaps until assets re-peg. Tighter ticks have higher capital
-              efficiency but activate earlier. Your liquidity is never lost — it just earns no fees while paused.
+              efficiency but activate earlier. Your liquidity is never lost; it just earns no fees while paused.
             </p>
           </div>
         )}
@@ -399,7 +399,7 @@ function Step1({
   );
 }
 
-// ─── Step 2 — amount ──────────────────────────────────────────────────────────
+// ─── Step 2: amount ──────────────────────────────────────────────────────────
 
 const QUICK_PCTS = [25, 50, 75, 100] as const;
 
@@ -573,7 +573,7 @@ function Step2({ depegPrice, n, tokens, reserves, balances, usdAmount, setUsdAmo
   );
 }
 
-// ─── Step 3 — review + submit ─────────────────────────────────────────────────
+// ─── Step 3: review + submit ─────────────────────────────────────────────────
 
 function Step3({ depegPrice, n, tokens, reserves, amount, allowances, fee, slippage, onBack, onApprove, onMint, isTxPending, approveIdx, walletConnected }: {
   depegPrice: number;

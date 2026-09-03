@@ -25,6 +25,7 @@ import {QuadraticSolver} from "./libraries/QuadraticSolver.sol";
 
 interface IERC20Decimals {
     function decimals() external view returns (uint8);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 /// @notice Uniswap v4 hook implementing the Orbital N-asset stableswap (Paradigm 2025).
@@ -38,12 +39,18 @@ interface IERC20Decimals {
 ///      the pool's favour. The engine, ticks, and all public WAD quantities are
 ///      untouched. Tokens with MORE than 18 decimals are rejected at deploy.
 ///
-///      TOKEN ASSUMPTIONS (enforced loosely / by convention, not fully on-chain):
+///      TOKEN ASSUMPTIONS (enforced on-chain at the deposit boundary):
 ///      registered assets MUST be standard ERC-20s (≤ 18 decimals) with no
-///      fee-on-transfer and no rebasing. The hook assumes the PoolManager receives
-///      exactly the requested amount; a fee-on-transfer or rebasing token would leave
-///      claim tokens unbacked. Native ETH is unsupported (the constructor's
-///      `decimals()` probe reverts for `address(0)`).
+///      fee-on-transfer and no rebasing. Rather than trusting that, every deposit
+///      measures the PoolManager's real balance delta and reverts with
+///      `TokenTransferShortfall` if less arrived than was requested — so a
+///      fee-on-transfer or negatively-rebasing token fails closed with a named
+///      error instead of leaving claim tokens unbacked. Deposit is the only path
+///      where a short transfer could threaten solvency: swaps move ERC-6909 claim
+///      tokens inside the PoolManager and never touch the ERC-20, while burn and
+///      collect transfer OUT (a transfer fee there is borne by the withdrawing LP,
+///      not the pool). Native ETH is unsupported (the constructor's `decimals()`
+///      probe reverts for `address(0)`).
 contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausable {
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
@@ -162,10 +169,15 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     error TooManyTicks();
     error FeeTooLow(uint24 fee);
     error BurnBlockedByBoundaryTicks();
+    error TokenTransferShortfall(Currency asset, uint256 requested, uint256 received);
 
     event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts);
     event Burn(address indexed owner, uint256 indexed tickIdx, uint256 rWad, uint256[] amounts);
     event Collect(address indexed owner, uint256 indexed tickIdx, uint256[] fees);
+    /// @param sender The caller of `poolManager.swap` (router or EOA), NOT the
+    ///        PoolManager. `assetIn`/`assetOut` are indices into this hook's
+    ///        asset array; `amountIn`/`amountOut` are in each token's RAW units,
+    ///        so a consumer must scale by that asset's own decimals.
     event Swap(address indexed sender, uint8 assetIn, uint8 assetOut, uint256 amountIn, uint256 amountOut);
     event TickCrossed(uint256 indexed tickIdx, bool nowInterior);
 
@@ -328,7 +340,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         revert NativeLiquidityDisabled();
     }
 
-    function _beforeSwap(address, PoolKey calldata key, SwapParams calldata params, bytes calldata)
+    function _beforeSwap(address swapper, PoolKey calldata key, SwapParams calldata params, bytes calldata)
         internal
         virtual
         override
@@ -392,7 +404,11 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         if (amountOutRaw == 0) revert ZeroSwapOutput();
         if (amountOutRaw > uint256(uint128(type(int128).max))) revert SwapAmountTooLarge(amountOutRaw);
 
-        emit Swap(msg.sender, assetIn, assetOut, amountInRaw, amountOutRaw);
+        // `swapper` is the address that called `poolManager.swap` (the router, or
+        // an EOA going direct). `msg.sender` here is always the PoolManager,
+        // since it is the PoolManager that calls the hook — emitting that made
+        // every swap in the UI attributed to the PoolManager's own address.
+        emit Swap(swapper, assetIn, assetOut, amountInRaw, amountOutRaw);
 
         cIn.take(poolManager, address(this), amountInRaw, true);
         cOut.settle(poolManager, address(this), amountOutRaw, true);
@@ -876,6 +892,17 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             // Convert the WAD deposit to the token's raw units, rounding UP so the
             // pool is never under-funded against the WAD credited to reserves.
             uint256 amt = _toRawUp(i, amtWad);
+
+            // Measure the PoolManager's real balance delta across the transfer.
+            // `reserves` was already credited the full WAD amount by
+            // `_applyMintToTorus`, and `poolManager.mint` below claims the full
+            // `amt`, so anything less than `amt` actually arriving would leave the
+            // engine believing in tokens the pool does not hold. v4's own
+            // accounting would revert with `CurrencyNotSettled`, but only as a
+            // side effect; this makes the failure explicit and named.
+            address token = Currency.unwrap(c);
+            uint256 pmBefore = IERC20Decimals(token).balanceOf(address(poolManager));
+
             if (m.usePermit2) {
                 poolManager.sync(c);
                 permit2.transferFrom(m.recipient, address(poolManager), uint160(amt), Currency.unwrap(c));
@@ -885,6 +912,10 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
                 // direct-allowance path — supports non-bool-returning tokens.
                 c.settle(poolManager, m.recipient, amt, false);
             }
+
+            uint256 received = IERC20Decimals(token).balanceOf(address(poolManager)) - pmBefore;
+            if (received < amt) revert TokenTransferShortfall(c, amt, received);
+
             poolManager.mint(address(this), c.toId(), amt);
         }
 

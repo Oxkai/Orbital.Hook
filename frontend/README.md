@@ -1,6 +1,6 @@
-# Orbital · UHI — Frontend
+# Orbital · UHI Frontend
 
-The web app for **Orbital**, an N-asset stableswap built as a **Uniswap v4 hook**, deployed on **Unichain Sepolia (chainId 1301)**. Swap, provide liquidity, and inspect the live pool — wired directly to the on-chain hook.
+The web app for **Orbital**, an N-asset stableswap built as a **Uniswap v4 hook**, deployed on **Unichain Sepolia (chainId 1301)**. Swap, provide liquidity, and inspect the live pool, wired directly to the on-chain hook.
 
 **Live → https://orbital-hook.vercel.app/**
 
@@ -53,8 +53,8 @@ Deploy this folder as its own Vercel project:
 
 ```
 app/
-  layout.tsx              root layout — fonts, theme vars, KaTeX css
-  page.tsx                home page — assembles all sections
+  layout.tsx              root layout: fonts, theme vars, KaTeX css
+  page.tsx                home page: assembles all sections
   app/                    the dApp
     swap/                 swap widget (V4Quoter + v4 router)
     pools/  pool/[address]  pool list + detail + add-liquidity
@@ -72,4 +72,4 @@ lib/
 constants/                color themes (dark/light) + type scale
 ```
 
-> Research deployment on Unichain Sepolia — not audited, not production.
+> Research deployment on Unichain Sepolia. Not audited, not production.

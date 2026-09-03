@@ -40,10 +40,10 @@ const PROBLEMS: Problem[] = [
     tag: "~1–2× a flat curve",
     tex: "x \\cdot y = k",
     lede: "Depth spread across prices a dollar never reaches.",
-    body: "Curve holds many stablecoins together, but lays liquidity flatly along the whole curve — most of it parked at prices that never trade. Uniswap v3 concentrates properly, and then caps you at two tokens. Today you pick breadth or depth, never both.",
+    body: "Curve holds many stablecoins together, but lays liquidity flatly along the whole curve, most of it parked at prices that never trade. Uniswap v3 concentrates properly, and then caps you at two tokens. Today you pick breadth or depth, never both.",
     points: [
-      "Curve — the whole basket, thin at the peg",
-      "Uniswap v3 — dense at the peg, one pair only",
+      "Curve: the whole basket, thin at the peg",
+      "Uniswap v3: dense at the peg, one pair only",
       "Idle capital earns nothing and cushions nothing",
     ],
     accent: colors.yellow.hex,
@@ -59,7 +59,7 @@ const PROBLEMS: Problem[] = [
     points: [
       "The pool prices the depeg last, not first",
       "LPs absorb the fall with no bound of their own",
-      "USDC after SVB — flat pools took the loss",
+      "USDC after SVB: flat pools took the loss",
     ],
     accent: colors.red.hex,
   },

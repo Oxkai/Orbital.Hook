@@ -1,4 +1,4 @@
-// Pure simulation math for a 3-token Orbital pool — a faithful float port of the
+// Pure simulation math for a 3-token Orbital pool: a faithful float port of the
 // on-chain geometry in orbitalHook/src/libraries (SphereMath + TickLib) and the
 // OrbitalHook engine. Used to draw two correct cross-sections of the reserve
 // sphere with real virtual reserves, real ticks and real capital efficiency.
@@ -90,7 +90,7 @@ export function kMax(r: number): number {
   return (r * (N - 1)) / SQRT_N;
 }
 
-/** k from a depeg price p (e.g. 0.99) — TickLib.kFromDepegPrice. */
+/** k from a depeg price p (e.g. 0.99) TickLib.kFromDepegPrice. */
 export function kFromDepegPrice(r: number, p: number): number {
   const km = kMin(r);
   const kM = kMax(r);
@@ -102,7 +102,7 @@ export function kFromDepegPrice(r: number, p: number): number {
   return Math.min(kM, Math.max(km, k));
 }
 
-/** Per-asset reserve band [xMin, xMax] inside tick k — TickLib._reserveBounds. */
+/** Per-asset reserve band [xMin, xMax] inside tick k: TickLib._reserveBounds. */
 export function reserveBounds(r: number, k: number): { xMin: number; xMax: number } {
   const kSn = k * SQRT_N;
   const A = Math.max(0, (N - 1) * r - kSn);
@@ -114,7 +114,7 @@ export function reserveBounds(r: number, k: number): { xMin: number; xMax: numbe
   };
 }
 
-/** Capital efficiency xBase/(xBase − xMin) — TickLib.capitalEfficiency. */
+/** Capital efficiency xBase/(xBase − xMin) TickLib.capitalEfficiency. */
 export function capitalEfficiency(r: number, k: number): number {
   if (Math.abs(k - kMax(r)) < 1e-6) return 1;
   const xBase = equalPricePoint(r);
@@ -152,7 +152,7 @@ export function ticks(s: PoolState): TickInfo[] {
   });
 }
 
-// ── section A — project along the equal-price (1,1,1) axis ─────
+// ── section A: project along the equal-price (1,1,1) axis ─────
 
 const INV_SQRT2 = 1 / Math.SQRT2;
 const INV_SQRT6 = 1 / Math.sqrt(6);
@@ -176,7 +176,7 @@ export function tickPlanePoint(s: PoolState): { angle: number; depeg: number } {
   return { angle: Math.atan2(py, px), depeg: maxDepeg(s) };
 }
 
-// ── section B — two-token plane (third token fixed) ───────────
+// ── section B: two-token plane (third token fixed) ───────────
 
 export type PairArc = {
   i: number;

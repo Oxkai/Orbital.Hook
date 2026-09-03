@@ -27,7 +27,7 @@ const ANSWERS: Answer[] = [
     tex: "\\lVert \\vec{r} - \\vec{x} \\rVert^{2} = r^{2}",
     answers: "ANSWERS 01 + 02",
     lede: "Reserves ride a sphere, not a hyperbola.",
-    body: "Uniswap prices two tokens on a curve; Orbital prices N tokens on an N-sphere. Every pair in the basket draws on the same reserves, so a USDC/FRAX trade has the same depth as USDC/USDT. One deep book replaces six thin ones — and adding a coin adds a dimension, not a market.",
+    body: "Uniswap prices two tokens on a curve; Orbital prices N tokens on an N-sphere. Every pair in the basket draws on the same reserves, so a USDC/FRAX trade has the same depth as USDC/USDT. One deep book replaces six thin ones, and adding a coin adds a dimension, not a market.",
     points: [
       "At the equal-price point every coin trades exactly 1:1",
       "The curve only bends as the basket drifts off peg",
@@ -43,7 +43,7 @@ const ANSWERS: Answer[] = [
     tex: "\\textstyle\\sum_i x_i = k",
     answers: "ANSWERS 02 + 03",
     lede: "Each LP chooses the depeg they will hold.",
-    body: "A plane cuts the sphere at a chosen bound — say, only while the coin holds above $0.95. Capital packs into that narrow band near peg where dollars actually trade, and a small real deposit behaves like a far larger reserve. Cross the bound and the tick exits to the boundary, so the pool stops absorbing the failure.",
+    body: "A plane cuts the sphere at a chosen bound: say, only while the coin holds above $0.95. Capital packs into that narrow band near peg where dollars actually trade, and a small real deposit behaves like a far larger reserve. Cross the bound and the tick exits to the boundary, so the pool stops absorbing the failure.",
     points: [
       "Virtual reserves, generalised from Uniswap v3 to the N-sphere",
       "Loss is capped at the bound the LP picked, by construction",
@@ -204,7 +204,7 @@ export function Solution() {
             " ",
             { t: "Let each LP ", v: "off" },
             { t: "cut it with a plane", v: "on" },
-            { t: " and depth lands at the peg — with a ", v: "off" },
+            { t: " and depth lands at the peg, with a ", v: "off" },
             { t: "bound on what they can lose", v: "on" },
             { t: ".", v: "green" },
           ]}

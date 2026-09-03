@@ -46,10 +46,10 @@ export function Nav() {
 
   return (
     <nav
-      className="sticky top-0 z-40 grid h-14 grid-cols-12 items-center gap-5 px-6 border-b backdrop-blur-md"
+      className="sticky top-0 z-40 grid h-14 grid-cols-12 items-center gap-5 px-6 border-b"
       style={{
         borderColor: color.borderSubtle,
-        backgroundColor: "color-mix(in srgb, var(--color-bg) 82%, transparent)",
+        backgroundColor: color.bg,
       }}
     >
       <div className="col-span-4 grid items-center">

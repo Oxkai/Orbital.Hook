@@ -197,7 +197,7 @@ export function Footer() {
           >
             Research implementation of the Paradigm Orbital paper.
             <br />
-            Deployed on Unichain Sepolia — not production.
+            Deployed on Unichain Sepolia. Not production.
           </p>
           <p
             style={{

@@ -1,0 +1,126 @@
+{
+  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp), deep 4-tier seed of 12M rInt (~$24M TVL). Settlement is by authenticated Hyperlane message.",
+  "1301": {
+    "name": "Unichain Sepolia",
+    "short": "Unichain",
+    "rpc": "https://sepolia.unichain.org",
+    "explorer": "https://sepolia.uniscan.xyz",
+    "poolManager": "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
+    "v4Router": "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540",
+    "quoter": "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472",
+    "orbitalHook": "0xaf7450d89B674d11284Fa82693eF15612169aa88",
+    "intentSettler": "0x14a8d875F6d4468c83C1D3028e179DdA9B9364DC",
+    "hyperlaneMailbox": "0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD",
+    "hyperlaneDomain": 1301,
+    "deployBlock": 61607259,
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "peers": {
+      "84532": "0xF72F5537d6914e1D1379D68B62Eb6f8549792992",
+      "421614": "0x46A0e3D32ebCeC9B65984469520F478C9e0C97D4"
+    },
+    "assets": {
+      "USDC": {
+        "address": "0x4df69b21843F42a43a3CBe1C2712278404a0f394",
+        "index": 0,
+        "decimals": 6
+      },
+      "FRAX": {
+        "address": "0x5F1e60520d796bdAE086b8aA2D88fb039f76CaD7",
+        "index": 1,
+        "decimals": 18
+      },
+      "USDT": {
+        "address": "0x9924e9D691642F6B8bAA0382aC9EFFDb43002B95",
+        "index": 2,
+        "decimals": 6
+      },
+      "DAI": {
+        "address": "0xF2C5b0555F1ba2184Db8563188c00a1467251739",
+        "index": 3,
+        "decimals": 18
+      }
+    }
+  },
+  "84532": {
+    "name": "Base Sepolia",
+    "short": "Base",
+    "rpc": "https://sepolia.base.org",
+    "explorer": "https://sepolia.basescan.org",
+    "poolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    "v4Router": "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
+    "quoter": "0x9eA8539097528BA1CdC4CcEfa99DBD0310D3Bde2",
+    "orbitalHook": "0xf3aE821a7e0b6effD96EaaeBC09C53905aF12a88",
+    "intentSettler": "0xF72F5537d6914e1D1379D68B62Eb6f8549792992",
+    "hyperlaneMailbox": "0x6966b0E55883d49BFB24539356a2f8A673E02039",
+    "hyperlaneDomain": 84532,
+    "deployBlock": 46345765,
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "peers": {
+      "1301": "0x14a8d875F6d4468c83C1D3028e179DdA9B9364DC",
+      "421614": "0x46A0e3D32ebCeC9B65984469520F478C9e0C97D4"
+    },
+    "assets": {
+      "DAI": {
+        "address": "0x1A478E8Ad09D650f17df0288254bd24220Ff6b57",
+        "index": 0,
+        "decimals": 18
+      },
+      "FRAX": {
+        "address": "0x5BD60b5a16be951f9185576da0DdC51993B28db8",
+        "index": 1,
+        "decimals": 18
+      },
+      "USDT": {
+        "address": "0x7EB345af1f38Ee7a2C7E5bE984596e33014bDc81",
+        "index": 2,
+        "decimals": 6
+      },
+      "USDC": {
+        "address": "0x8C3E9929b523D658A92cb61286ba00A1A15635F7",
+        "index": 3,
+        "decimals": 6
+      }
+    }
+  },
+  "421614": {
+    "name": "Arbitrum Sepolia",
+    "short": "Arbitrum",
+    "rpc": "https://sepolia-rollup.arbitrum.io/rpc",
+    "explorer": "https://sepolia.arbiscan.io",
+    "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
+    "v4Router": "0xcD8D7e10A7aA794C389d56A07d85d63E28780220",
+    "quoter": "0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE",
+    "orbitalHook": "0xB5bcb2F158461E3d69bf38Be4af69954FB67aA88",
+    "intentSettler": "0x46A0e3D32ebCeC9B65984469520F478C9e0C97D4",
+    "hyperlaneMailbox": "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8",
+    "hyperlaneDomain": 421614,
+    "deployBlock": 305071149,
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "peers": {
+      "1301": "0x14a8d875F6d4468c83C1D3028e179DdA9B9364DC",
+      "84532": "0xF72F5537d6914e1D1379D68B62Eb6f8549792992"
+    },
+    "assets": {
+      "DAI": {
+        "address": "0x31f54F08c8DF97d934b6804faB69c98C09898fB9",
+        "index": 0,
+        "decimals": 18
+      },
+      "FRAX": {
+        "address": "0x4ac9f4b60baF290F3694C88c7e3EBc92e3dd923F",
+        "index": 1,
+        "decimals": 18
+      },
+      "USDC": {
+        "address": "0x7A3558170Ae4a15523D1E2848aA41Aed1C7fa292",
+        "index": 2,
+        "decimals": 6
+      },
+      "USDT": {
+        "address": "0x9Aeb218E9f3E4f2366F4A09a9d33823A8856D192",
+        "index": 3,
+        "decimals": 6
+      }
+    }
+  }
+}

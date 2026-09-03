@@ -22,11 +22,20 @@ interface IERC6909Balance {
 ///         everything it owes — the tracked reserves plus accrued fees. A random
 ///         sequence of add/swap/remove/collect (including depeg crossings) must never
 ///         create phantom value or let the pool owe more than it holds.
-contract SolvencyInvariant is BaseTest {
+///
+/// @dev    ABSTRACT so the same handler set runs against more than one decimal
+///         profile. Solvency depends on the raw<->WAD scaling getting its rounding
+///         directions right at four separate boundaries (swap in, swap out, deposit,
+///         payout), and an all-18-decimal run makes every one of those a no-op
+///         (`_scale == 1`), so it proves nothing about them. `MixedDecimals` below is
+///         the run that actually exercises the layer.
+abstract contract SolvencyInvariantBase is BaseTest {
     OrbitalHook hook;
     Currency[3] assets;
+    uint256[3] scales; // 10^(18-decimals) per asset
     PoolKey key01;
     uint256[] heldTicks;
+
 
     uint8 constant N = 3;
     uint160 constant HOOK_FLAGS = uint160(
@@ -34,11 +43,22 @@ contract SolvencyInvariant is BaseTest {
             | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
     );
 
+    /// @dev Decimals for each of the three assets. Overridden per profile.
+    function _decimals() internal pure virtual returns (uint8[3] memory);
+
+    /// @dev Distinct hook address per profile so the two runs cannot collide.
+    function _hookSalt() internal pure virtual returns (uint160);
+
     function setUp() public {
         deployArtifactsAndLabel();
 
-        // Three 18-decimal tokens, sorted ascending by address.
-        MockERC20[3] memory t = [deployToken(), deployToken(), deployToken()];
+        uint8[3] memory dec = _decimals();
+        MockERC20[3] memory t = [
+            deployTokenWithDecimals(dec[0]),
+            deployTokenWithDecimals(dec[1]),
+            deployTokenWithDecimals(dec[2])
+        ];
+        // The hook requires assets sorted ascending by address.
         for (uint256 i = 0; i < N; ++i) {
             for (uint256 j = i + 1; j < N; ++j) {
                 if (address(t[j]) < address(t[i])) (t[i], t[j]) = (t[j], t[i]);
@@ -48,9 +68,12 @@ contract SolvencyInvariant is BaseTest {
         for (uint256 i = 0; i < N; ++i) {
             assets[i] = Currency.wrap(address(t[i]));
             regd[i] = assets[i];
+            // Read decimals back off the token: sorting above reshuffled `t`, so it
+            // no longer lines up with the `dec` array it was built from.
+            scales[i] = 10 ** uint256(18 - t[i].decimals());
         }
 
-        address flagged = address(HOOK_FLAGS);
+        address flagged = address(HOOK_FLAGS ^ (_hookSalt() << 144));
         deployCodeTo(
             "OrbitalHook.sol:OrbitalHook",
             abi.encode(poolManager, permit2, regd, uint24(100), address(this)),
@@ -58,11 +81,16 @@ contract SolvencyInvariant is BaseTest {
         );
         hook = OrbitalHook(flagged);
 
+        // Sanity: the hook must agree with us about the scaling factors, or every
+        // assertion below is measuring the wrong thing.
+        for (uint8 i = 0; i < N; ++i) {
+            assertEq(hook.scaleOf(i), scales[i], "scale mismatch between test and hook");
+        }
+
         for (uint256 i = 0; i < N; ++i) {
             t[i].approve(address(hook), type(uint256).max);
         }
 
-        // Initialize the (asset0, asset1) pool so the handler can swap against it.
         key01 = PoolKey({
             currency0: assets[0],
             currency1: assets[1],
@@ -78,7 +106,6 @@ contract SolvencyInvariant is BaseTest {
         (uint256 tick0,) = hook.addLiquidity(k0, r0, _maxAmounts());
         heldTicks.push(tick0);
 
-        // Restrict the fuzzer to the four handler entry points.
         bytes4[] memory sel = new bytes4[](4);
         sel[0] = this.h_add.selector;
         sel[1] = this.h_swap.selector;
@@ -101,10 +128,23 @@ contract SolvencyInvariant is BaseTest {
     function h_swap(uint256 amtSeed, uint256 dirSeed) public {
         bool zeroForOne = dirSeed % 2 == 0;
         uint8 inIdx = zeroForOne ? 0 : 1;
-        uint256 res = hook.reserves(inIdx);
-        if (res < 2 ether) return;
-        uint256 amt = bound(amtSeed, 1 ether, res / 2);
-        try swapRouter.swapExactTokensForTokens(amt, 0, zeroForOne, key01, "", address(this), block.timestamp) {} catch {}
+
+        // `reserves` is WAD; the router takes the token's RAW units. Feeding it a
+        // WAD figure would overstate a 6-decimal amount by 1e12 and the handler
+        // would revert every time, silently gutting the swap coverage.
+        uint256 resWad = hook.reserves(inIdx);
+        uint256 resRaw = resWad / scales[inIdx];
+        // One whole token, expressed in this asset's raw units (1e18 for an
+        // 18-decimal asset, 1e6 for a 6-decimal one). Also comfortably above the
+        // point where the 1bp fee would floor to zero and the hook would reject
+        // the swap as dust.
+        uint256 minRaw = 1 ether / scales[inIdx];
+        if (resRaw < 2 * minRaw) return;
+
+        uint256 amtRaw = bound(amtSeed, minRaw, resRaw / 2);
+        try swapRouter.swapExactTokensForTokens(
+            amtRaw, 0, zeroForOne, key01, "", address(this), block.timestamp
+        ) {} catch {}
     }
 
     function h_remove(uint256 tickSeed, uint256 rSeed) public {
@@ -120,24 +160,48 @@ contract SolvencyInvariant is BaseTest {
         if (heldTicks.length == 0) return;
         uint256 tick = heldTicks[tickSeed % heldTicks.length];
         // NothingOwed is fine, but FeeBucketShort would mean total owed fees
-        // exceeded the bucket — the exact symptom of fee over-attribution (#1).
+        // exceeded the bucket — the exact symptom of fee over-attribution.
         try hook.collect(tick) {}
         catch (bytes memory reason) {
             if (reason.length >= 4) {
-                assertTrue(bytes4(reason) != OrbitalHook.FeeBucketShort.selector, "FeeBucketShort: fee over-attribution");
+                assertTrue(
+                    bytes4(reason) != OrbitalHook.FeeBucketShort.selector,
+                    "FeeBucketShort: fee over-attribution"
+                );
             }
         }
     }
 
     // ── The invariant ──
 
+    /// @notice Real custody must cover the engine's obligations, for every asset.
+    /// @dev    Claim tokens are held in the token's RAW units; `reserves` and
+    ///         `feesAccrued` are WAD. Comparing them directly is only valid when
+    ///         `scale == 1`, so the claim balance is lifted into WAD first. This is
+    ///         what makes the assertion meaningful for a 6-decimal asset.
     function invariant_pool_is_solvent() public view {
         for (uint8 i = 0; i < N; ++i) {
             uint256 id = uint256(uint160(Currency.unwrap(assets[i])));
-            uint256 claim = IERC6909Balance(address(poolManager)).balanceOf(address(hook), id);
-            uint256 owed = hook.reserves(i) + hook.feesAccrued(i);
-            // scale == 1 here (18-decimal tokens), so claim and owed are both WAD.
-            assertGe(claim, owed, "pool owes more than it holds");
+            uint256 claimRaw = IERC6909Balance(address(poolManager)).balanceOf(address(hook), id);
+            uint256 claimWad = claimRaw * scales[i];
+            uint256 owedWad = hook.reserves(i) + hook.feesAccrued(i);
+            assertGe(claimWad, owedWad, "pool owes more WAD than its raw custody covers");
+        }
+    }
+
+    /// @notice A payout must never be roundable up into insolvency.
+    /// @dev    Every WAD->raw payout rounds DOWN and every raw->WAD deposit rounds
+    ///         UP, so residual dust can only ever accumulate in the pool's favour.
+    ///         Asserting the surplus is non-negative in RAW units catches a
+    ///         rounding direction being flipped anywhere in the scaling layer.
+    function invariant_rounding_favours_the_pool() public view {
+        for (uint8 i = 0; i < N; ++i) {
+            uint256 id = uint256(uint160(Currency.unwrap(assets[i])));
+            uint256 claimRaw = IERC6909Balance(address(poolManager)).balanceOf(address(hook), id);
+            uint256 owedWad = hook.reserves(i) + hook.feesAccrued(i);
+            // Raw units needed to cover the WAD obligation, rounded up.
+            uint256 neededRaw = (owedWad + scales[i] - 1) / scales[i];
+            assertGe(claimRaw, neededRaw, "rounding leaked value out of the pool");
         }
     }
 
@@ -153,5 +217,30 @@ contract SolvencyInvariant is BaseTest {
             if (heldTicks[i] == t) return;
         }
         heldTicks.push(t);
+    }
+}
+
+/// @notice All-18-decimal profile. Every scale factor is 1, so this run covers the
+///         engine but deliberately says nothing about the scaling layer.
+contract SolvencyInvariantAll18 is SolvencyInvariantBase {
+    function _decimals() internal pure override returns (uint8[3] memory) {
+        return [18, 18, 18];
+    }
+
+    function _hookSalt() internal pure override returns (uint160) {
+        return 0x4444;
+    }
+}
+
+/// @notice The profile that matters: two 6-decimal assets (USDC/USDT shaped) beside
+///         an 18-decimal one, so `_scale` is 1e12 for two of the three and every
+///         raw<->WAD conversion in the hook is live under the fuzzer.
+contract SolvencyInvariantMixedDecimals is SolvencyInvariantBase {
+    function _decimals() internal pure override returns (uint8[3] memory) {
+        return [6, 6, 18];
+    }
+
+    function _hookSalt() internal pure override returns (uint160) {
+        return 0x5555;
     }
 }

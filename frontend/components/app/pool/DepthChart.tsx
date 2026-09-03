@@ -64,7 +64,7 @@ export function DepthChart({ ticks, n, rInt, kBound, sumX }: Props) {
     };
   });
 
-  // Only valid ticks (depeg > 0.5) — filter degenerate seed ticks with kNorm > kSingleMax
+  // Only valid ticks (depeg > 0.5) filter degenerate seed ticks with kNorm > kSingleMax
   const validTicks = tickInfos.filter(t => t.depeg > 0.5);
   const sorted     = [...validTicks].sort((a, b) => b.depeg - a.depeg);
   const totalR     = validTicks.reduce((s, t) => s + t.r, 0);
@@ -77,7 +77,7 @@ export function DepthChart({ ticks, n, rInt, kBound, sumX }: Props) {
   const step     = parseFloat(((xMax - xMin) / 5).toFixed(4));
   const xTicks   = Array.from({ length: 6 }, (_, i) => parseFloat((xMin + i * step).toFixed(4)));
 
-  // Build step-curve — only between xMin and xMax
+  // Build step-curve: only between xMin and xMax
   const pts: { x: number; y: number }[] = [];
   let cumY = totalR;
   pts.push({ x: xMax, y: cumY });
@@ -99,7 +99,7 @@ export function DepthChart({ ticks, n, rInt, kBound, sumX }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Chart canvas — parent panel provides surface + header */}
+      {/* Chart canvas: parent panel provides surface + header */}
       <div style={{ flex: 1, minHeight: 0, padding: "16px 16px 14px 4px" }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={pts} margin={{ top: 6, right: 8, bottom: 20, left: 10 }}>

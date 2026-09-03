@@ -73,7 +73,7 @@ export function Architecture() {
             " ",
             { t: "Every pair points at the same hook, which holds ", v: "off" },
             { t: "one shared pool of reserves", v: "on" },
-            { t: " — so they all trade against the same liquidity", v: "off" },
+            { t: ", so they all trade against the same liquidity", v: "off" },
             { t: ".", v: "green" },
           ]}
         />
@@ -84,7 +84,7 @@ export function Architecture() {
         className="border border-dashed mb-24"
         style={{ borderColor: color.border, backgroundColor: color.bg }}
       >
-        {/* Layer 0 — the two actors and how each enters */}
+        {/* Layer 0: the two actors and how each enters */}
         <div className="px-5 pt-6 pb-7">
           <span style={cap()}>{`// WHO INTERACTS`}</span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 mt-4">
@@ -141,7 +141,7 @@ export function Architecture() {
           <span style={cap()}>{`trader swaps a pair · LP funds the hook  ↓`}</span>
         </div>
 
-        {/* Layer 1 — the 6 pair-pools */}
+        {/* Layer 1: the 6 pair-pools */}
         <div className="px-5 pt-6 pb-7">
           <span style={cap("pools")}>{`// ${PAIRS.length} v4 POOLS · PoolKey(currency0, currency1, hooks)`}</span>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 mt-4">
@@ -171,7 +171,7 @@ export function Architecture() {
           <span style={cap("connector")}>{`all bind to one hook  ↓`}</span>
         </div>
 
-        {/* Layer 2 — the hook (shared engine) */}
+        {/* Layer 2: the hook (shared engine) */}
         <div className="px-5 py-7">
           <Box accent className="px-5 py-5">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -230,7 +230,7 @@ export function Architecture() {
           <span style={cap("connector")}>{`settles through  ↓`}</span>
         </div>
 
-        {/* Layer 3 — the PoolManager (custody) */}
+        {/* Layer 3: the PoolManager (custody) */}
         <div className="px-5 py-7">
           <Box className="px-5 py-5">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -257,13 +257,13 @@ export function Architecture() {
                 maxWidth: 640,
               }}
             >
-              Holds the real ERC-20 reserves and routes the unlock/settle flow. The hook never custodies tokens —
+              Holds the real ERC-20 reserves and routes the unlock/settle flow. The hook never custodies tokens;
               it tracks the abstract sphere and mints claim tokens against the manager.
             </p>
           </Box>
         </div>
 
-        {/* Runtime — the per-swap call path */}
+        {/* Runtime: the per-swap call path */}
         <div
           className="px-5 py-5 border-t border-dashed"
           style={{ borderColor: color.border, backgroundColor: color.surface1 }}

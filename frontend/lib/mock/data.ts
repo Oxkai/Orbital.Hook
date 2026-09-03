@@ -14,13 +14,16 @@ export type Tick = {
   isInterior:        boolean;
   feeGrowthInside?:  bigint;
   liquidityGross?:   bigint;
-  // display compat (not computed — kept at 0 when from chain)
+  // display compat (not computed: kept at 0 when from chain)
   depegPrice:        number;
   capitalEfficiency: number;
 };
 
 export type Pool = {
   address:             string;
+  /// Chain this deployment lives on. Without it a card cannot label itself or
+  /// build a correct explorer link, and every pool rendered as "Unichain".
+  chainId:             number;
   name:                string;
   tokens:              Token[];
   fee:                 number;

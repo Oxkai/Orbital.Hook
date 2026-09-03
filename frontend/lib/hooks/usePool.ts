@@ -3,23 +3,30 @@
 import { useReadContracts } from "wagmi";
 import { type Address } from "viem";
 import { POOL_ABI, TOKEN_META } from "@/lib/contracts";
-import { unichainSepolia } from "@/lib/wagmi";
+import { PRIMARY_CHAIN_ID } from "@/lib/crosschain";
 import { type Pool } from "@/lib/mock/data";
 import { useVolume24h } from "@/lib/hooks/useVolume24h";
 
 const WAD = 1e18;
 
-/** `withVolume` runs a log scan costing tens of requests — only the pool
+/** `withVolume` runs a log scan costing tens of requests: only the pool
  *  detail page shows the number, and enabling it everywhere starved the
  *  balance and reserve reads on the public RPC. Off by default. */
-export function usePool(poolAddress: Address, opts: { withVolume?: boolean } = {}) {
-  // Step 1 — static pool scalars
+export function usePool(
+  poolAddress: Address,
+  opts: { withVolume?: boolean; chainId?: number } = {}
+) {
+  // Every read is pinned to the pool's OWN chain. Hardcoding one chain here
+  // meant a pool address from a different deployment was queried against the
+  // wrong RPC and silently came back empty.
+  const chainId = opts.chainId ?? PRIMARY_CHAIN_ID;
+  // Step 1: static pool scalars
   const step1 = useReadContracts({
     contracts: [
-      { address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "N"        },
-      { address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "fee"      },
-      { address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "numTicks" },
-      { address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "slot0"    },
+      { address: poolAddress, chainId, abi: POOL_ABI, functionName: "N"        },
+      { address: poolAddress, chainId, abi: POOL_ABI, functionName: "fee"      },
+      { address: poolAddress, chainId, abi: POOL_ABI, functionName: "numTicks" },
+      { address: poolAddress, chainId, abi: POOL_ABI, functionName: "slot0"    },
     ],
   });
 
@@ -30,12 +37,12 @@ export function usePool(poolAddress: Address, opts: { withVolume?: boolean } = {
 
   const ready = n > 0 && numTicks > 0;
 
-  // Step 2 — per-asset and per-tick reads
+  // Step 2: per-asset and per-tick reads
   const step2 = useReadContracts({
     contracts: ready ? [
-      ...Array.from({ length: n },        (_, i) => ({ address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "assetAt"  as const, args: [BigInt(i)] as const })),
-      ...Array.from({ length: n },        (_, i) => ({ address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "reserves" as const, args: [BigInt(i)] as const })),
-      ...Array.from({ length: numTicks }, (_, i) => ({ address: poolAddress, chainId: unichainSepolia.id, abi: POOL_ABI, functionName: "ticks"    as const, args: [BigInt(i)] as const })),
+      ...Array.from({ length: n },        (_, i) => ({ address: poolAddress, chainId, abi: POOL_ABI, functionName: "assetAt"  as const, args: [BigInt(i)] as const })),
+      ...Array.from({ length: n },        (_, i) => ({ address: poolAddress, chainId, abi: POOL_ABI, functionName: "reserves" as const, args: [BigInt(i)] as const })),
+      ...Array.from({ length: numTicks }, (_, i) => ({ address: poolAddress, chainId, abi: POOL_ABI, functionName: "ticks"    as const, args: [BigInt(i)] as const })),
     ] : [],
     query: { enabled: ready },
   });
@@ -84,7 +91,8 @@ export function usePool(poolAddress: Address, opts: { withVolume?: boolean } = {
   const { volume24h, fees24h } = useVolume24h(fee, opts.withVolume === true);
 
   const pool: Pool | null = ready && step2.data && addressesResolved ? {
-    address:             poolAddress,
+    address: poolAddress,
+    chainId,
     name:                tokens.map(t => t.symbol).join(" / "),
     tokens,
     fee,

@@ -5,8 +5,8 @@ import { useState, useCallback } from "react";
 import { Copy, Check, ArrowSquareOut } from "@phosphor-icons/react";
 import { color, typography } from "@/constants";
 import { fmtUSD, type Pool } from "@/lib/mock/data";
-import { UnichainMark } from "@/components/app/shared/UnichainMark";
-import { explorerAddressUrl } from "@/lib/wagmi";
+import { ChainBadge } from "@/components/app/shared/ChainBadge";
+import { DEPLOYMENTS } from "@/lib/crosschain";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
 
 const LBL = {
@@ -136,7 +136,7 @@ export function PoolCard({ pool }: PoolCardProps) {
         <div className="flex flex-wrap gap-x-4 gap-y-1.5">
           {pool.tokens.map((t, i) => {
             const pct = (totalReserves > 0 ? (pool.reserves[i] / totalReserves) * 100 : 0).toFixed(1);
-            // A TOKEN is depegged only if its reserve is actually depleted —
+            // A TOKEN is depegged only if its reserve is actually depleted 
             // not because some tick crossed to boundary (ticks ≠ tokens).
             const depegged = pool.depeggedTokenIndices.includes(i);
             return (
@@ -172,7 +172,7 @@ export function PoolCard({ pool }: PoolCardProps) {
           </span>
           <CopyButton text={pool.address} />
           <a
-            href={explorerAddressUrl(pool.address)}
+            href={`${DEPLOYMENTS[pool.chainId]?.explorer ?? ""}/address/${pool.address}`}
             target="_blank"
             rel="noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -183,8 +183,8 @@ export function PoolCard({ pool }: PoolCardProps) {
             <ArrowSquareOut size={12} weight="regular" />
           </a>
           <span className="flex items-center gap-1.5 shrink-0 pl-1" style={body("caption", color.textMuted)}>
-            <UnichainMark size={11} />
-            Unichain Sepolia
+            <ChainBadge chainId={pool.chainId} size={11} />
+            {DEPLOYMENTS[pool.chainId]?.name ?? "Unknown chain"}
           </span>
         </div>
 

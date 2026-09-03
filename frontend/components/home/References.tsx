@@ -5,7 +5,7 @@ const REFS = [
   {
     n: "01",
     authors: "Paradigm",
-    title: "Orbital — An N-dimensional concentrated-liquidity AMM",
+    title: "Orbital: An N-dimensional concentrated-liquidity AMM",
     year: "2025",
     href: "https://www.paradigm.xyz/2025/06/orbital",
   },
@@ -19,7 +19,7 @@ const REFS = [
   {
     n: "03",
     authors: "Egorov",
-    title: "StableSwap — efficient mechanism for stablecoin liquidity",
+    title: "StableSwap: efficient mechanism for stablecoin liquidity",
     year: "2019",
     href: "https://resources.curve.finance/pdf/stableswap-paper.pdf",
   },

@@ -98,7 +98,7 @@ function SectionA({ state }: { state: PoolState }) {
   );
 }
 
-// ── Section B: two-token plane — fully-marked cartesian chart ──
+// ── Section B: two-token plane, fully-marked cartesian chart ──
 function SectionB({ committed, preview, i, j, tickIdx }: { committed: PoolState; preview: PoolState; i: number; j: number; tickIdx: number }) {
   const arc = pairArc(preview, i, j);
   const arc0 = pairArc(committed, i, j);
@@ -188,7 +188,7 @@ function VizPanel({ caption, meta, children }: { caption: string; meta: string; 
   );
 }
 
-// Compact token chips — the active one is filled; picking a conflicting token
+// Compact token chips. The active one is filled; picking a conflicting token
 // auto-resolves the other side, so there's no greyed/disabled state.
 function TokChips({ active, onPick }: { active: number; onPick: (i: number) => void }) {
   return (
@@ -268,7 +268,7 @@ export function PoolSim() {
             { t: ".", v: "green" },
             " ",
             { t: "Make a swap", v: "on" },
-            { t: " and watch it two ways — ", v: "off" },
+            { t: " and watch it two ways: ", v: "off" },
             { t: "looking down the tick planes", v: "on" },
             { t: ", and ", v: "off" },
             { t: "along the curve", v: "on" },

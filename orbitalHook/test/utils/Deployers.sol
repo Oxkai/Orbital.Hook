@@ -35,8 +35,17 @@ abstract contract Deployers {
     IUniswapV4Router04 swapRouter;
 
     function deployToken() internal returns (MockERC20 token) {
-        token = new MockERC20("Test Token", "TEST", 18);
-        token.mint(address(this), 10_000_000 ether);
+        token = deployTokenWithDecimals(18);
+    }
+
+    /// @notice Deploy a mock token with a specific decimals value.
+    /// @dev    Real stablecoins are not uniformly 18-decimal (USDC and USDT are 6),
+    ///         and a hook that scales between raw and WAD units has to be tested
+    ///         against that. The supply is minted in the token's OWN units so a
+    ///         6-decimal token is not handed an absurd balance.
+    function deployTokenWithDecimals(uint8 decimals_) internal returns (MockERC20 token) {
+        token = new MockERC20("Test Token", "TEST", decimals_);
+        token.mint(address(this), 10_000_000 * (10 ** uint256(decimals_)));
 
         token.approve(address(permit2), type(uint256).max);
         token.approve(address(swapRouter), type(uint256).max);

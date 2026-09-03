@@ -14,3 +14,10 @@ optimizer_runs = 200
 [lint]
 exclude_lints = ["screaming-snake-case-immutable", "screaming-snake-case-const"]
 lint_on_build = false
+
+[rpc_endpoints]
+# Public endpoints. Foundry does NOT support ${VAR:-default} here, so these are
+# literal; point them at a private provider by editing this block if rate-limited.
+base_sepolia = "https://sepolia.base.org"
+arbitrum_sepolia = "https://sepolia-rollup.arbitrum.io/rpc"
+unichain_sepolia = "https://sepolia.unichain.org"

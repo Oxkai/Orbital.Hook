@@ -3,20 +3,15 @@
 import { color, typography } from "@/constants";
 import { PoolCard } from "@/components/app/pools/PoolCard";
 import { usePool } from "@/lib/hooks/usePool";
-import { POOL_ADDRESSES } from "@/lib/contracts";
-import type { Address } from "viem";
-
-const ZERO = "0x0000000000000000000000000000000000000000" as Address;
-function useAllPools(addresses: readonly Address[]) {
-  const a = usePool(addresses[0] ?? ZERO);
-  const b = usePool(addresses[1] ?? ZERO);
-  const c = usePool(addresses[2] ?? ZERO);
-  const d = usePool(addresses[3] ?? ZERO);
-  return [a, b, c, d].slice(0, addresses.length);
-}
+import { POOL_ADDRESS, PRIMARY_CHAIN } from "@/lib/contracts";
 
 export default function PoolsPage() {
-  const poolHooks = useAllPools(POOL_ADDRESSES);
+  // ONE pool. Orbital is a single N-asset book that many LPs share through
+  // ticks: not several pools. The same engine is deployed on Base and
+  // Arbitrum as well, but those exist so cross-chain orders have a settler at
+  // each end; they are the same pool, not additional ones, and listing them
+  // separately implied liquidity was split three ways when it is not.
+  const poolHooks = [usePool(POOL_ADDRESS, { chainId: PRIMARY_CHAIN })];
 
   const isLoading = poolHooks.some(p => p.isLoading);
   const isError   = poolHooks.every(p => p.isError);

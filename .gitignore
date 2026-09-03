@@ -3,11 +3,15 @@
 .idea/
 *.swp
 
-# Personal planning / scratch notes — not for the repo
+# Personal planning / scratch notes, not for the repo
 todo.md
 req.md
 submission.md
 other
+proposal/
+
+# Local tooling config
+.claude/
 
 # Env / secrets
 .env

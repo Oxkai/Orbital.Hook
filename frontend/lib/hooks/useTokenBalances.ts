@@ -3,7 +3,7 @@
 import { useReadContracts } from "wagmi";
 import { type Address } from "viem";
 import { ERC20_ABI } from "@/lib/contracts";
-import { unichainSepolia } from "@/lib/wagmi";
+import { PRIMARY_CHAIN_ID } from "@/lib/crosschain";
 
 const WAD = 10n ** 18n;
 
@@ -19,11 +19,11 @@ const lastGood: Record<string, number> = {};
 const key = (account: string | undefined, token: string) =>
   `${(account ?? "0x").toLowerCase()}:${token.toLowerCase()}`;
 
-export function useTokenBalances(tokenAddresses: Address[], account: Address | undefined) {
+export function useTokenBalances(tokenAddresses: Address[], account: Address | undefined, chainId: number = PRIMARY_CHAIN_ID) {
   const { data, isLoading, refetch } = useReadContracts({
     contracts: tokenAddresses.map(addr => ({
       address: addr,
-      chainId: unichainSepolia.id,
+      chainId,
       abi: ERC20_ABI,
       functionName: "balanceOf" as const,
       args: [account ?? "0x0000000000000000000000000000000000000000"] as const,
@@ -32,7 +32,7 @@ export function useTokenBalances(tokenAddresses: Address[], account: Address | u
   });
 
   // A failed read is not a zero balance. The public RPC drops calls under load,
-  // and rendering 0 both misleads and disables the swap button — so the last
+  // and rendering 0 both misleads and disables the swap button: so the last
   // value that actually resolved is retained until a fresh one arrives.
   let anyResolved = false;
 
@@ -61,11 +61,12 @@ export function useTokenAllowances(
   tokenAddresses: Address[],
   owner: Address | undefined,
   spender: Address,
+  chainId: number = PRIMARY_CHAIN_ID
 ) {
   const { data, isLoading, refetch } = useReadContracts({
     contracts: tokenAddresses.map(addr => ({
       address: addr,
-      chainId: unichainSepolia.id,
+      chainId,
       abi: ERC20_ABI,
       functionName: "allowance" as const,
       args: [owner ?? "0x0000000000000000000000000000000000000000", spender] as const,

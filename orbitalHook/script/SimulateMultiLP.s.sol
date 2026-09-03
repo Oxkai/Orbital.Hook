@@ -288,7 +288,7 @@ contract SimulateMultiLPScript is Script {
         uint256 balOutBefore = MockERC20(Currency.unwrap(assets[toIdx])).balanceOf(sender);
         vm.startBroadcast(pk);
         swapRouter.swapExactTokensForTokens(
-            amountIn, 0, fromIdx < toIdx, key, "", sender, block.timestamp + 1
+            amountIn, 0, fromIdx < toIdx, key, "", sender, block.timestamp + 1 hours
         );
         vm.stopBroadcast();
         uint256 got = MockERC20(Currency.unwrap(assets[toIdx])).balanceOf(sender) - balOutBefore;

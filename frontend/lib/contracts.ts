@@ -1,54 +1,72 @@
 import { type Address } from "viem";
+import {
+  DEPLOYMENTS,
+  PRIMARY_CHAIN_ID,
+  ROUTABLE_SYMBOLS,
+  TOKEN_DISPLAY,
+} from "@/lib/crosschain";
 
-// ─── Deployed addresses (Unichain Sepolia, chainId 1301) ──────────────────────
-// PoolManager and V4Quoter are canonical Uniswap v4 deployments on Unichain
-// (https://developers.uniswap.org/contracts/v4/deployments). Permit2 is the
-// canonical singleton, same on every chain. The OrbitalHook, the SwapRouter
-// (deployed via orbitalHook/script/DeployPeriphery.s.sol since Unichain has
-// no canonical v4 SwapRouter), and the four mock-stablecoin addresses are
-// filled in after the Deploy.s.sol + DeployPeriphery.s.sol runs.
+// ─── Deployed addresses ───────────────────────────────────────────────────────
+// DERIVED, never hand-written. Every address here comes from the single registry
+// in `lib/crosschain.ts`, which is generated from `orbitalHook/deployments.json`.
+//
+// These used to be a second, hand-maintained copy of the addresses, and it went
+// stale the moment anything was redeployed: the pools, positions and
+// transactions pages were still pointing at a dead hook while the swap widget
+// had moved on. Deriving them means a redeploy updates one file and every page
+// follows.
+//
+// The exports below are the PRIMARY chain's deployment, for the pages that show
+// a single chain. Anything multi-chain should read `DEPLOYMENTS` directly.
 
-export const HOOK_ADDRESS    = "0x08E32551Cf10f042721E1387e7Be8538beC02A88" as Address; // OrbitalHook (USDC/USDT/DAI/FRAX)
-export const POOL_MANAGER    = "0x00B036B58a818B1BC34d502D3fE730Db729e62AC" as Address; // canonical
-export const SWAP_ROUTER     = "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540" as Address; // our v4Router04 -> canonical PoolManager
-export const QUOTER_ADDRESS  = "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472" as Address; // canonical V4Quoter
+const PRIMARY = DEPLOYMENTS[PRIMARY_CHAIN_ID];
+
+export const PRIMARY_CHAIN = PRIMARY_CHAIN_ID;
+
+export const HOOK_ADDRESS    = PRIMARY.orbitalHook as Address;
+export const POOL_MANAGER    = PRIMARY.poolManager as Address;
+export const SWAP_ROUTER     = PRIMARY.swapRouter as Address;
+export const QUOTER_ADDRESS  = PRIMARY.quoter as Address;
 export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as Address;
 
 // The OrbitalHook is both the "pool" (engine state + LP surface) and the swap
 // target. LP positions are soulbound ERC-6909 shares on the hook (tokenId =
-// tickIdx) — the Positions/LP pages read & write the hook directly via
+// tickIdx) the Positions/LP pages read & write the hook directly via
 // HOOK_LP_ABI; there is no separate PositionManager.
 export const POOL_ADDRESS    = HOOK_ADDRESS;
-export const POOL_ADDRESSES  = [HOOK_ADDRESS] as const;
+/// The pool. Orbital is one N-asset book shared by many LPs via ticks; the Base
+/// and Arbitrum deployments are the same pool with a settler at each end for
+/// cross-chain orders, not separate pools. `ALL_POOLS` in the registry has every
+/// deployment for anything that genuinely needs to enumerate them.
+export const POOL_ADDRESSES  = [HOOK_ADDRESS] as readonly Address[];
 export const ROUTER_ADDRESS  = SWAP_ROUTER;
 
-// Registered assets, named by symbol. The hook internally stores them
-// sorted-ascending by address; the frontend looks them up via TOKEN_META.
-export const TOKEN_ADDRESSES = {
-  USDC: "0x26301b1f7Ec55Cea35111b79E1Df986c314B4a93" as Address,
-  USDT: "0x37FC8Eade109847a5CA65cf25A7Cf8a1d003fEEd" as Address,
-  DAI:  "0x35ff498cE5FC23Ba5536044F8358C194386c9832" as Address,
-  FRAX: "0x76b1B6078f392Ef3101f7b01E7B593aB1BeA9d6b" as Address,
-} as const;
+/// Primary-chain assets by symbol. Note the addresses differ per chain, so this
+/// is only meaningful alongside `PRIMARY_CHAIN`.
+export const TOKEN_ADDRESSES = Object.fromEntries(
+  ROUTABLE_SYMBOLS.map((s) => [s, PRIMARY.assets[s].address as Address])
+) as Record<(typeof ROUTABLE_SYMBOLS)[number], Address>;
 
 // Pool fee in hundredths of a bip (matches the hook's immutable `fee`).
 export const POOL_FEE: number = 100;
 export const POOL_TICK_SPACING: number = 1;
 export const POOL_KEY_LP_FEE: number = 0;
 
-// Block the OrbitalHook was deployed at on Unichain Sepolia — event scanners
-// start here instead of genesis.
-export const DEPLOY_BLOCK = 55529382n;
+/// Block the primary hook was deployed at: event scanners start here.
+export const DEPLOY_BLOCK = PRIMARY.deployBlock;
 
-// ─── Token metadata (static) ──────────────────────────────────────────────────
-// Keys are lowercased token addresses; values are display metadata.
+/// Per-chain deploy block, for scanners that follow a specific chain.
+export function deployBlockFor(chainId: number): bigint {
+  return DEPLOYMENTS[chainId]?.deployBlock ?? 0n;
+}
 
-export const TOKEN_META: Record<string, { symbol: string; name: string; color: string; decimals: number }> = {
-  "0x26301b1f7ec55cea35111b79e1df986c314b4a93": { symbol: "USDC", name: "USD Coin",       color: "#2775CA", decimals: 18 },
-  "0x37fc8eade109847a5ca65cf25a7cf8a1d003feed": { symbol: "USDT", name: "Tether USD",     color: "#26A17B", decimals: 18 },
-  "0x35ff498ce5fc23ba5536044f8358c194386c9832": { symbol: "DAI",  name: "Dai Stablecoin",  color: "#F5AC37", decimals: 18 },
-  "0x76b1b6078f392ef3101f7b01e7b593ab1bea9d6b": { symbol: "FRAX", name: "Frax",            color: "#BFBFBF", decimals: 18 },
-};
+// ─── Token metadata ───────────────────────────────────────────────────────────
+// Keyed by lowercased token address, spanning EVERY chain, so a component that
+// resolves an address from any deployment gets the right symbol and: crucially
+//  the right decimals. The previous hardcoded table claimed USDC and USDT were
+// 18-decimal, which is wrong on all three chains now.
+
+export const TOKEN_META = TOKEN_DISPLAY;
 
 // ─── PoolKey ──────────────────────────────────────────────────────────────────
 
@@ -128,7 +146,7 @@ const POOL_KEY_COMPONENTS = [
   { name: "hooks",       type: "address" },
 ] as const;
 
-// V4Quoter — quoteExactInputSingle is `nonpayable` on-chain but read-only via
+// V4Quoter: quoteExactInputSingle is `nonpayable` on-chain but read-only via
 // eth_call (it reverts internally and returns the decoded result). We type it
 // `view` so the frontend can read it with `useReadContract` (a plain eth_call,
 // no connected wallet required) instead of `useSimulateContract`.

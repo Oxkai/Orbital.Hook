@@ -3,6 +3,7 @@
 import { useReadContract, useReadContracts } from "wagmi";
 import { type Address } from "viem";
 import { HOOK_ADDRESS, HOOK_LP_ABI, POOL_ABI } from "@/lib/contracts";
+import { PRIMARY_CHAIN_ID } from "@/lib/crosschain";
 
 export type OnChainPosition = {
   tokenId: bigint; // == tickIdx (ERC-6909 share id)
@@ -20,6 +21,7 @@ const WAD = 1e18;
 export function usePositions(account: Address | undefined) {
   const { data: numTicksData } = useReadContract({
     address: HOOK_ADDRESS,
+    chainId: PRIMARY_CHAIN_ID,
     abi: POOL_ABI,
     functionName: "numTicks",
   });
@@ -28,6 +30,7 @@ export function usePositions(account: Address | undefined) {
   const balanceReads = useReadContracts({
     contracts: Array.from({ length: numTicks }, (_, i) => ({
       address: HOOK_ADDRESS,
+      chainId: PRIMARY_CHAIN_ID,
       abi: HOOK_LP_ABI,
       functionName: "balanceOf" as const,
       args: [account ?? "0x0000000000000000000000000000000000000000", BigInt(i)] as const,
@@ -38,6 +41,7 @@ export function usePositions(account: Address | undefined) {
   const tickReads = useReadContracts({
     contracts: Array.from({ length: numTicks }, (_, i) => ({
       address: HOOK_ADDRESS,
+      chainId: PRIMARY_CHAIN_ID,
       abi: POOL_ABI,
       functionName: "ticks" as const,
       args: [BigInt(i)] as const,

@@ -208,7 +208,7 @@ contract SimulateScript is Script {
     {
         uint256 balInBefore = MockERC20(Currency.unwrap(cIn)).balanceOf(msg.sender);
         uint256 balOutBefore = MockERC20(Currency.unwrap(cOut)).balanceOf(msg.sender);
-        swapRouter.swapExactTokensForTokens(SWAP_AMOUNT, 0, zeroForOne, key, "", msg.sender, block.timestamp + 1);
+        swapRouter.swapExactTokensForTokens(SWAP_AMOUNT, 0, zeroForOne, key, "", msg.sender, block.timestamp + 1 hours);
         uint256 paid = balInBefore - MockERC20(Currency.unwrap(cIn)).balanceOf(msg.sender);
         uint256 got = MockERC20(Currency.unwrap(cOut)).balanceOf(msg.sender) - balOutBefore;
         console2.log("  paid in :", paid);

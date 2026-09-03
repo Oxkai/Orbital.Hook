@@ -10,7 +10,7 @@ const logo = `data:image/svg+xml;base64,${readFileSync(
 ).toString("base64")}`;
 
 // iOS ignores transparency and composites onto white, so the mark ships on its
-// own dark plate — the same treatment as app/icon.svg.
+// own dark plate: the same treatment as app/icon.svg.
 export default function AppleIcon() {
   return new ImageResponse(
     (

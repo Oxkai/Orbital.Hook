@@ -10,8 +10,6 @@ import { TokenIcon } from "@/components/app/shared/TokenIcon";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 
-const POOL_TOKENS = Object.entries(TOKEN_META).map(([addr, m]) => ({ symbol: m.symbol, address: addr }));
-
 const TYPE_FILTERS = ["All", "Swap", "Add", "Remove", "Collect"] as const;
 type Filter = typeof TYPE_FILTERS[number];
 
@@ -133,7 +131,7 @@ export default function TransactionsPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const { txs, isLoading, isLoadingMore, hasMore, loadMore, error } = useTransactions(POOL_TOKENS);
+  const { txs, isLoading, isLoadingMore, hasMore, loadMore, error } = useTransactions();
 
   const visible = filter === "All" ? txs : txs.filter(t => t.type === filter);
 
@@ -204,7 +202,7 @@ export default function TransactionsPage() {
         {/* ── Table ────────────────────────────────────────────────── */}
         <div ref={scrollRef} className="flex-1 min-h-0">
           <div className="flex flex-col gap-px">
-            {/* Column headers — desktop */}
+            {/* Column headers: desktop */}
             <div
               className="hidden md:grid items-center px-5 py-2.5"
               style={{

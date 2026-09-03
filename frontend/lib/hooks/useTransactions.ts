@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { usePublicClient } from "wagmi";
 import { parseAbiItem, type Address, type AbiEvent } from "viem";
 import { POOL_ADDRESSES, TOKEN_META, DEPLOY_BLOCK } from "@/lib/contracts";
+import { PRIMARY_CHAIN_ID, assetsByIndex } from "@/lib/crosschain";
 
 // Wide ranges work on a dedicated RPC (NEXT_PUBLIC_RPC_URL → Alchemy). The
 // public node caps eth_getLogs at 100 blocks; Alchemy handles 10k comfortably,
@@ -14,7 +15,12 @@ const POLL_MS = 15_000;
 const TS_BATCH = 8;
 
 const WAD = 1e18;
-const fmt = (raw: bigint) => (Number(raw) / WAD).toFixed(2);
+/// Radius/`rWad` quantities really are WAD.
+const fmtWadAmt = (raw: bigint) => (Number(raw) / WAD).toFixed(2);
+/// Token amounts are in the token's RAW units. Dividing every one by 1e18
+/// rendered a 6-decimal asset as "0.00", which is what the Swap rows showed.
+const fmtUnits = (raw: bigint, decimals: number) =>
+  (Number(raw) / 10 ** decimals).toFixed(2);
 
 const HOOK = POOL_ADDRESSES[0] as Address;
 
@@ -40,7 +46,7 @@ const COLLECT = parseAbiItem("event Collect(address indexed owner, uint256 index
 const tsCache = new Map<bigint, number>();
 
 // Session snapshot: keeps the scanned page alive across route changes so
-// revisiting the transactions page is instant — only the new tail is polled.
+// revisiting the transactions page is instant: only the new tail is polled.
 // Lives outside React, so unmount/remount doesn't discard it. Cleared on a
 // full page reload.
 let snapshot: { records: TxRecord[]; backCursor: bigint | null; headBlock: bigint; hasMore: boolean } | null = null;
@@ -60,7 +66,12 @@ async function fetchTimestamps(client: Client, blocks: bigint[]): Promise<Map<bi
 }
 
 // One ≤CHUNK-block window: pull all four events from the hook in parallel.
-async function fetchChunk(client: Client, from: bigint, to: bigint, sym: (i: number) => string): Promise<RawTx[]> {
+async function fetchChunk(
+  client: Client,
+  from: bigint,
+  to: bigint,
+  asset: (i: number) => { symbol: string; decimals: number }
+): Promise<RawTx[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [s, m, b, c]: any[][] = await Promise.all([
     client.getLogs({ address: HOOK, event: SWAP, fromBlock: from, toBlock: to }),
@@ -71,16 +82,19 @@ async function fetchChunk(client: Client, from: bigint, to: bigint, sym: (i: num
   const out: RawTx[] = [];
   for (const log of s) {
     const a = log.args;
+    const ai = asset(Number(a.assetIn));
+    const ao = asset(Number(a.assetOut));
     out.push({ type: "Swap", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.sender,
-      amountIn: `${fmt(a.amountIn)} ${sym(Number(a.assetIn))}`, amountOut: `${fmt(a.amountOut)} ${sym(Number(a.assetOut))}` });
+      amountIn: `${fmtUnits(a.amountIn, ai.decimals)} ${ai.symbol}`,
+      amountOut: `${fmtUnits(a.amountOut, ao.decimals)} ${ao.symbol}` });
   }
   for (const log of m) {
     const a = log.args;
-    out.push({ type: "Add", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.recipient, amountIn: `$${fmt(a.rWad)}`, amountOut: "" });
+    out.push({ type: "Add", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.recipient, amountIn: `$${fmtWadAmt(a.rWad)}`, amountOut: "" });
   }
   for (const log of b) {
     const a = log.args;
-    out.push({ type: "Remove", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.owner, amountIn: `$${fmt(a.rWad)} tick #${a.tickIdx}`, amountOut: "" });
+    out.push({ type: "Remove", hash: log.transactionHash, blockNumber: log.blockNumber, actor: a.owner, amountIn: `$${fmtWadAmt(a.rWad)} tick #${a.tickIdx}`, amountOut: "" });
   }
   for (const log of c) {
     const a = log.args;
@@ -89,8 +103,11 @@ async function fetchChunk(client: Client, from: bigint, to: bigint, sym: (i: num
   return out;
 }
 
-export function useTransactions(poolTokens: { symbol: string; address: string }[]) {
-  const client = usePublicClient();
+export function useTransactions() {
+  // Pinned to the primary chain: these pages show one deployment, and
+  // resolving the client from the connected wallet meant they silently read
+  // the wrong network (or none) whenever it was on a different chain.
+  const client = usePublicClient({ chainId: PRIMARY_CHAIN_ID });
   const [txs, setTxs] = useState<TxRecord[]>(() => snapshot?.records ?? []);
   const [isLoading, setIsLoading] = useState(!snapshot);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -100,9 +117,14 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
   const backCursor = useRef<bigint | null>(snapshot?.backCursor ?? null); // next toBlock to scan downward
   const headBlock = useRef<bigint>(snapshot?.headBlock ?? 0n); // highest block already covered (for tail poll)
 
-  const sym = useCallback((idx: number) =>
-    poolTokens[idx]?.symbol ?? TOKEN_META[poolTokens[idx]?.address?.toLowerCase() ?? ""]?.symbol ?? `Asset#${idx}`,
-  [poolTokens]);
+  // Index-ordered assets for the chain being scanned. Events carry indices into
+  // the hook's own asset array, so this must come from that chain's registry
+  // entry in index order: not from a symbol list or a cross-chain table.
+  const indexed = useMemo(() => assetsByIndex(PRIMARY_CHAIN_ID), []);
+  const asset = useCallback(
+    (idx: number) => indexed[idx] ?? { symbol: `Asset#${idx}`, decimals: 18 },
+    [indexed]
+  );
 
   const withTs = useCallback(async (raw: RawTx[]): Promise<TxRecord[]> => {
     const tsMap = await fetchTimestamps(client!, raw.map((r) => r.blockNumber));
@@ -115,17 +137,17 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
     let to = startTo;
     while (acc.length < limit && to >= DEPLOY_BLOCK) {
       const from = to - CHUNK + 1n < DEPLOY_BLOCK ? DEPLOY_BLOCK : to - CHUNK + 1n;
-      acc.push(...await fetchChunk(client!, from, to, sym));
+      acc.push(...await fetchChunk(client!, from, to, asset));
       if (from === DEPLOY_BLOCK) { to = DEPLOY_BLOCK - 1n; break; }
       to = from - 1n;
     }
     acc.sort((a, b) => (a.blockNumber < b.blockNumber ? 1 : -1));
     return { records: await withTs(acc), nextCursor: to >= DEPLOY_BLOCK ? to : null };
-  }, [client, sym, withTs]);
+  }, [client, asset, withTs]);
 
   // Initial load + tail-only poll (only fetches blocks newer than headBlock).
   useEffect(() => {
-    if (!client || poolTokens.length === 0) return;
+    if (!client || indexed.length === 0) return;
     let cancelled = false;
 
     async function init() {
@@ -157,7 +179,7 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
         const fresh: RawTx[] = [];
         while (from <= latest) {
           const to = from + CHUNK - 1n > latest ? latest : from + CHUNK - 1n;
-          fresh.push(...await fetchChunk(client!, from, to, sym));
+          fresh.push(...await fetchChunk(client!, from, to, asset));
           from = to + 1n;
         }
         headBlock.current = latest;
@@ -178,7 +200,7 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
     const interval = setInterval(poll, POLL_MS);
     return () => { cancelled = true; clearInterval(interval); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, poolTokens.length]);
+  }, [client, indexed.length]);
 
   // Keep the session snapshot current so revisiting the route is instant.
   useEffect(() => {
@@ -201,7 +223,7 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
   }, [isLoadingMore, hasMore, scanBack]);
 
   const refetch = useCallback(async () => {
-    if (!client || poolTokens.length === 0) return;
+    if (!client || indexed.length === 0) return;
     try {
       const latest = await client.getBlockNumber();
       const { records, nextCursor } = await scanBack(latest, PAGE_SIZE);
@@ -212,7 +234,7 @@ export function useTransactions(poolTokens: { symbol: string; address: string }[
     } catch {
       // ignore
     }
-  }, [client, poolTokens.length, scanBack]);
+  }, [client, indexed.length, scanBack]);
 
   return { txs, isLoading, isLoadingMore, hasMore, loadMore, error, refetch };
 }

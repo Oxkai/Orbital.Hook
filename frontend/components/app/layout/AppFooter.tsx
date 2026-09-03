@@ -1,4 +1,5 @@
 import { color } from "@/constants";
+import { CHAIN_IDS, DEPLOYMENTS } from "@/lib/crosschain";
 
 export function AppFooter() {
   return (
@@ -13,7 +14,7 @@ export function AppFooter() {
           color: color.textMuted,
         }}
       >
-        UNICHAIN SEPOLIA · CHAIN ID 1301
+        {CHAIN_IDS.map((id) => DEPLOYMENTS[id].name.toUpperCase()).join(" · ")}
       </span>
       <span
         style={{

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ASCII text background — ported 1:1 from the site's own Framer code component
+ * ASCII text background: ported 1:1 from the site's own Framer code component
  * (asciiBg.js / AsciiTextBackground). Renders a monospace ASCII field on a
  * <canvas>; when a `mediaSource` (image/video) is given it samples the media's
  * brightness/colour to reveal a shape, otherwise it's a scrolling code pattern.
