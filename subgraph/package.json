@@ -1,0 +1,17 @@
+{
+  "name": "orbital-subgraph",
+  "version": "1.0.0",
+  "description": "Orbital Hook indexed across Unichain Sepolia, Arbitrum Sepolia and Circle's Arc",
+  "license": "MIT",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "build:arc": "graph build --network arc-testnet",
+    "build:unichain": "graph build --network unichain-testnet",
+    "build:arbitrum": "graph build --network arbitrum-sepolia"
+  },
+  "dependencies": {
+    "@graphprotocol/graph-cli": "0.98.1",
+    "@graphprotocol/graph-ts": "0.38.1"
+  }
+}
