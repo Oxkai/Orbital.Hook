@@ -6,9 +6,9 @@
 
 <p>
 <a href="https://orbital-hook.vercel.app/"><b>Live app</b></a> &nbsp;·&nbsp;
-Unichain Sepolia &nbsp;·&nbsp;
+Unichain &nbsp;·&nbsp; Arbitrum &nbsp;·&nbsp; <b>Circle's Arc</b> &nbsp;·&nbsp;
 <b>152 tests passing</b> &nbsp;·&nbsp;
-<b>$24M</b> seeded TVL &nbsp;·&nbsp;
+<b>$28M</b> seeded TVL &nbsp;·&nbsp;
 <b>N assets, one book</b>
 </p>
 
@@ -108,6 +108,99 @@ There is one catch: a v4 pool is always exactly two tokens. To fit four stableco
 Six pairs are `PoolKey`s inside the one PoolManager, and every key's `hooks` field points at the same contract, [`OrbitalHook.sol`](orbitalHook/src/OrbitalHook.sol). The PoolManager holds the tokens and the lock; the hook holds the curve and the shared reserves.
 
 ![Orbital architecture: Trader/LP, the v4 PoolManager holding the 6 PoolKeys, and the OrbitalHook](frontend/public/archi.png)
+
+### The full system, across three chains
+
+The diagram above is the on-chain core. The whole deployment adds two more layers:
+the same engine running on three chains, and an indexing/monitoring path on top.
+
+```mermaid
+flowchart TB
+    subgraph clients [" "]
+        direction LR
+        UI["Next.js app<br/>swap · pools · LP · activity"]
+        AGENT["AI agent<br/>Claude / Cursor"]
+    end
+
+    MCP["orbital-mcp<br/>7 tools · risk reasoning"]
+
+    subgraph graph ["The Graph"]
+        direction LR
+        SGU["orbital-unichain"]
+        SGC["orbital-arc"]
+        SGA["orbital-arbitrum"]
+    end
+
+    subgraph chains ["One engine, three deployments"]
+        direction LR
+
+        subgraph uni ["Unichain Sepolia · 1301"]
+            PMU["v4 PoolManager<br/>canonical"]
+            HU["OrbitalHook"]
+            SU["IntentSettler"]
+            PMU --- HU
+        end
+
+        subgraph arc ["Arc Testnet · 5042002 · gas = USDC"]
+            PMC["v4 PoolManager<br/>SELF-DEPLOYED"]
+            HC["OrbitalHook"]
+            SC["IntentSettler"]
+            PMC --- HC
+        end
+
+        subgraph arb ["Arbitrum Sepolia · 421614"]
+            PMA["v4 PoolManager<br/>canonical"]
+            HA["OrbitalHook"]
+            SA["IntentSettler"]
+            PMA --- HA
+        end
+    end
+
+    HYP{{"Hyperlane"}}
+
+    UI -->|"swap / LP"| PMU
+    UI -->|"swap / LP"| PMC
+    UI -->|"swap / LP"| PMA
+    UI -->|"activity feed"| graph
+
+    AGENT --> MCP
+    MCP --> graph
+
+    SGU -.->|"indexes events<br/>+ reads live slot0"| HU
+    SGC -.-> HC
+    SGA -.-> HA
+
+    SU <-->|"ERC-7683 orders"| HYP
+    SA <-->|"ERC-7683 orders"| HYP
+    SC -.->|"shim mailbox:<br/>no Hyperlane on Arc testnet"| SC
+
+    classDef gap fill:#3a2323,stroke:#a05252,color:#f0d0d0
+    classDef arcbox fill:#232a3a,stroke:#5272a0,color:#d0dcf0
+    class PMC,SC gap
+    class arc arcbox
+```
+
+**What the diagram is saying.**
+
+- **One engine, three deployments.** Each chain has its own `OrbitalHook` with its
+  own reserves. The settlers move *orders* between them; they do not merge the books.
+- **Arc needed its v4 core deployed.** Uniswap has no v4 on Arc testnet (verified: every
+  canonical `PoolManager` address returns 0 bytes), so
+  [`DeployArc.s.sol`](orbitalHook/script/DeployArc.s.sol) deploys the PoolManager,
+  router and quoter itself. Arc **mainnet** has a canonical one, and the same script
+  takes it via env with no code change.
+- **Arc has no Hyperlane either**, so its settler sits behind a labelled
+  [`TestnetMailbox`](orbitalHook/script/mocks/TestnetMailbox.sol) shim. Arc is
+  same-chain only and is deliberately excluded from cross-chain routing in the UI, so
+  it can never offer a route that would strand funds.
+- **The subgraph does more than mirror events.** `TickCrossed` only fires *after* a
+  depeg bound is hit, which is useless as a warning, so every handler also reads live
+  `slot0` / `ticks` and stores each tick's distance to its bound. That is what makes
+  the risk question answerable, and it is how the tick-merge bug was found.
+- **The app reads the index, not the chain.** The activity feed was scanning
+  `eth_getLogs` in 10,000-block windows per chain; it is now one round trip per chain
+  (~350ms Arc, ~1.0s Unichain), with RPC scanning kept as a per-chain fallback for
+  Arbitrum until its subgraph is deployed.
 
 - **PoolManager** is the v4 singleton. It owns the lock, custody of every real ERC-20, and the deferred-delta ("flash") accounting. The six `PoolKey`s are entries in this one contract, not separate deployments.
 - **OrbitalHook** is our code. It holds the abstract state: the reserve vector $\mathbf{x}$, the ticks, accrued fees, and the ERC-6909 LP shares it issues. It supplies the curve but never custodies real tokens.
@@ -285,20 +378,26 @@ Manage everything in one place. Each tick you hold is its own ERC-6909 share tha
 
 ## Deployments
 
-The same pool, live on three chains. Each carries a realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp) and a deep four-tier seed of **12M rInt (~$24M TVL)** at depeg bounds 0.97 / 0.93 / 0.88 / 0.80.
+The same engine, live on three chains including **[Circle's Arc](https://docs.arc.io)**, where gas is paid in USDC. Each carries a realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp) and a four-tier seed at depeg bounds 0.97 / 0.93 / 0.88 / 0.80, plus a re-seed, for **14M rInt (~$28M TVL)** across 5 ticks.
+
+Each chain is a separate book with its own reserves; the ERC-7683 settlers move orders between them rather than merging liquidity.
 
 | Chain | OrbitalHook | OrbitalIntentSettler |
 |---|---|---|
-| **Unichain Sepolia** `1301` *(primary)* | `0xaf7450d89B674d11284Fa82693eF15612169aa88` | `0x14a8d875F6d4468c83C1D3028e179DdA9B9364DC` |
-| Base Sepolia `84532` | `0xf3aE821a7e0b6effD96EaaeBC09C53905aF12a88` | `0xF72F5537d6914e1D1379D68B62Eb6f8549792992` |
-| Arbitrum Sepolia `421614` | `0xB5bcb2F158461E3d69bf38Be4af69954FB67aA88` | `0x46A0e3D32ebCeC9B65984469520F478C9e0C97D4` |
+| **Unichain Sepolia** `1301` | `0xA4E98Ae00FdC5F62C53496a3B207632F4727aa88` | `0xF430302b0F8f70806feE5117f45DB019ddaA3a99` |
+| **Arc Testnet** `5042002` | `0x9474a0Eff4d0501c472b29987925E03F69bd6a88` | `0xE82C3dFe38bb607E5c409C2b9b361a05855d8715` |
+| Arbitrum Sepolia `421614` | `0x35C9D292768779E040e296AC20cf10b9D7A22a88` | `0xD8447BeAcf4a2768C4DCDb195b8D7122809a64e6` |
+
+> Redeployed 2026-09-07 with the tick-merge fix. Base Sepolia was retired at the same time: it still runs the pre-fix contract.
 
 Token addresses, canonical v4 infra (PoolManager, SwapRouter, V4Quoter), Hyperlane Mailboxes and the peer registry all live in [`orbitalHook/deployments.json`](orbitalHook/deployments.json), which the frontend config is generated from.
 
 > **Asset index order differs per chain.** The hook sorts assets ascending by address, and addresses are unrelated across chains, so USDC is index 0 on Unichain and index 3 on Base. Always resolve by symbol, never by index.
 
 - Live app: <https://orbital-hook.vercel.app/>
-- Hook explorer: <https://sepolia.uniscan.xyz/address/0xaf7450d89B674d11284Fa82693eF15612169aa88>
+- Hook explorer: <https://sepolia.uniscan.xyz/address/0xA4E98Ae00FdC5F62C53496a3B207632F4727aa88>
+- Arc explorer: <https://testnet.arcscan.app/address/0x9474a0Eff4d0501c472b29987925E03F69bd6a88>
+- Subgraphs: `https://api.studio.thegraph.com/query/107768/orbital-{arc,unichain}/v0.1.0`
 
 ---
 
@@ -355,9 +454,40 @@ UHI/
 │   ├── src/libraries/              SphereMath, TorusMath, TickLib, QuadraticSolver
 │   ├── src/crosschain/             ERC-7683 settler + Hyperlane interfaces
 │   ├── script/                     deploy and simulation scripts
+│   │   ├── DeployArc.s.sol             Arc: self-deploys v4 core where absent
+│   │   └── mocks/TestnetMailbox.sol    labelled shim, chains without Hyperlane
+│   ├── FEEDBACK.md                 Uniswap v4 developer feedback
 │   └── deployments.json            machine-readable address registry
+├── subgraph/               The Graph: one manifest, three networks
+│   ├── schema.graphql              Pool, Asset, Tick, Swap, TickCross, PoolSnapshot
+│   ├── src/mapping.ts              reproduces the engine's own crossing condition
+│   └── networks.json               per-chain address + start block
+├── orbital-mcp/            MCP server exposing the subgraph to AI environments
+│   ├── src/analysis.ts             risk model: progress x share of radius
+│   └── SKILL.md                    agent-facing usage guide
 └── frontend/               Next.js app: swap, pools, positions, transactions
+    └── lib/subgraph.ts             activity feed, RPC scanning as fallback
 ```
+
+## Indexing and monitoring
+
+The three deployments are indexed by [`subgraph/`](subgraph) and read by
+[`orbital-mcp/`](orbital-mcp), an MCP server that answers risk questions about the
+pools from Claude, Cursor or any MCP client.
+
+The point is not a dashboard. `TickCrossed` only fires *after* a depeg bound is hit,
+so as a warning it arrives too late. Every handler therefore also reads live `slot0`
+and `ticks` at its own block and reproduces the engine's crossing condition,
+
+```
+alphaNorm = ((sumX·WAD/√N) − kBound)·WAD / rInt      kNorm = k·WAD / r
+```
+
+storing how much slack each tick has left. That turns the feed into a leading
+indicator, and it is how a real bug surfaced: one tick per chain reported a bound
+*below* parity, meaning it could never cross and its depeg protection was inert. Cause
+and fix are written up in
+[the hook README](orbitalHook/README.md#a-bug-the-indexing-found-and-the-fix).
 
 ---
 
