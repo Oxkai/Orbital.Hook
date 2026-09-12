@@ -3,12 +3,22 @@
 .idea/
 *.swp
 
+# macOS Finder duplicates ("name copy.ext", "name copy 2.ext")
+* copy.*
+* copy [0-9]*.*
+
 # Personal planning / scratch notes, not for the repo
 todo.md
 req.md
 submission.md
 other
 proposal/
+
+# Hackathon planning notes, not for the repo
+/ETHONLINE_2026_TRACKS.md
+/SUBMISSION_CHECKLIST.md
+/checkin.md
+/sub.md
 
 # Local tooling config
 .claude/
