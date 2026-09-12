@@ -117,10 +117,6 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     mapping(uint8 => uint256) public feeGrowthGlobal; // WAD per unit interior rInt
 
     TickLib.Tick[] public ticks;
-    /// @dev O(1) lookup of LIVE INTERIOR ticks by their `k` value, encoded as
-    ///      `idx + 1` so 0 means absent. Boundary and dead ticks are kept out
-    ///      of this map; they're filtered explicitly in the crossing scan.
-    mapping(uint256 => uint256) private _interiorTickByK;
     /// @dev Stack of fully-burned tick array slots that are free to reuse.
     ///      Caps `ticks.length` growth across mint/burn cycles.
     uint256[] private _freeTickIndices;
@@ -643,9 +639,6 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             for (uint8 i = 0; i < N; ++i) {
                 tickFeeGrowthInside[tickIdx][i] += feeGrowthGlobal[i] - tickFeeGrowthSnapshot[tickIdx][i];
             }
-            // Drop the map entry so the next mint at this k creates a fresh
-            // interior tick instead of merging.
-            delete _interiorTickByK[t.k];
         } else {
             state.torus.rInt += t.r;
             state.torus.kBound -= t.k;
@@ -654,8 +647,6 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             for (uint8 i = 0; i < N; ++i) {
                 tickFeeGrowthSnapshot[tickIdx][i] = feeGrowthGlobal[i];
             }
-            // Re-register this tick as the live interior representative of its k.
-            _interiorTickByK[t.k] = tickIdx + 1;
         }
 
         // Commit the updated torus aggregates — identical in both branches.
@@ -991,20 +982,32 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         }
     }
 
+    /// @dev Every mint gets its OWN tick. Mints are never merged.
+    ///
+    ///      Merging by `k` was silently corrupting depeg bounds. The engine
+    ///      never compares `k` directly: `_detectCrossing` tests the normalised
+    ///      `kNorm = k*WAD/r` against `alphaNorm`, and `kFromDepegPrice` returns
+    ///      `k` PROPORTIONAL to `r`, so `kNorm` — not `k` — is what encodes the
+    ///      LP's chosen depeg price.
+    ///
+    ///      The old merge did `t.r += rWad` while leaving `t.k` untouched, which
+    ///      halves `kNorm` when radius doubles. Observed live on all three
+    ///      chains: a tick seeded at depeg 0.88 ended up with `kNorm` 0.5007
+    ///      against a parity of 1.0, i.e. BELOW parity, so a rising `alphaNorm`
+    ///      could never reach it. That tick could never cross, leaving ~28% of
+    ///      the book with no working depeg protection at all.
+    ///
+    ///      Adding `t.k += kWad` alone does not fix it: `_interiorTickByK` was
+    ///      read by the incoming `kWad` but written elsewhere by the stored
+    ///      `t.k`, and those two only agree while the merge leaves `t.k` alone.
+    ///      Re-keying by `kNorm` would need the key stored on the struct, since
+    ///      the division can drift a wei between equivalent mints.
+    ///
+    ///      Not merging removes the whole class of problem: `k` and `r` always
+    ///      originate from the same `kFromDepegPrice` call, so `kNorm` is right
+    ///      by construction. The cost is more ticks, bounded by `MAX_TICKS` and
+    ///      recycled through `_freeTickIndices`.
     function _findOrCreateTick(uint256 kWad, uint256 rWad) internal returns (uint256 tickIdx) {
-        // O(1) live-interior lookup. The map only ever holds live interior
-        // ticks (see _crossTick and the burn full-zero path), so a hit is a
-        // safe merge target — boundary and dead ticks are excluded by
-        // construction (no "skip" loop needed).
-        uint256 idxPlus1 = _interiorTickByK[kWad];
-        if (idxPlus1 != 0) {
-            tickIdx = idxPlus1 - 1;
-            TickLib.Tick storage t = ticks[tickIdx];
-            t.r += rWad;
-            t.liquidityGross += rWad.toUint128();
-            return tickIdx;
-        }
-
         // Fresh interior tick. Reuse a dead slot if one's available so the
         // array doesn't grow unbounded across mint/burn cycles.
         uint256 freeLen = _freeTickIndices.length;
@@ -1033,7 +1036,6 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             tickFeeGrowthSnapshot[tickIdx][i] = feeGrowthGlobal[i];
             tickFeeGrowthInside[tickIdx][i] = 0;
         }
-        _interiorTickByK[kWad] = tickIdx + 1;
     }
 
     function _applyMintToTorus(uint256[] memory amounts, uint256 rWad) internal {
@@ -1162,11 +1164,9 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             delete positions[pKey];
         }
 
-        // If the tick is now fully drained, retire its slot: unmap its k (the
-        // tick is interior per the gate) and recycle the array slot via the
+        // If the tick is now fully drained, recycle its array slot via the
         // free-list.
         if (t.r == 0) {
-            delete _interiorTickByK[t.k];
             _freeTickIndices.push(b.tickIdx);
         }
 

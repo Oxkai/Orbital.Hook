@@ -21,3 +21,5 @@ lint_on_build = false
 base_sepolia = "https://sepolia.base.org"
 arbitrum_sepolia = "https://sepolia-rollup.arbitrum.io/rpc"
 unichain_sepolia = "https://sepolia.unichain.org"
+# Circle Arc. Gas is USDC; fund the deployer at https://faucet.circle.com.
+arc_testnet = "https://rpc.testnet.arc.io"

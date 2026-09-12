@@ -201,25 +201,134 @@ Tiers are graduated at depeg bounds **0.97 / 0.93 / 0.88 / 0.80** for a total of
 
 ---
 
+## A bug the indexing found, and the fix
+
+The [Orbital subgraph](../subgraph) and [`orbital-mcp`](../orbital-mcp) were built to
+answer one question: *how close is this book to a tick crossing?* On their first run
+against live data they answered a different one.
+
+**Symptom.** On all three chains, exactly one tick reported a normalised bound of
+`kNorm ≈ 0.5007` against a parity of `1.0`. Every other tick sat just above parity.
+A tick whose `kNorm` is *below* parity can never be reached by a rising `alphaNorm`,
+so it could never cross — its depeg protection was inert, while it held ~28% of the
+book's interior radius.
+
+**Cause.** [`_findOrCreateTick`](src/OrbitalHook.sol) merged a new mint into an
+existing tick with the same `k`:
+
+```solidity
+uint256 idxPlus1 = _interiorTickByK[kWad];
+if (idxPlus1 != 0) {
+    t.r += rWad;                 // radius added
+    t.liquidityGross += rWad.toUint128();
+    return tickIdx;              // k left untouched
+}
+```
+
+The engine never compares `k` directly. `_detectCrossing` tests
+`kNorm = k·WAD/r` against `alphaNorm`, and `kFromDepegPrice` returns `k`
+**proportional to `r`** — so `kNorm`, not `k`, is what encodes the LP's chosen depeg
+price. Adding `r` without `k` halves `kNorm`, silently moving a bound the LP never
+agreed to. Re-seeding an existing tier was enough to trigger it.
+
+**Fix.** Mints are no longer merged; each gets its own tick, so `k` and `r` always
+originate from the same `kFromDepegPrice` call and `kNorm` is correct by construction.
+The `_interiorTickByK` index existed only to serve the merge and is gone.
+
+Adding `t.k += kWad` alone does **not** work: the index was read by the incoming
+`kWad` but written elsewhere by the stored `t.k`, and those agree only while the merge
+leaves `t.k` alone. Re-keying by `kNorm` needs the key stored on the `Tick` struct,
+since the division can drift a wei between equivalent mints and a stale entry could
+let a later mint merge into a *boundary* tick — worse than the original bug. That is
+the correct long-term fix and is a storage-layout change.
+
+**Trade-offs, stated.** `MAX_TICKS` (128) now bounds concurrent LP positions rather
+than distinct depeg prices, and more than `MAX_CROSSINGS` (20) ticks sharing a `kNorm`
+cannot clear in one swap — it reverts with `TooManyCrossings` and rolls back, which a
+router handles by chunking. Both are pinned by tests.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| `test_sameDepeg_mints_preserve_kNorm` | fails on old code, passes on new |
+| `test_duplicate_kNorm_ticks_all_cross` | 8 same-`kNorm` ticks all flip; the scan chains |
+| `test_more_duplicates_than_MAX_CROSSINGS_reverts_cleanly` | reverts `TooManyCrossings` (`0xeac543c5`), state rolls back |
+| `test_burned_tick_slot_is_reused_after_cap` | burns recycle slots via `_freeTickIndices` |
+| Solvency invariants | unchanged: 256 runs, 128,000 calls, 0 reverts |
+| Full suite | **152 passing** |
+| On-chain, post-redeploy | tick #2 `kNorm` 0.500716 → **1.001432**; re-seed makes tick #4 at the same correct `kNorm`; subgraph reports **0 defective ticks** |
+
+---
+
+## Uniswap v4 integration points
+
+Exact contracts and lines, for verification.
+
+| What | Where |
+|---|---|
+| Hook contract (extends `BaseHook`) | [`src/OrbitalHook.sol:54`](src/OrbitalHook.sol#L54) |
+| Permission bitmap (must match the mined address) | [`src/OrbitalHook.sol:296`](src/OrbitalHook.sol#L296) |
+| `_beforeInitialize`: validates each `PoolKey` is a legal pair of registered assets | [`src/OrbitalHook.sol:319`](src/OrbitalHook.sol#L319) |
+| `_beforeAddLiquidity` / `_beforeRemoveLiquidity`: pool-level LP is blocked, liquidity goes to the engine | [`src/OrbitalHook.sol:325-341`](src/OrbitalHook.sol#L325-L341) |
+| **`_beforeSwap`: the curve replacement.** Segment-walking solver, returns a `BeforeSwapDelta` | [`src/OrbitalHook.sol:343-418`](src/OrbitalHook.sol#L343-L418) |
+| `toBeforeSwapDelta` return, where the engine's result becomes v4 accounting | [`src/OrbitalHook.sol:418`](src/OrbitalHook.sol#L418) |
+| Engine-level LP entry (ERC-6909 tick shares, not per-pool liquidity) | [`src/OrbitalHook.sol:729`](src/OrbitalHook.sol#L729) |
+| Permit2 LP entry | [`src/OrbitalHook.sol:740`](src/OrbitalHook.sol#L740) |
+| Within-tick quartic solver (Newton) | [`src/libraries/QuadraticSolver.sol`](src/libraries/QuadraticSolver.sol) |
+| Tick boundary maths (`kFromDepegPrice`, interior/boundary flips) | [`src/libraries/TickLib.sol`](src/libraries/TickLib.sol) |
+| Hook address mining + pool registration | [`script/DeployTestnet.s.sol`](script/DeployTestnet.s.sol) |
+| Arc deploy (self-deployed v4 core) | [`script/DeployArc.s.sol`](script/DeployArc.s.sol) |
+
+Developer feedback on the Uniswap stack, as required by the track: [`FEEDBACK.md`](FEEDBACK.md).
+
+---
+
 ## Deployed
 
 Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the official `PoolManager`, `SwapRouter`, and `V4Quoter`.
 
 | Contract | Address |
 |---|---|
-| OrbitalHook | [`0xaf7450d89B674d11284Fa82693eF15612169aa88`](https://sepolia.uniscan.xyz/address/0xaf7450d89B674d11284Fa82693eF15612169aa88) |
+| OrbitalHook | [`0xA4E98Ae00FdC5F62C53496a3B207632F4727aa88`](https://sepolia.uniscan.xyz/address/0xA4E98Ae00FdC5F62C53496a3B207632F4727aa88) |
 | PoolManager (v4, canonical) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
 | V4Quoter (canonical) | `0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472` |
 | SwapRouter (v4) | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
 | Permit2 (canonical) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| USDC (mock) | `0x4df69b21843F42a43a3CBe1C2712278404a0f394` |
-| USDT (mock) | `0x9924e9D691642F6B8bAA0382aC9EFFDb43002B95` |
-| DAI (mock) | `0xF2C5b0555F1ba2184Db8563188c00a1467251739` |
-| FRAX (mock) | `0x5F1e60520d796bdAE086b8aA2D88fb039f76CaD7` |
+| USDC (mock) | `0xC09DefF23c7Ac44C1B4bfB11EF3AC7b0ec46328f` |
+| USDT (mock) | `0x287ca3Cc67FDE6c45717dD420146C937a93Ed237` |
+| DAI (mock) | `0x7467369a0267505603c2D0dbfC369502508Cce75` |
+| FRAX (mock) | `0x90aA5b5Db105DC190dD29e01b40e75549C39C3dF` |
 | Admin / owner | `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39` |
 
 Four mock stables with a realistic decimal mix (USDC/USDT **6dp**, DAI/FRAX **18dp**) → 6 pair pools registered against the hook → a four-tier seed of 12M rInt (~$24M TVL) → `SimulateMultiLPLive` adds three independent LPs on three further ticks.
 
-Live state: **$25.5M TVL across 7 ticks, all interior, `kBound = 0`**. The hook address suffix `...9aa88` encodes its permission flags (CREATE2-mined).
+Live state: **$28M TVL across 5 ticks, all interior, `kBound = 0`**. The hook address suffix `...7aa88` encodes its permission flags (CREATE2-mined).
 
-The same engine is deployed on Base Sepolia and Arbitrum Sepolia for the cross-chain extension; see [`deployments.json`](deployments.json) for every address.
+The same engine is deployed on Arbitrum Sepolia ([`0x35C9D292768779E040e296AC20cf10b9D7A22a88`](https://sepolia.arbiscan.io/address/0x35C9D292768779E040e296AC20cf10b9D7A22a88)) for the cross-chain extension, and on Arc below. See [`deployments.json`](deployments.json) for every address.
+
+> Base Sepolia was retired on 2026-09-07 alongside the tick-merge fix. Its deployment still runs the pre-fix contract, so it is no longer listed anywhere.
+
+### Arc
+
+The engine also runs on **[Circle's Arc](https://docs.arc.io) testnet** (chain `5042002`), where gas is paid in USDC. A stablecoin-only AMM on a stablecoin-native L1 is the same idea from both ends, so the four-tier seed and the mixed decimal set carry over unchanged.
+
+| Contract | Address |
+|---|---|
+| OrbitalHook | [`0x9474a0Eff4d0501c472b29987925E03F69bd6a88`](https://testnet.arcscan.app/address/0x9474a0Eff4d0501c472b29987925E03F69bd6a88) |
+| PoolManager (v4, **self-deployed**) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
+| V4Quoter (self-deployed) | `0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90` |
+| V4Router (self-deployed) | `0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E` |
+| OrbitalIntentSettler | `0xE82C3dFe38bb607E5c409C2b9b361a05855d8715` |
+| Mailbox (**shim, not Hyperlane**) | `0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb` |
+| Permit2 (canonical predeploy) | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+
+Deploy with [`script/DeployArc.s.sol`](script/DeployArc.s.sol). Two things make Arc different from the other three chains, and both are worth stating plainly:
+
+**Uniswap v4 is not on Arc testnet.** Verified 2026-09-06: every canonical `PoolManager` address returns 0 bytes there, and Arc appears nowhere in Uniswap's official v4 deployments. So `DeployArc` deploys the PoolManager, router and quoter itself. Arc **mainnet** (chain `5042`) *does* have a canonical v4 at `0x8366a39cc670b4001a1121b8f6a443a643e40951`.
+
+**Hyperlane is not on Arc testnet either.** The Hyperlane registry carries Arc mainnet only. The settler is therefore deployed behind [`TestnetMailbox`](script/mocks/TestnetMailbox.sol), a shim that emits dispatch events and relays nothing. The settler itself is unmodified and its inbound authentication (`msg.sender == mailbox`, origin → registered peer, sender is that peer) is real; only the transport is stubbed. **Arc is same-chain only** and is deliberately excluded from cross-chain routing in the frontend, so the UI cannot offer a route that would strand funds.
+
+Arc mainnet opens 2026-09-16 with both canonical v4 and canonical Hyperlane. Re-running the same script with `V4_POOL_MANAGER` and `HYPERLANE_MAILBOX` set produces a fully real deployment with no code changes.
+
+Live state after `SeedActivity`: **$28M TVL across 5 ticks, all interior, `kBound = 0`**, with fees accruing above the seeded principal.

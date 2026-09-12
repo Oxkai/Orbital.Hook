@@ -9,6 +9,7 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 import {IUniswapV4Router04} from "hookmate/interfaces/router/IUniswapV4Router04.sol";
@@ -360,16 +361,50 @@ contract OrbitalHookTest is BaseTest {
         // Second mint: pool is balanced, so pro-rata yields the same per-asset amount.
         (uint256 tickIdx2, uint256[] memory amounts2) = hook.addLiquidity(kWad, rWad, maxA);
 
-        assertEq(tickIdx2, 0, "tick merged");
+        // Mints are NOT merged: each gets its own tick.
+        //
+        // Merging used to fold this into tick 0 by adding `r` and leaving `k`,
+        // which halves `kNorm = k/r` and silently moves the LP's depeg bound.
+        // See _findOrCreateTick for the full account.
+        assertEq(tickIdx2, 1, "second mint gets its own tick");
         assertEq(amounts2[0], perAsset1);
         assertEq(amounts2[1], perAsset1);
         assertEq(amounts2[2], perAsset1);
 
-        assertEq(hook.balanceOf(address(this), tickIdx2), rWad * 2);
-        assertEq(hook.numTicks(), 1);
+        assertEq(hook.balanceOf(address(this), tickIdx2), rWad, "shares track this tick only");
+        assertEq(hook.numTicks(), 2);
 
+        // Radius still aggregates across ticks even though they are separate.
         (, , uint256 rInt, ,) = hook.slot0();
         assertEq(rInt, rWad * 2);
+    }
+
+    /// @notice Regression guard for the merge bug: two mints at the same depeg
+    ///         price must end up with the SAME normalised bound.
+    ///
+    ///         `kNorm = k*WAD/r` is what `_detectCrossing` compares against
+    ///         `alphaNorm`, and `kFromDepegPrice` makes `k` proportional to `r`,
+    ///         so `kNorm` is the LP's actual chosen bound. The old merge added
+    ///         `r` without `k`, halving `kNorm` and leaving that liquidity with
+    ///         a bound it never asked for (observed live: 0.5007 against a
+    ///         parity of 1.0, i.e. a tick that could never cross at all).
+    function test_sameDepeg_mints_preserve_kNorm() public {
+        uint256 rWad = 100 ether;
+        uint256 kWad = (TickLib.kMin(rWad, 3) + TickLib.kMax(rWad, 3)) / 2;
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        hook.addLiquidity(kWad, rWad, maxA);
+        hook.addLiquidity(kWad, rWad, maxA);
+
+        (uint256 k0, uint256 r0,,,) = hook.ticks(0);
+        (uint256 k1, uint256 r1,,,) = hook.ticks(1);
+
+        uint256 kNorm0 = (k0 * 1e18) / r0;
+        uint256 kNorm1 = (k1 * 1e18) / r1;
+
+        assertEq(kNorm0, kNorm1, "identical depeg price must give identical kNorm");
+        assertEq(kNorm0, (kWad * 1e18) / rWad, "kNorm must match what the LP asked for");
     }
 
     // DoS bound: the live tick array cannot grow past MAX_TICKS, so an attacker
@@ -392,9 +427,43 @@ contract OrbitalHookTest is BaseTest {
         vm.expectRevert(OrbitalHook.TooManyTicks.selector);
         hook.addLiquidity(km + 128, rWad, maxA);
 
-        // Merging into an existing k still works and does not grow the array.
+        // KNOWN TRADE-OFF of removing the merge: a repeat mint at an EXISTING k
+        // now also needs its own slot, so it hits the same cap. Previously it
+        // folded into the existing tick and the array did not grow.
+        //
+        // That was the cheaper behaviour but it silently rewrote the tick's
+        // depeg bound (see _findOrCreateTick), so the cap is the price of
+        // correctness. MAX_TICKS is therefore a cap on total live LP positions,
+        // not merely on distinct depeg prices. Burning frees slots via
+        // `_freeTickIndices`, so it bounds concurrent positions, not lifetime
+        // mints.
+        vm.expectRevert(OrbitalHook.TooManyTicks.selector);
         hook.addLiquidity(km, rWad, maxA);
-        assertEq(hook.numTicks(), 128, "merge does not grow the array past the cap");
+        assertEq(hook.numTicks(), 128, "array never grows past the cap");
+    }
+
+    /// @notice A burned tick's slot is recycled, so the cap bounds CONCURRENT
+    ///         positions rather than lifetime mints. This is what keeps the
+    ///         no-merge design workable under the 128 cap.
+    function test_burned_tick_slot_is_reused_after_cap() public {
+        uint256 rWad = 1 ether;
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+        uint256 km = TickLib.kMin(rWad, 3);
+
+        for (uint256 i = 0; i < 128; ++i) {
+            hook.addLiquidity(km + i, rWad, maxA);
+        }
+        assertEq(hook.numTicks(), 128);
+
+        // Full burn retires tick 0 and pushes its slot onto the free list.
+        uint256[] memory minA = new uint256[](3);
+        hook.removeLiquidity(0, rWad, minA);
+
+        // The next mint reuses that slot instead of reverting.
+        (uint256 reused,) = hook.addLiquidity(km + 500, rWad, maxA);
+        assertEq(reused, 0, "recycled the freed slot");
+        assertEq(hook.numTicks(), 128, "array did not grow");
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -566,6 +635,106 @@ contract OrbitalHookTest is BaseTest {
         (, , uint256 rInt, uint256 kBound,) = hook.slot0();
         assertEq(rInt, rBack, "rInt now only backstop");
         assertGt(kBound, 0, "kBound non-zero after crossing");
+    }
+
+    /// @notice Removing the merge lets several ticks share one `kNorm`, which
+    ///         was previously impossible. This checks the crossing scan chains
+    ///         through them instead of stalling on the first.
+    ///
+    ///         Ticks minted at `kMin` with equal `r` have identical `kNorm`, so
+    ///         they all sit at the same crossing point. The scan must flip every
+    ///         one: crossing a tick whose `kNorm` equals the current `alphaNorm`
+    ///         leaves `alphaNorm` unchanged (k = q*r, so (q*rInt - k)/(rInt - r)
+    ///         = q), which is exactly what lets the next iteration find the next
+    ///         duplicate.
+    function test_duplicate_kNorm_ticks_all_cross() public {
+        uint256 r = 100 ether;
+        uint256 rBack = 500 ether;
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        uint256 count = 8; // comfortably under MAX_CROSSINGS
+        for (uint256 i = 0; i < count; ++i) {
+            hook.addLiquidity(TickLib.kMin(r, 3), r, maxA);
+        }
+        hook.addLiquidity(TickLib.kMax(rBack, 3) - 1 ether, rBack, maxA);
+
+        PoolKey memory key =
+            PoolKey({currency0: c0, currency1: c1, fee: 0, tickSpacing: 1, hooks: IHooks(address(hook))});
+        poolManager.initialize(key, Constants.SQRT_PRICE_1_1);
+
+        for (uint256 i = 0; i < count; ++i) assertTrue(_isInterior(i), "starts interior");
+
+        uint256 amountIn = hook.reserves(0) * 30 / 100;
+        swapRouter.swapExactTokensForTokens(amountIn, 0, true, key, "", address(this), block.timestamp);
+
+        for (uint256 i = 0; i < count; ++i) {
+            assertFalse(_isInterior(i), "every duplicate-kNorm tick crossed");
+        }
+        assertTrue(_isInterior(count), "backstop still interior");
+
+        (, , uint256 rInt, uint256 kBound,) = hook.slot0();
+        assertEq(rInt, rBack, "only the backstop remains interior");
+        assertGt(kBound, 0, "kBound accumulated every crossed tick");
+    }
+
+    /// @notice The cost of removing the merge, pinned down.
+    ///
+    ///         More than `MAX_CROSSINGS` ticks sharing a `kNorm` cannot all be
+    ///         crossed in one swap. Under the old merge these would have been a
+    ///         single tick and a single crossing, so this is a real regression,
+    ///         not a pre-existing limit.
+    ///
+    ///         It fails closed: a named revert the router can respond to by
+    ///         chunking the trade, not a stuck pool or a bad fill. Recorded here
+    ///         so the trade-off is visible rather than discovered in production.
+    function test_more_duplicates_than_MAX_CROSSINGS_reverts_cleanly() public {
+        uint256 r = 100 ether;
+        uint256 rBack = 500 ether;
+        uint256[] memory maxA = new uint256[](3);
+        maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
+
+        for (uint256 i = 0; i < 25; ++i) {
+            hook.addLiquidity(TickLib.kMin(r, 3), r, maxA);
+        }
+        hook.addLiquidity(TickLib.kMax(rBack, 3) - 1 ether, rBack, maxA);
+
+        PoolKey memory key =
+            PoolKey({currency0: c0, currency1: c1, fee: 0, tickSpacing: 1, hooks: IHooks(address(hook))});
+        poolManager.initialize(key, Constants.SQRT_PRICE_1_1);
+
+        uint256 amountIn = hook.reserves(0) * 30 / 100;
+
+        // v4 wraps a reverting hook in `WrappedError`, so `TooManyCrossings` is
+        // nested rather than leading and `vm.expectRevert(selector)` will not
+        // match it. Catch the raw returndata and look for the selector inside,
+        // which asserts the specific cause rather than merely "it reverted".
+        try swapRouter.swapExactTokensForTokens(
+            amountIn, 0, true, key, "", address(this), block.timestamp
+        ) returns (BalanceDelta) {
+            fail();
+        } catch (bytes memory reason) {
+            assertTrue(
+                _revertContains(reason, OrbitalHook.TooManyCrossings.selector),
+                "must fail with TooManyCrossings, not some other error"
+            );
+        }
+
+        // The failed swap changed nothing: the pool is untouched and still quotes.
+        for (uint256 i = 0; i < 25; ++i) assertTrue(_isInterior(i), "state rolled back");
+    }
+
+    /// @dev Search revert data for a 4-byte selector. Needed because v4 nests a
+    ///      hook's own error inside `WrappedError` rather than surfacing it.
+    function _revertContains(bytes memory data, bytes4 sel) internal pure returns (bool) {
+        if (data.length < 4) return false;
+        for (uint256 i = 0; i + 4 <= data.length; ++i) {
+            if (
+                data[i] == sel[0] && data[i + 1] == sel[1] && data[i + 2] == sel[2]
+                    && data[i + 3] == sel[3]
+            ) return true;
+        }
+        return false;
     }
 
     function test_swap_does_not_cross_when_amount_small() public {
@@ -1105,10 +1274,12 @@ contract OrbitalHookTest is BaseTest {
         uint256[] memory maxA = new uint256[](3);
         maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
 
-        // Both LPs mint into the same tick.
-        hook.addLiquidity(kWad, r, maxA);
+        // Both LPs mint at the same depeg price. Mints are no longer merged, so
+        // they land on SEPARATE ticks with identical kNorm; each collects from
+        // its own tick. Equal radius at an equal bound must still earn equally.
+        (uint256 tickA,) = hook.addLiquidity(kWad, r, maxA);
         vm.prank(lpB);
-        hook.addLiquidity(kWad, r, maxA);
+        (uint256 tickB,) = hook.addLiquidity(kWad, r, maxA);
 
         PoolKey memory key =
             PoolKey({currency0: c0, currency1: c1, fee: 0, tickSpacing: 1, hooks: IHooks(address(hook))});
@@ -1117,10 +1288,10 @@ contract OrbitalHookTest is BaseTest {
         // Drive a swap to generate fees.
         swapRouter.swapExactTokensForTokens(10 ether, 0, true, key, "", address(this), block.timestamp);
 
-        // Both LPs collect.
-        uint256[] memory feesA = hook.collect(0);
+        // Both LPs collect from their own tick.
+        uint256[] memory feesA = hook.collect(tickA);
         vm.prank(lpB);
-        uint256[] memory feesB = hook.collect(0);
+        uint256[] memory feesB = hook.collect(tickB);
 
         // Same liquidity → same fee on the input asset (within 1 wei of rounding).
         assertApproxEqAbs(feesA[0], feesB[0], 1, "asset0 fee split 50/50");

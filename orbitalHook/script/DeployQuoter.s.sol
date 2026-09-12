@@ -13,9 +13,16 @@ import {AddressConstants} from "hookmate/constants/AddressConstants.sol";
 ///
 ///         forge script script/DeployQuoter.s.sol --rpc-url base_sepolia \
 ///             --broadcast --private-key $PRIVATE_KEY
+///
+///         Chains absent from AddressConstants (Arc, chainId 5042002, where the
+///         PoolManager is self-deployed by DeployArc.s.sol) pass it explicitly:
+///
+///         V4_POOL_MANAGER=0x... forge script script/DeployQuoter.s.sol \
+///             --rpc-url arc_testnet --broadcast --private-key $PRIVATE_KEY
 contract DeployQuoterScript is Script {
     function run() external {
-        address pm = AddressConstants.getPoolManagerAddress(block.chainid);
+        address pm = vm.envOr("V4_POOL_MANAGER", address(0));
+        if (pm == address(0)) pm = AddressConstants.getPoolManagerAddress(block.chainid);
         require(pm.code.length > 0, "no PoolManager on this chain");
 
         vm.startBroadcast();
