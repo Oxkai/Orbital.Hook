@@ -9,7 +9,8 @@ import { color, typography } from "@/constants";
 import { fmtUSD } from "@/lib/mock/data";
 import { usePool } from "@/lib/hooks/usePool";
 import { useTokenBalances, useTokenAllowances } from "@/lib/hooks/useTokenBalances";
-import { HOOK_ADDRESS, ERC20_ABI, HOOK_LP_ABI } from "@/lib/contracts";
+import { ERC20_ABI, HOOK_LP_ABI } from "@/lib/contracts";
+import { chainIdForPool } from "@/lib/crosschain";
 
 const WAD = 10n ** 18n;
 
@@ -865,11 +866,17 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
   const [mintHash,    setMintHash]   = useState<Hash | undefined>();
 
   const { address } = useAccount();
-  const { pool }    = usePool(poolAddress);
+  // `poolAddress` from the route IS the hook: OrbitalHook is both the book and
+  // the LP surface. Using the primary-chain HOOK_ADDRESS constant here approved
+  // and minted against Unichain's hook no matter which pool was open, so on
+  // Base, Arbitrum or Arc it would have targeted a contract that is not this
+  // pool. Everything below routes through the pool's own address and chain.
+  const poolChainId = chainIdForPool(poolAddress);
+  const { pool }    = usePool(poolAddress, { chainId: poolChainId });
   const tokenAddrs  = (pool?.tokens.map(t => t.address as Address)) ?? [];
 
   const { balances }   = useTokenBalances(tokenAddrs, address);
-  const { allowances, refetch: refetchAllowances } = useTokenAllowances(tokenAddrs, address, HOOK_ADDRESS);
+  const { allowances, refetch: refetchAllowances } = useTokenAllowances(tokenAddrs, address, poolAddress);
   const { writeContract, isPending } = useWriteContract();
   const { isSuccess: mintConfirmed } = useWaitForTransactionReceipt({ hash: mintHash, query: { enabled: !!mintHash } });
 
@@ -890,7 +897,7 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
     if (!address) return;
     setApproveIdx(idx);
     writeContract(
-      { address: tokenAddrs[idx], abi: ERC20_ABI, functionName: "approve", args: [HOOK_ADDRESS, maxUint256] },
+      { address: tokenAddrs[idx], abi: ERC20_ABI, functionName: "approve", args: [poolAddress, maxUint256], chainId: poolChainId },
       { onSuccess: () => refetchAllowances() }
     );
   }
@@ -910,10 +917,11 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
 
     writeContract(
       {
-        address: HOOK_ADDRESS,
+        address: poolAddress,
         abi: HOOK_LP_ABI,
         functionName: "addLiquidity",
         args: [kWad, rWad, maxAmounts],
+        chainId: poolChainId,
       },
       { onSuccess: (hash) => setMintHash(hash) }
     );

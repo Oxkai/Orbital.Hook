@@ -30,14 +30,24 @@ export interface CrossChainDeployment {
   intentSettler?: Address;
   hyperlaneMailbox?: Address;
   hyperlaneDomain?: number;
+  /// Whether `hyperlaneMailbox` is REAL Hyperlane transport.
+  ///
+  /// A deployed settler is not sufficient for a routable cross-chain order: the
+  /// mailbox behind it also has to actually relay. Arc testnet has no Hyperlane
+  /// deployment at all, so its settler sits behind a local shim that emits
+  /// events and delivers nothing. Defaults to true; only set false where the
+  /// mailbox is stubbed, and `supportsCrossChain` will then exclude the chain.
+  mailboxRelays?: boolean;
+  /// Shown in the UI wherever a chain is excluded from cross-chain routing.
+  crossChainNote?: string;
   /// Block the hook was deployed at. Event scanners start here, not genesis.
   deployBlock: bigint;
   assets: Record<string, CrossChainAsset>;
 }
 
 export const UNICHAIN_SEPOLIA_ID = 1301;
-export const BASE_SEPOLIA_ID = 84532;
 export const ARBITRUM_SEPOLIA_ID = 421614;
+export const ARC_TESTNET_ID = 5042002;
 
 export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
   // Generated from orbitalHook/deployments.json - keep the two in step.
@@ -46,39 +56,19 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
     name: "Unichain Sepolia",
     short: "Unichain",
     explorer: "https://sepolia.uniscan.xyz",
-    orbitalHook: "0xaf7450d89B674d11284Fa82693eF15612169aa88",
+    orbitalHook: "0xA4E98Ae00FdC5F62C53496a3B207632F4727aa88",
     poolManager: "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
     swapRouter: "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540",
     quoter: "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472",
-    intentSettler: "0x14a8d875F6d4468c83C1D3028e179DdA9B9364DC",
+    intentSettler: "0xF430302b0F8f70806feE5117f45DB019ddaA3a99",
     hyperlaneMailbox: "0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD",
     hyperlaneDomain: 1301,
-    deployBlock: 61607259n,
+    deployBlock: 61913398n,
     assets: {
-      USDC:  { symbol: "USDC", address: "0x4df69b21843F42a43a3CBe1C2712278404a0f394", decimals: 6 , index: 0 },
-      USDT:  { symbol: "USDT", address: "0x9924e9D691642F6B8bAA0382aC9EFFDb43002B95", decimals: 6 , index: 2 },
-      DAI:   { symbol: "DAI", address: "0xF2C5b0555F1ba2184Db8563188c00a1467251739", decimals: 18, index: 3 },
-      FRAX:  { symbol: "FRAX", address: "0x5F1e60520d796bdAE086b8aA2D88fb039f76CaD7", decimals: 18, index: 1 },
-    },
-  },
-  [BASE_SEPOLIA_ID]: {
-    chainId: BASE_SEPOLIA_ID,
-    name: "Base Sepolia",
-    short: "Base",
-    explorer: "https://sepolia.basescan.org",
-    orbitalHook: "0xf3aE821a7e0b6effD96EaaeBC09C53905aF12a88",
-    poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
-    swapRouter: "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
-    quoter: "0x9eA8539097528BA1CdC4CcEfa99DBD0310D3Bde2",
-    intentSettler: "0xF72F5537d6914e1D1379D68B62Eb6f8549792992",
-    hyperlaneMailbox: "0x6966b0E55883d49BFB24539356a2f8A673E02039",
-    hyperlaneDomain: 84532,
-    deployBlock: 46345765n,
-    assets: {
-      USDC:  { symbol: "USDC", address: "0x8C3E9929b523D658A92cb61286ba00A1A15635F7", decimals: 6 , index: 3 },
-      USDT:  { symbol: "USDT", address: "0x7EB345af1f38Ee7a2C7E5bE984596e33014bDc81", decimals: 6 , index: 2 },
-      DAI:   { symbol: "DAI", address: "0x1A478E8Ad09D650f17df0288254bd24220Ff6b57", decimals: 18, index: 0 },
-      FRAX:  { symbol: "FRAX", address: "0x5BD60b5a16be951f9185576da0DdC51993B28db8", decimals: 18, index: 1 },
+      USDT:  { symbol: "USDT", address: "0x287ca3Cc67FDE6c45717dD420146C937a93Ed237", decimals: 6 , index: 0 },
+      DAI:   { symbol: "DAI", address: "0x7467369a0267505603c2D0dbfC369502508Cce75", decimals: 18, index: 1 },
+      FRAX:  { symbol: "FRAX", address: "0x90aA5b5Db105DC190dD29e01b40e75549C39C3dF", decimals: 18, index: 2 },
+      USDC:  { symbol: "USDC", address: "0xC09DefF23c7Ac44C1B4bfB11EF3AC7b0ec46328f", decimals: 6 , index: 3 },
     },
   },
   [ARBITRUM_SEPOLIA_ID]: {
@@ -86,19 +76,47 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
     name: "Arbitrum Sepolia",
     short: "Arbitrum",
     explorer: "https://sepolia.arbiscan.io",
-    orbitalHook: "0xB5bcb2F158461E3d69bf38Be4af69954FB67aA88",
+    orbitalHook: "0x35C9D292768779E040e296AC20cf10b9D7A22a88",
     poolManager: "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     swapRouter: "0xcD8D7e10A7aA794C389d56A07d85d63E28780220",
     quoter: "0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE",
-    intentSettler: "0x46A0e3D32ebCeC9B65984469520F478C9e0C97D4",
+    intentSettler: "0xD8447BeAcf4a2768C4DCDb195b8D7122809a64e6",
     hyperlaneMailbox: "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8",
     hyperlaneDomain: 421614,
-    deployBlock: 305071149n,
+    deployBlock: 306305946n,
     assets: {
-      USDC:  { symbol: "USDC", address: "0x7A3558170Ae4a15523D1E2848aA41Aed1C7fa292", decimals: 6 , index: 2 },
-      USDT:  { symbol: "USDT", address: "0x9Aeb218E9f3E4f2366F4A09a9d33823A8856D192", decimals: 6 , index: 3 },
-      DAI:   { symbol: "DAI", address: "0x31f54F08c8DF97d934b6804faB69c98C09898fB9", decimals: 18, index: 0 },
-      FRAX:  { symbol: "FRAX", address: "0x4ac9f4b60baF290F3694C88c7e3EBc92e3dd923F", decimals: 18, index: 1 },
+      USDT:  { symbol: "USDT", address: "0x11d99F5D06ec687704A563a425064f74F9929C97", decimals: 6 , index: 0 },
+      USDC:  { symbol: "USDC", address: "0x2E02885397e0c9E77c432C252Decc60d1af2494C", decimals: 6 , index: 1 },
+      FRAX:  { symbol: "FRAX", address: "0x32825BCb9E24E7CFC87c7f8956Ab833D4480A389", decimals: 18, index: 2 },
+      DAI:   { symbol: "DAI", address: "0x3b6C33Be36B633Fe04f2A987f5BD627D55CA2734", decimals: 18, index: 3 },
+    },
+  },
+  // Circle's Arc. Same hook, same four stables, same $24M seed as the others,
+  // but SAME-CHAIN ONLY: see `mailboxRelays`. Arc testnet has neither a
+  // canonical Uniswap v4 nor a Hyperlane deployment, so the PoolManager, router
+  // and quoter here were deployed by `script/DeployArc.s.sol` and the settler
+  // sits behind a local shim. Arc MAINNET has both canonically and is the path
+  // to real cross-chain; see `_arc` in orbitalHook/deployments.json.
+  [ARC_TESTNET_ID]: {
+    chainId: ARC_TESTNET_ID,
+    name: "Arc Testnet",
+    short: "Arc",
+    explorer: "https://testnet.arcscan.app",
+    orbitalHook: "0x9474a0Eff4d0501c472b29987925E03F69bd6a88",
+    poolManager: "0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7",
+    swapRouter: "0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E",
+    quoter: "0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90",
+    intentSettler: "0xE82C3dFe38bb607E5c409C2b9b361a05855d8715",
+    hyperlaneMailbox: "0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb",
+    hyperlaneDomain: ARC_TESTNET_ID,
+    mailboxRelays: false,
+    crossChainNote: "Arc testnet has no Hyperlane deployment; same-chain swaps only",
+    deployBlock: 60874911n,
+    assets: {
+      USDC:  { symbol: "USDC", address: "0xADdb0fcA532961745baed77B5346Aa32E4E10239", decimals: 6 , index: 2 },
+      USDT:  { symbol: "USDT", address: "0xc4EeEDB4C5e194ec422AF850B9ff60F164c8aa72", decimals: 6 , index: 3 },
+      DAI:   { symbol: "DAI", address: "0x44406ad771b05827F5fd95b002189e51EEbEDC91", decimals: 18, index: 0 },
+      FRAX:  { symbol: "FRAX", address: "0x60Cb112631Ce92f9fe164878d690FAc1FD1C295d", decimals: 18, index: 1 },
     },
   },
 };
@@ -109,8 +127,24 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
 /// One constant to move if that changes.
 export const PRIMARY_CHAIN_ID = UNICHAIN_SEPOLIA_ID;
 
+/// Chain the swap widget opens on.
+///
+/// Deliberately separate from `PRIMARY_CHAIN_ID`. The widget used to key its
+/// opening pair off `CHAIN_IDS[0]`, which silently coupled the default swap to
+/// the dropdown's display order: reordering that array to move a chain up the
+/// list would have changed which pool the app opens on. These are different
+/// decisions, so they get different constants.
+///
+/// Arc is a valid default precisely because it is same-chain only: both sides
+/// of the opening pair live on it, so the widget never opens on a route that
+/// cannot settle.
+export const DEFAULT_SWAP_CHAIN_ID = ARC_TESTNET_ID;
+
 /// Display order in the token dropdown, primary chain first.
-export const CHAIN_IDS = [UNICHAIN_SEPOLIA_ID, BASE_SEPOLIA_ID, ARBITRUM_SEPOLIA_ID] as const;
+// Base Sepolia was retired on 2026-09-07 with the tick-merge fix: its
+// deployment still runs the old contract, so leaving it listed would have shown
+// stale, defective ticks alongside three corrected ones.
+export const CHAIN_IDS = [UNICHAIN_SEPOLIA_ID, ARBITRUM_SEPOLIA_ID, ARC_TESTNET_ID] as const;
 
 /// Every chain carries the same four stables, so a same-chain route always exists.
 export const ROUTABLE_SYMBOLS = ["USDC", "USDT", "DAI", "FRAX"] as const;
@@ -123,9 +157,16 @@ export function assetOn(chainId: number, symbol: string): CrossChainAsset | unde
   return DEPLOYMENTS[chainId]?.assets[symbol];
 }
 
-/// A chain can originate or receive a cross-chain order only if it has a settler.
+/// A chain can originate or receive a cross-chain order only if it has a settler
+/// AND that settler's mailbox actually relays.
+///
+/// Both halves matter. Arc has a deployed, fully functional settler, but behind
+/// a shim mailbox that delivers nothing, so an order opened there could never be
+/// proven and would sit until it hit the refund window. Gating on the settler
+/// alone would surface Arc routes in the UI that are guaranteed to strand funds.
 export function supportsCrossChain(chainId: number): boolean {
-  return !!DEPLOYMENTS[chainId]?.intentSettler;
+  const d = DEPLOYMENTS[chainId];
+  return !!d?.intentSettler && d.mailboxRelays !== false;
 }
 
 /// Why a given (origin, destination) pair cannot be routed, or undefined if it can.
@@ -136,6 +177,8 @@ export function routeBlockedReason(originChainId: number, destChainId: number): 
   if (!a || !b) return "Unknown chain";
   if (!a.intentSettler) return `No settler on ${a.short}`;
   if (!b.intentSettler) return `No settler on ${b.short}`;
+  if (a.mailboxRelays === false) return a.crossChainNote ?? `No message relay on ${a.short}`;
+  if (b.mailboxRelays === false) return b.crossChainNote ?? `No message relay on ${b.short}`;
   return undefined;
 }
 
@@ -389,6 +432,20 @@ export const ALL_POOLS = CHAIN_IDS.map((chainId) => ({
   name: DEPLOYMENTS[chainId].name,
   short: DEPLOYMENTS[chainId].short,
 }));
+
+/// Which chain a given Orbital pool address lives on.
+///
+/// Pool routes are keyed by address alone (`/app/pool/[address]`), so anything
+/// resolving one back to a deployment has to go through here. Reading a pool
+/// without its chain silently falls back to the primary chain, which means
+/// querying a Unichain RPC for an Arc address and rendering an empty pool.
+///
+/// Hook addresses are CREATE2-mined per chain and do not collide, so the lookup
+/// is unambiguous. Unknown addresses fall back to the primary chain.
+export function chainIdForPool(address: string): number {
+  const want = address.toLowerCase();
+  return ALL_POOLS.find((p) => p.address.toLowerCase() === want)?.chainId ?? PRIMARY_CHAIN_ID;
+}
 
 /// A chain's assets in the hook's OWN index order (`assetAt(0..N-1)`).
 ///

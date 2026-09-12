@@ -27,6 +27,7 @@ import { ERC20_ABI, MOCK_ERC20_ABI, ROUTER_ABI, QUOTER_ABI } from "@/lib/contrac
 import {
   DEPLOYMENTS,
   CHAIN_IDS,
+  DEFAULT_SWAP_CHAIN_ID,
   ALL_TOKENS,
   tokenByKey,
   routeBlockedReason,
@@ -576,8 +577,8 @@ function OrderTracker({ originChainId, destChainId, orderId, onDismiss }: {
 
 // Opens as an ordinary same-chain swap. Cross-chain is reached by picking a
 // token under a different chain heading in the dropdown, not by default.
-const DEFAULT_IN = `${CHAIN_IDS[0]}:USDC`;
-const DEFAULT_OUT = `${CHAIN_IDS[0]}:USDT`;
+const DEFAULT_IN = `${DEFAULT_SWAP_CHAIN_ID}:USDC`;
+const DEFAULT_OUT = `${DEFAULT_SWAP_CHAIN_ID}:USDT`;
 
 export function SwapWidget() {
   const [inKey, setInKey] = useState(DEFAULT_IN);

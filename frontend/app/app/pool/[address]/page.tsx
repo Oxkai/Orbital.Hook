@@ -22,7 +22,8 @@ import { useTransactions, type TxType } from "@/lib/hooks/useTransactions";
 import { DepthChart } from "@/components/app/pool/DepthChart";
 import { fmtUSD }   from "@/lib/mock/data";
 import { type Address } from "viem";
-import { explorerAddressUrl, explorerTxUrl } from "@/lib/wagmi";
+import { explorerTxUrl } from "@/lib/wagmi";
+import { chainIdForPool, explorerAddress } from "@/lib/crosschain";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
 
 const TABS = ["Overview", "Liquidity", "Transactions"] as const;
@@ -184,7 +185,9 @@ function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["p
   const boundaryCount = pool.ticks.filter(t => !t.isInterior).length;
   const isHealthy     = boundaryCount === 0;
   const activeTicks   = pool.ticks.length - boundaryCount;
-  const explorer      = explorerAddressUrl(pool.address);
+  // Per-chain explorer: `explorerAddressUrl` is hardcoded to the primary chain
+  // and would point an Arc or Base address at Uniscan.
+  const explorer      = explorerAddress(pool.chainId, pool.address);
 
   return (
     <div className="flex flex-col gap-8">
@@ -674,7 +677,11 @@ function shortAddr(addr: string) {
 export default function PoolDetailPage({ params }: { params: Promise<{ address: string }> }) {
   const { address: poolAddr } = use(params);
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
-  const { pool, isLoading } = usePool(poolAddr as Address, { withVolume: true });
+  // The route carries only an address, so the chain has to be recovered from
+  // the registry. Without this every non-primary pool (Base, Arbitrum, Arc)
+  // would be read off the Unichain RPC and render as an empty pool.
+  const poolChainId = chainIdForPool(poolAddr);
+  const { pool, isLoading } = usePool(poolAddr as Address, { withVolume: true, chainId: poolChainId });
 
   const pairLabel = pool ? pool.tokens.map(t => t.symbol).join(" / ") : "Pool";
 
@@ -700,7 +707,7 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
               {pool && (
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <a
-                    href={explorerAddressUrl(poolAddr)}
+                    href={explorerAddress(poolChainId, poolAddr)}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 hover:opacity-100 opacity-80 transition-opacity"

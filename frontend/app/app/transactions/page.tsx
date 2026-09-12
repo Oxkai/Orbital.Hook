@@ -5,8 +5,9 @@ import { ArrowSquareOut, ArrowsLeftRight, Plus, Minus, Tray } from "@phosphor-ic
 import { color, typography } from "@/constants";
 import { useTransactions, type TxType } from "@/lib/hooks/useTransactions";
 import { TOKEN_META } from "@/lib/contracts";
-import { explorerTxUrl } from "@/lib/wagmi";
+import { DEPLOYMENTS, explorerTx } from "@/lib/crosschain";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
+import { ChainBadge } from "@/components/app/shared/ChainBadge";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 
@@ -123,8 +124,28 @@ function FilterChip({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const COLS = "92px 1fr 1fr 1fr 90px 100px 110px";
-const COL_HEADERS = ["Type", "From", "Pair", "Amount In", "Amount Out", "Time", "Tx Hash"];
+// Slack is SHARED by the four middle columns rather than dumped into one.
+//
+// Two earlier shapes both failed. Three bare `1fr` columns against a fixed tail
+// let Amount Out collide with Time. Making everything fixed except Pair fixed
+// the collision but handed Pair every spare pixel, opening a wide void between
+// the pair and the amounts. Giving each middle column a floor plus a flex share
+// spreads the leftover width so no single gap dominates, while Time and Tx Hash
+// stay fixed and can never be squeezed into each other.
+const COLS =
+  "92px 112px minmax(120px, 1fr) minmax(165px, 1.3fr) minmax(100px, 1fr) minmax(100px, 1fr) 76px 116px";
+const COL_HEADERS = ["Type", "Chain", "From", "Pair", "Amount In", "Amount Out", "Time", "Tx Hash"];
+
+/// Column separation, applied by the grid itself. Previously each cell carried
+/// its own `paddingRight`, so the gap silently disappeared wherever a cell was
+/// missed, which is how Amount Out ended up flush against Time.
+const COL_GAP = 16;
+
+/// Sum of the column floors plus gaps plus the rows' own `px-5`. Below this the
+/// desktop grid cannot honour its minimums, so the table scrolls sideways
+/// instead of overflowing the page. Applied from `md` up only, so the mobile
+/// card layout is unaffected.
+const TABLE_MIN_W = 1040;
 
 export default function TransactionsPage() {
   const [filter, setFilter] = useState<Filter>("All");
@@ -201,13 +222,17 @@ export default function TransactionsPage() {
 
         {/* ── Table ────────────────────────────────────────────────── */}
         <div ref={scrollRef} className="flex-1 min-h-0">
-          <div className="flex flex-col gap-px">
+          {/* Horizontal scroll lives on its own wrapper so `scrollRef` stays the
+              vertical root the infinite-scroll observer expects. */}
+          <div className="overflow-x-auto">
+          <div className="flex flex-col gap-px" style={{ minWidth: `min(100%, ${TABLE_MIN_W}px)` }}>
             {/* Column headers: desktop */}
             <div
               className="hidden md:grid items-center px-5 py-2.5"
               style={{
                 backgroundColor: color.surface1,
                 gridTemplateColumns: COLS,
+                columnGap: COL_GAP,
               }}
             >
               {COL_HEADERS.map((h, i) => (
@@ -259,22 +284,30 @@ export default function TransactionsPage() {
 
               return (
                 <div
-                  key={`${tx.hash}-${tx.blockNumber}`}
+                  // Hashes are only unique within a chain; key on chain too.
+                  key={`${tx.chainId}-${tx.hash}-${tx.blockNumber}`}
                   className="hover:bg-(--color-surface-2) transition-colors"
                   style={{ backgroundColor: color.surface1 }}
                 >
                   {/* ── Desktop row ── */}
                   <div
                     className="hidden md:grid items-center px-5 py-3"
-                    style={{ gridTemplateColumns: COLS }}
+                    style={{ gridTemplateColumns: COLS, columnGap: COL_GAP }}
                   >
                     <TypePill type={tx.type} />
 
-                    <span style={{ ...body("p3", color.textSecondary), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>
+                    <span className="flex items-center gap-1.5 min-w-0" style={{ ...body("caption", color.textSecondary) }}>
+                      <ChainBadge chainId={tx.chainId} size={12} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {DEPLOYMENTS[tx.chainId]?.short ?? tx.chainId}
+                      </span>
+                    </span>
+
+                    <span style={{ ...body("p3", color.textSecondary), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {shortAddr(tx.actor)}
                     </span>
 
-                    <div className="flex items-center gap-1.5 min-w-0" style={{ paddingRight: 12 }}>
+                    <div className="flex items-center gap-1.5 min-w-0">
                       {outSym ? (
                         <>
                           <TokenIcon symbol={inSym} size={14} />
@@ -288,12 +321,25 @@ export default function TransactionsPage() {
                       )}
                     </div>
 
-                    <span style={{ ...body("p3", color.textPrimary), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>
+                    <span style={{ ...body("p3", color.textPrimary), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {inAmt}
                     </span>
 
-                    <span style={{ ...body("p3", outSym ? color.success : color.textMuted), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {outSym ? outAmt : "—"}
+                    <span
+                      className="flex items-baseline gap-1.5 min-w-0"
+                      style={{ ...body("p3", outSym ? color.success : color.textMuted), overflow: "hidden", whiteSpace: "nowrap" }}
+                      title={
+                        tx.slippageBps === undefined
+                          ? undefined
+                          : "Realised slippage against 1:1. These are same-peg assets, so any shortfall is fee plus curve slippage. Negative means the swap came out ahead, which happens when it crosses into a deeper tick."
+                      }
+                    >
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{outSym ? outAmt : "—"}</span>
+                      {/* Only the subgraph carries this: the raw Swap event has
+                          no notion of a fair price, so RPC-scanned rows omit it. */}
+                      {tx.slippageBps !== undefined && outSym && (
+                        <span style={body("caption", color.textMuted)}>{tx.slippageBps}bps</span>
+                      )}
                     </span>
 
                     <span
@@ -305,7 +351,7 @@ export default function TransactionsPage() {
                     </span>
 
                     <a
-                      href={explorerTxUrl(tx.hash)}
+                      href={explorerTx(tx.chainId, tx.hash)}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center justify-end gap-1.5 hover:opacity-100 opacity-70 transition-opacity"
@@ -318,8 +364,14 @@ export default function TransactionsPage() {
 
                   {/* ── Mobile card ── */}
                   <div className="md:hidden px-5 py-4 flex flex-col gap-2.5">
-                    <div className="flex items-center justify-between">
-                      <TypePill type={tx.type} />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <TypePill type={tx.type} />
+                        <span className="flex items-center gap-1.5 shrink-0" style={body("caption", color.textMuted)}>
+                          <ChainBadge chainId={tx.chainId} size={11} />
+                          {DEPLOYMENTS[tx.chainId]?.short ?? tx.chainId}
+                        </span>
+                      </span>
                       <span style={body("caption", color.textMuted)} suppressHydrationWarning>
                         {timeAgo(tx.timestamp)}
                       </span>
@@ -344,7 +396,7 @@ export default function TransactionsPage() {
                         From {shortAddr(tx.actor)}
                       </span>
                       <a
-                        href={explorerTxUrl(tx.hash)}
+                        href={explorerTx(tx.chainId, tx.hash)}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1"
@@ -372,6 +424,7 @@ export default function TransactionsPage() {
                 <span style={body("caption", color.textMuted)}>All transactions loaded</span>
               )}
             </div>
+          </div>
           </div>
         </div>
     </section>

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { UNICHAIN_SEPOLIA_ID, BASE_SEPOLIA_ID, ARBITRUM_SEPOLIA_ID } from "@/lib/crosschain";
+import { UNICHAIN_SEPOLIA_ID, ARBITRUM_SEPOLIA_ID, ARC_TESTNET_ID } from "@/lib/crosschain";
 
 /** Chain badge, drawn as ONE svg: rounded-square plate plus the network glyph,
  *  in a single 24x24 coordinate system.
@@ -20,15 +20,14 @@ const GLYPH_SCALE = 0.7; // glyph ink occupies ~70% of the plate
 interface ChainArt {
   plate: string;
   glyph: string[];
+  /** Glyph fill. Defaults to white, which is right for every dark plate. */
+  ink?: string;
+  /** Applied inside the glyph group, for art whose native box is not 24x24.
+   *  Lets a brand path be pasted verbatim rather than hand-renormalised. */
+  transform?: string;
 }
 
 const CHAIN_ART: Record<number, ChainArt> = {
-  [BASE_SEPOLIA_ID]: {
-    plate: "#0052FF",
-    glyph: [
-      "M11.983 22C17.515 22 22 17.523 22 12S17.515 2 11.983 2C6.733 2 2.428 6.03 2 11.16h13.24v1.68H2C2.428 17.97 6.734 22 11.983 22",
-    ],
-  },
   [ARBITRUM_SEPOLIA_ID]: {
     // Arbitrum's navy is illegible on a dark UI; its light blue is the usable mark.
     plate: "#12AAFF",
@@ -45,6 +44,26 @@ const CHAIN_ART: Record<number, ChainArt> = {
       // Unichain has no icon in the token-icons package; this is the brand mark,
       // renormalised from its native 116x115 box into this 24x24 viewBox.
       "M23.9 11.68C17.44 11.68 12.21 6.44 12.21 0h-.45v11.68H.07v.45c6.46 0 11.69 5.24 11.69 11.68h.45V12.13H23.9v-.45z",
+    ],
+  },
+  [ARC_TESTNET_ID]: {
+    // Circle's Arc: the arch symbol from the official wordmark, taken verbatim
+    // as the first subpath of arc.io's `logo-ondark.svg`.
+    //
+    // Arc's mark is monochrome (the source draws it in flat white for dark
+    // backgrounds), so the plate carries the contrast rather than a brand hue.
+    // White plate with black ink for the same reason Arbitrum uses its light
+    // blue above: the badge is 11px on a near-black UI, and a dark plate would
+    // dissolve into the surface it sits on.
+    //
+    // Native box is 47.7168 x 50, so it is fitted rather than renormalised:
+    // scale 20/50 = 0.4 gives a 19.087 x 20 ink area, then centre it in the
+    // 24 box (x (24-19.087)/2 = 2.4566, y (24-20)/2 = 2).
+    plate: "#FFFFFF",
+    ink: "#000000",
+    transform: "translate(2.4566 2) scale(0.4)",
+    glyph: [
+      "M23.8574 0C31.0115 0 37.371 6.19775 41.7656 17.4521C44.0513 23.3056 45.7332 30.2603 46.7295 37.8262C46.8186 38.5019 46.8939 39.1888 46.9717 39.874C46.9969 39.9162 47.0119 39.9553 47.0068 39.9873C47.0068 39.9873 47.5924 43.6447 47.7168 50H47.6514C46.7829 49.2873 36.54 41.2389 19.5615 43.5693C19.8177 40.6962 20.1699 37.9004 20.625 35.2207C20.6482 35.0838 20.6755 34.9514 20.6992 34.8154C27.3585 34.6146 33.1876 35.3879 37.6572 36.4014C37.6406 36.2954 37.6263 36.1865 37.6094 36.0811C36.6906 30.3599 35.3355 25.1217 33.5879 20.6455C30.7304 13.3264 27.001 8.77832 23.8574 8.77832C20.7141 8.77863 16.9853 13.3266 14.1279 20.6455C13.4363 22.4157 12.8068 24.3036 12.2422 26.2949C11.4483 29.0854 10.7807 32.0773 10.248 35.2207C9.45968 39.8629 8.96755 44.8418 8.78613 50H0C0.405408 37.7593 2.48104 26.3352 5.9502 17.4521C10.3437 6.19798 16.7036 0.000184295 23.8574 0Z",
     ],
   },
 };
@@ -82,9 +101,11 @@ export function ChainBadge({
     >
       <rect width="24" height="24" rx="7.2" fill={art.plate} />
       <g transform={`translate(${offset} ${offset}) scale(${GLYPH_SCALE})`}>
-        {art.glyph.map((d, i) => (
-          <path key={i} d={d} fill="#FFFFFF" />
-        ))}
+        <g transform={art.transform}>
+          {art.glyph.map((d, i) => (
+            <path key={i} d={d} fill={art.ink ?? "#FFFFFF"} />
+          ))}
+        </g>
       </g>
     </svg>
   );

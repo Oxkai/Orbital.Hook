@@ -26,6 +26,18 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Pin Turbopack's workspace root to this directory.
+  //
+  // Next infers the root by looking for lockfiles, and the repo now holds two
+  // (`frontend/package-lock.json` and `subgraph/package-lock.json`). When that
+  // inference picks a directory with no `node_modules`, Turbopack cannot
+  // resolve the framework itself and dev dies with "Next.js package not found"
+  // while still serving 200s, which is a genuinely confusing failure. Pinning
+  // it removes the ambiguity rather than relying on which lockfile wins.
+  turbopack: {
+    root: __dirname,
+  },
+
   async headers() {
     return [
       {
