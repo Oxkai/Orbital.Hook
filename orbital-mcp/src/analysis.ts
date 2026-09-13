@@ -177,8 +177,11 @@ export function formatPool(pool: PoolRow, risks: TickRisk[]): string {
 
   lines.push(`${ICON[v.severity]} ${pool.network} (chain ${pool.chainId})`);
   lines.push(`  ${v.headline}`);
+  // TVL is the tokens the pool holds, not `sumX`: that is the engine's total
+  // including the virtual floor, several times the real deposits.
+  const tvlWad = pool.assets.reduce((s, a) => s + BigInt(a.realReserveWad), 0n).toString();
   lines.push(
-    `  TVL ${usd(pool.sumX)} | interior radius ${usd(pool.rInt)} | ticks ${pool.interiorTickCount}/${pool.tickCount} interior`
+    `  TVL ${usd(tvlWad)} | interior radius ${usd(pool.rInt)} | ticks ${pool.interiorTickCount}/${pool.tickCount} interior`
   );
   lines.push(
     `  ${pool.swapCount} swaps, ${pool.crossCount} crossings, volume ${usd(pool.volumeWad)}, fees ${usd(pool.feesWad)}`

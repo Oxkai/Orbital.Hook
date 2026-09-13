@@ -145,7 +145,7 @@ export const POOL_HEALTH = /* GraphQL */ `
       volumeWad
       feesWad
       lastUpdatedAt
-      assets(orderBy: index) { index symbol decimals reserveWad }
+      assets(orderBy: index) { index symbol decimals reserveWad realReserveWad }
     }
   }
 `;
@@ -243,7 +243,9 @@ export interface PoolRow {
   volumeWad: string;
   feesWad: string;
   lastUpdatedAt: string;
-  assets: { index: number; symbol: string; decimals: number; reserveWad: string }[];
+  /** `reserveWad` is the engine's reserve, including the virtual floor
+   *  concentrated ticks never deposit; `realReserveWad` is the tokens held. */
+  assets: { index: number; symbol: string; decimals: number; reserveWad: string; realReserveWad: string }[];
 }
 
 export interface TickRow {
