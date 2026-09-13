@@ -1,39 +1,47 @@
 import { color, colors, typography } from "@/constants";
 import { SectionLabel } from "./SectionLabel";
-import {
-  HOOK_ADDRESS, POOL_MANAGER, SWAP_ROUTER, QUOTER_ADDRESS,
-  TOKEN_ADDRESSES,
-} from "@/lib/contracts";
-import { explorerAddressUrl } from "@/lib/wagmi";
+import { DEPLOYMENTS, explorerAddress } from "@/lib/crosschain";
+import { FX_POOL } from "@/lib/fx";
 
 type Contract = { name: string; address: string };
+
+/// The Arc testnet deployment, read from the same registries the app uses.
+const ARC_CHAIN_ID = 5042002;
+const ARC = DEPLOYMENTS[ARC_CHAIN_ID];
+
+/// Test tokens across both Arc pools, each listed once (USDC and USDT are
+/// shared by the stable pool and the FX pool).
+const ARC_TOKENS: Contract[] = [
+  ...Object.values(ARC?.assets ?? {}).map((a) => ({ name: `${a.symbol} (${a.decimals}dp)`, address: a.address })),
+  ...(FX_POOL?.assets ?? [])
+    .filter((a) => !Object.values(ARC?.assets ?? {}).some((s) => s.address.toLowerCase() === a.address.toLowerCase()))
+    .map((a) => ({ name: `${a.symbol} (${a.decimals}dp)`, address: a.address })),
+];
 
 const GROUPS: { kind: string; label: string; items: Contract[] }[] = [
   {
     kind: "CORE",
     label: "Core protocol",
     items: [
-      { name: "OrbitalHook (v4)",      address: HOOK_ADDRESS },
-      { name: "PoolManager (v4)",      address: POOL_MANAGER },
+      ...(ARC ? [{ name: "OrbitalHook (stable)", address: ARC.orbitalHook }] : []),
+      ...(FX_POOL ? [{ name: "OrbitalFXHook (USD / EUR)", address: FX_POOL.hook }] : []),
+      ...(ARC ? [{ name: "PoolManager (v4)", address: ARC.poolManager }] : []),
     ],
   },
   {
     kind: "PERIPHERY",
     label: "Periphery",
     items: [
-      { name: "SwapRouter", address: SWAP_ROUTER    },
-      { name: "Quoter",     address: QUOTER_ADDRESS },
+      ...(ARC ? [{ name: "V4Router", address: ARC.swapRouter }, { name: "V4Quoter", address: ARC.quoter }] : []),
+      ...(FX_POOL?.assets.find((a) => a.feed)?.feed
+        ? [{ name: "EUR / USD feed", address: FX_POOL.assets.find((a) => a.feed)!.feed! }]
+        : []),
     ],
   },
   {
     kind: "TEST TOKENS",
-    label: "Test tokens (18-dec)",
-    items: [
-      { name: "USDC", address: TOKEN_ADDRESSES.USDC },
-      { name: "USDT", address: TOKEN_ADDRESSES.USDT },
-      { name: "DAI",  address: TOKEN_ADDRESSES.DAI },
-      { name: "FRAX", address: TOKEN_ADDRESSES.FRAX },
-    ],
+    label: "Test tokens",
+    items: ARC_TOKENS,
   },
 ];
 
@@ -66,7 +74,7 @@ function GroupHeader({ code, label, count }: { code: string; label: string; coun
 function Row({ c, index }: { c: Contract; index: string }) {
   return (
     <a
-      href={explorerAddressUrl(c.address)}
+      href={explorerAddress(ARC_CHAIN_ID, c.address)}
       target="_blank"
       rel="noopener noreferrer"
       className="group grid grid-cols-12 items-center gap-5 px-5 py-4 border-b border-dashed transition-colors hover:bg-white/[0.03]"
@@ -123,7 +131,7 @@ function Row({ c, index }: { c: Contract; index: string }) {
             className="inline-block w-1.5 h-1.5 rounded-full"
             style={{ backgroundColor: colors.green.hex }}
           />
-          VERIFIED
+          LIVE
         </span>
         <span
           className="transition-transform group-hover:translate-x-0.5"
@@ -157,7 +165,7 @@ export function Deployed() {
               color: color.textPrimary,
             }}
           >
-            Deployed & verified
+            Deployed on Arc
           </h2>
         </div>
 
@@ -170,8 +178,8 @@ export function Deployed() {
             color: color.textMuted,
           }}
         >
-          <span className="col-span-12 md:col-span-6">NETWORK / UNICHAIN SEPOLIA</span>
-          <span className="col-span-12 md:col-span-6 md:justify-self-end">CHAIN ID / 1301</span>
+          <span className="col-span-12 md:col-span-6">NETWORK / CIRCLE ARC TESTNET · GAS IN USDC</span>
+          <span className="col-span-12 md:col-span-6 md:justify-self-end">CHAIN ID / {ARC_CHAIN_ID}</span>
         </div>
 
         <div
@@ -187,6 +195,13 @@ export function Deployed() {
               })}
             </div>
           ))}
+        </div>
+
+        <div
+          className="mt-6"
+          style={{ fontFamily: MONO, fontSize: "11px", letterSpacing: "0.06em", color: color.textMuted }}
+        >
+          ALSO LIVE / UNICHAIN SEPOLIA · ARBITRUM SEPOLIA
         </div>
       </div>
     </section>

@@ -30,12 +30,11 @@ const geistMono = Geist_Mono({
 
 const SITE_NAME = "Orbital";
 const SITE_URL = "https://orbital-hook.vercel.app";
-const TITLE = "Orbital - Multitoken stablecoin AMM on Unichain";
-// Figures are the ones measured against the live Unichain Sepolia deployment:
-// ~154x capital efficiency at N=5. Keep them in step with the README table
-// rather than quoting the paper's headline number.
+const TITLE = "Orbital - Multitoken stablecoin AMM on Arc";
+// ~154x is the Orbital paper's capital-efficiency figure at N=5; keep it in step
+// with the README.
 const DESCRIPTION =
-  "One pool, N stablecoins. A Uniswap v4 hook that prices a whole basket of dollars on the Orbital sphere, with ~154x the capital efficiency of a full-range pool and automatic depeg isolation. Live on Unichain Sepolia.";
+  "One pool, N stablecoins. A Uniswap v4 hook that prices a whole basket of dollars on the Orbital sphere, with ~154x the capital efficiency of a full-range pool and automatic depeg isolation. Live on Circle's Arc, with stablecoin FX between USDC and EURC, and on Unichain and Arbitrum.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -44,7 +43,7 @@ export const metadata: Metadata = {
   applicationName: SITE_NAME,
   keywords: [
     "Orbital", "Uniswap v4 hook", "stablecoin AMM", "concentrated liquidity",
-    "Unichain", "DeFi", "N-asset AMM", "depeg isolation", "Paradigm Orbital",
+    "Arc", "Circle", "FX", "Unichain", "DeFi", "N-asset AMM", "depeg isolation", "Paradigm Orbital",
   ],
   // `images` and `icons` are intentionally omitted: app/opengraph-image.tsx,
   // app/icon.svg and app/apple-icon.tsx are picked up by Next's file

@@ -102,7 +102,14 @@ export function Masthead() {
               { t: ", built as a ", v: "off" },
               { t: "Uniswap v4 hook", v: "on" },
               { t: " and live on ", v: "off" },
-              { t: "Unichain Sepolia", v: "on" },
+              { t: "Circle's Arc", v: "on" },
+              { t: ", where it also runs ", v: "off" },
+              { t: "stablecoin FX", v: "on" },
+              { t: " between ", v: "off" },
+              { t: "USDC", v: "on" },
+              { t: " and ", v: "off" },
+              { t: "EURC", v: "on" },
+              { t: " at the Chainlink rate", v: "off" },
               { t: ".", v: "green" },
             ]}
           />
