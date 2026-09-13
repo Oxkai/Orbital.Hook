@@ -20,8 +20,8 @@ The failure mode is losing too many at once. When every interior tick has crosse
 not just the tick that crossed. That is what "frozen" means here, and it is the thing
 worth monitoring.
 
-The contract emits `TickCrossed`, but only *after* a bound is hit. As a risk signal
-that is useless: the liquidity is already gone. So the subgraph reads live engine
+The contract emits `TickCrossed`, but only *after* a bound is hit, too late to act on
+as a risk signal. So the subgraph reads live engine
 state at every event and stores how much slack each tick has left.
 
 ## Which tool to reach for
@@ -102,16 +102,29 @@ MCP client config:
 
 ## Worked example
 
-This tooling's first run against live data found a real bug. Every chain reported one
-tick with `kNorm ≈ 0.5007` against a parity of `1.0`:
+Asked "is anything wrong with the Orbital pools?", call `orbital_book_health` with
+`network: "all"`. Live output:
 
 ```
-[CRITICAL] arc-testnet tick #2 | DEFECT | 28.57% of radius | score 0.286
-    DEFECTIVE BOUND: kNorm 0.500716 sits BELOW parity 1, so a rising alphaNorm
-    can never reach it. This tick will not cross, meaning its depeg protection
-    is inert while it holds 28.57% of interior radius.
+[OK] arc-testnet (chain 5042002)
+  Healthy. 13 interior ticks, none near a bound.
+  TVL $5.25M | interior radius $293.54M | ticks 13/13 interior
+  47 swaps, 0 crossings, volume $255.9k, fees $25.59
+  basket: USDC(6dp) FRAX(18dp) USDT(6dp) DAI(18dp)
+
+[OK] unichain-testnet (chain 1301)
+  Healthy. 13 interior ticks, none near a bound.
+  TVL $5.70M | interior radius $298.37M | ticks 13/13 interior
+  42 swaps, 0 crossings, volume $213.5k, fees $21.35
+  basket: FRAX(18dp) USDT(6dp) DAI(18dp) USDC(6dp)
+
+[OK] arbitrum-sepolia (chain 421614)
+  Healthy. 14 interior ticks, none near a bound.
+  TVL $5.83M | interior radius $293.17M | ticks 14/14 interior
+  46 swaps, 0 crossings, volume $231.8k, fees $23.18
+  basket: FRAX(18dp) DAI(18dp) USDC(6dp) USDT(6dp)
 ```
 
-The cause was a tick-merge in the hook adding radius without adding `k`, halving
-`kNorm` and silently moving an LP's depeg bound. Fixed in `_findOrCreateTick`; the
-same tools now report `0 defective ticks`.
+Every chain is `[OK]`: no tick is near its bound and nothing is frozen. Report that
+plainly, with TVL and volume per chain, and drill into `orbital_ticks_at_risk` only
+when a chain is not `[OK]`.

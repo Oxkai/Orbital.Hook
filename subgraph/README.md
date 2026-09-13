@@ -11,13 +11,12 @@ Indexes the [Orbital Hook](../orbitalHook) across **three chains**, including Ci
 All three are supported by The Graph, confirmed against its networks registry: Arc
 offers `subgraphs` only, the other two also have `firehose` and `substreams`.
 
-Each indexes that chain's stable pool. The FX pool on Arc is not indexed; the
-frontend reads it over RPC. Base Sepolia was retired on 2026-09-07 with the
-tick-merge fix and is no longer indexed.
+Each indexes that chain's stable pool; the frontend reads the FX pool on Arc
+directly from the chain.
 
 ---
 
-## Why this is not just a log mirror
+## A leading indicator, not a log mirror
 
 Orbital's real risk is not volume, it is **tick crossings**.
 
@@ -28,8 +27,8 @@ the tick that crossed. That is the failure mode the whole tick design exists to
 contain, and it is the thing worth monitoring.
 
 The contract emits `TickCrossed` — but only *after* a boundary has already been
-hit. As a risk signal that is useless: by the time it fires, the liquidity is
-already gone.
+hit, too late to act on as a risk signal: by the time it fires, the liquidity
+has already left.
 
 So every handler here also reads live engine state (`slot0`, `reserves`,
 `ticks`) at its own block and stores **`distanceToBoundaryWad`** per tick, plus
@@ -154,7 +153,7 @@ slippage. This is the number the design exists to shrink.
 
 ---
 
-## Gotchas
+## Notes for querying
 
 **Asset indices are per chain.** The hook sorts its basket ascending by address,
 and addresses are unrelated across chains, so USDC is index 0 on Arc, 3 on

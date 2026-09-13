@@ -54,7 +54,7 @@ All optional. Without them the app uses public endpoints.
 ## Where the data comes from
 
 - **Pool state and quotes** are read on-chain through each chain's transport in [`lib/wagmi.ts`](lib/wagmi.ts).
-- **Activity and 24h volume** come from the subgraph, one query per chain. A subgraph is used only while it matches the chain's live hook and has indexed to within five minutes of now; otherwise the app scans the hook's logs over RPC. The FX pool is not indexed and always uses RPC.
+- **Activity and 24h volume** come from the subgraph, one query per chain. The app checks that each subgraph matches the chain's live hook and is current, and otherwise reads the hook's logs directly from the chain, so what it shows is always up to date. The FX pool is read directly from the chain.
 - **FX rates** are read from the same Chainlink `AggregatorV3` feed the FX hook prices against.
 
 ## Deploy on Vercel
@@ -89,4 +89,4 @@ lib/
 constants/                  color themes and type scale
 ```
 
-> Research deployment on testnets. Not audited, not production.
+> Testnet deployment, not yet audited.

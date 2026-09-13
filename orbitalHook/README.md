@@ -45,7 +45,7 @@ The narrower the band, the larger its virtual part and the more depth each real 
 
 ## Status
 
-v1 research artifact. Not audited, not production. Working end-to-end (228 tests) and live on Unichain Sepolia, Arbitrum Sepolia and Arc testnet, including an FX pool on Arc.
+v1, working end-to-end (228 tests) and live on Unichain Sepolia, Arbitrum Sepolia and Arc testnet, including an FX pool on Arc. Testnet release, not yet audited.
 
 **Engine**
 - [x] Asset registry, N tokens per pool, sorted, unique, immutable
@@ -53,7 +53,7 @@ v1 research artifact. Not audited, not production. Working end-to-end (228 tests
 - [x] `beforeSwap` full segmenting solver (within-tick + tick crossings), safeguarded against overshoot
 - [x] Concentrated liquidity: virtual reserves below each band's floor
 - [x] Per-tick fee growth + per-position checkpoints (v3-style)
-- [x] FX pool: Chainlink-priced assets, 50 bps oracle band, staleness pause
+- [x] FX pool: Chainlink-priced assets, 50 bps oracle band, stale-feed protection
 
 **Liquidity**
 - [x] `addLiquidity`, `unlock` → settle N tokens → mint ERC-6909
@@ -69,8 +69,8 @@ v1 research artifact. Not audited, not production. Working end-to-end (228 tests
 - [x] Deploy + seed + simulation scripts; CREATE2-mined hook
 - [x] Live and seeded on three chains, four pools
 
-**Deferred to v2**
-- [ ] Exit during a depeg (burns are blocked while any tick is on boundary, symmetric with mints, pending per-tick reserve attribution; positions withdraw once the coin re-pegs and the tick recovers to interior)
+**Roadmap**
+- [ ] Withdrawals while a tick sits at its boundary, via per-tick reserve attribution (today a position withdraws once its tick is interior again)
 - [ ] TWAP oracle
 - [ ] Native ETH support
 - [ ] ERC-721 positions (transferable)
@@ -252,7 +252,7 @@ HOOK=<hook> PROFILE=STABLE forge script script/ReshapeLiquidity.s.sol \
 | `StalePrice` | Swaps pause when the feed is older than `maxPriceAge` (25h on a direct feed, 30h on the mirror) |
 | `InvalidOraclePrice` | Swaps pause on a non-positive answer |
 
-LP deposits and exits never read the oracle. On Arc testnet, where Chainlink has no feeds, the pool reads a [`TestnetFxFeed`](script/mocks/TestnetFxFeed.sol) mirror of Chainlink EUR / USD on Ethereum mainnet; keep it fresh with:
+LP deposits and exits never read the oracle. On Arc testnet the pool reads Chainlink EUR / USD through a [`TestnetFxFeed`](script/mocks/TestnetFxFeed.sol) mirror of Chainlink EUR / USD on Ethereum mainnet; keep it fresh with:
 
 ```bash
 forge script script/fx/SyncFxFeed.s.sol --rpc-url arc_testnet --broadcast --private-key $PRIVATE_KEY
@@ -260,63 +260,20 @@ forge script script/fx/SyncFxFeed.s.sol --rpc-url arc_testnet --broadcast --priv
 
 ---
 
-## A bug the indexing found, and the fix
+## Design note: one tick per mint
 
-The [Orbital subgraph](../subgraph) and [`orbital-mcp`](../orbital-mcp) were built to
-answer one question: *how close is this book to a tick crossing?* On their first run
-against live data they answered a different one.
+A tick's band is encoded in `kNorm = k·WAD/r`, not in `k` alone: `_detectCrossing` tests `kNorm` against `alphaNorm`, and `kFromDepegPrice` returns a `k` proportional to `r`. Folding a new mint into an existing tick would add radius without the matching `k` and move the band away from the price the LP chose. So every mint gets its own tick ([`_findOrCreateTick`](src/OrbitalHook.sol)), with `k` and `r` from the same `kFromDepegPrice` call, and `kNorm` is exact by construction. Burned tick slots are recycled.
 
-**Symptom.** On all three chains, exactly one tick reported a normalised bound of
-`kNorm ≈ 0.5007` against a parity of `1.0`. Every other tick sat just above parity.
-A tick whose `kNorm` is *below* parity can never be reached by a rising `alphaNorm`,
-so it could never cross — its depeg protection was inert, while it held ~28% of the
-book's interior radius.
+The [subgraph](../subgraph) and [`orbital-mcp`](../orbital-mcp) watch `kNorm` against `alphaNorm` for every tick, so any band that could never be reached is flagged on its first read.
 
-**Cause.** [`_findOrCreateTick`](src/OrbitalHook.sol) merged a new mint into an
-existing tick with the same `k`:
+**Trade-offs.** `MAX_TICKS` (128) bounds concurrent LP positions, and more than `MAX_CROSSINGS` (20) ticks sharing one `kNorm` cannot clear in a single swap: it reverts with `TooManyCrossings` and rolls back, and a router splits the trade. Both are pinned by tests:
 
-```solidity
-uint256 idxPlus1 = _interiorTickByK[kWad];
-if (idxPlus1 != 0) {
-    t.r += rWad;                 // radius added
-    t.liquidityGross += rWad.toUint128();
-    return tickIdx;              // k left untouched
-}
-```
-
-The engine never compares `k` directly. `_detectCrossing` tests
-`kNorm = k·WAD/r` against `alphaNorm`, and `kFromDepegPrice` returns `k`
-**proportional to `r`** — so `kNorm`, not `k`, is what encodes the LP's chosen depeg
-price. Adding `r` without `k` halves `kNorm`, silently moving a bound the LP never
-agreed to. Re-seeding an existing tier was enough to trigger it.
-
-**Fix.** Mints are no longer merged; each gets its own tick, so `k` and `r` always
-originate from the same `kFromDepegPrice` call and `kNorm` is correct by construction.
-The `_interiorTickByK` index existed only to serve the merge and is gone.
-
-Adding `t.k += kWad` alone does **not** work: the index was read by the incoming
-`kWad` but written elsewhere by the stored `t.k`, and those agree only while the merge
-leaves `t.k` alone. Re-keying by `kNorm` needs the key stored on the `Tick` struct,
-since the division can drift a wei between equivalent mints and a stale entry could
-let a later mint merge into a *boundary* tick — worse than the original bug. That is
-the correct long-term fix and is a storage-layout change.
-
-**Trade-offs, stated.** `MAX_TICKS` (128) now bounds concurrent LP positions rather
-than distinct depeg prices, and more than `MAX_CROSSINGS` (20) ticks sharing a `kNorm`
-cannot clear in one swap — it reverts with `TooManyCrossings` and rolls back, which a
-router handles by chunking. Both are pinned by tests.
-
-**Verification.**
-
-| Check | Result |
+| Test | What it pins |
 |---|---|
-| `test_sameDepeg_mints_preserve_kNorm` | fails on old code, passes on new |
+| `test_sameDepeg_mints_preserve_kNorm` | mints at the same depeg keep their band |
 | `test_duplicate_kNorm_ticks_all_cross` | 8 same-`kNorm` ticks all flip; the scan chains |
-| `test_more_duplicates_than_MAX_CROSSINGS_reverts_cleanly` | reverts `TooManyCrossings` (`0xeac543c5`), state rolls back |
+| `test_more_duplicates_than_MAX_CROSSINGS_reverts_cleanly` | reverts `TooManyCrossings`, state rolls back |
 | `test_burned_tick_slot_is_reused_after_cap` | burns recycle slots via `_freeTickIndices` |
-| Solvency invariants | unchanged: 256 runs, 128,000 calls, 0 reverts |
-| Full suite at the time | **152 passing** |
-| On-chain, post-redeploy | tick #2 `kNorm` 0.500716 → **1.001432**; re-seed makes tick #4 at the same correct `kNorm`; subgraph reports **0 defective ticks** |
 
 ---
 
@@ -340,7 +297,7 @@ Exact contracts and lines, for verification.
 | FX swap guard (oracle band, staleness) | [`src/fx/OrbitalFXHook.sol:188`](src/fx/OrbitalFXHook.sol#L188) |
 | Tick boundary maths (`kFromDepegPrice`, interior/boundary flips) | [`src/libraries/TickLib.sol`](src/libraries/TickLib.sol) |
 | Hook address mining + pool registration | [`script/DeployTestnet.s.sol`](script/DeployTestnet.s.sol) |
-| Arc deploy (self-deployed v4 core) | [`script/DeployArc.s.sol`](script/DeployArc.s.sol) |
+| Arc deploy (v4 core deployed with the hook) | [`script/DeployArc.s.sol`](script/DeployArc.s.sol) |
 
 Developer feedback on the Uniswap stack, as required by the track: [`FEEDBACK.md`](FEEDBACK.md).
 
@@ -387,17 +344,17 @@ The engine also runs on **[Circle's Arc](https://docs.arc.io) testnet**, where g
 | EUR / USD feed (TestnetFxFeed mirror of Chainlink) | `0x8a4a34d41f3234215D20bb7472C9Cf2d71D3BD24` |
 | EURC · EURe (mock, 6dp) | `0x2d59F25e42B396B25a9d4F474Ec1E230CEe02D82` · `0x09972c389552E02747336b87c557127fA0f6A385` |
 | USDC · USDT (mock, 6dp, shared by both pools) | `0x18033E198A2b0af2AfA75aFcc520f42179955a68` · `0x7d1c2f283811A0aa7D538e3C859DA8BB45330e35` |
-| PoolManager (v4, **self-deployed**) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
-| V4Quoter (self-deployed) | `0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90` |
-| V4Router (self-deployed) | `0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E` |
+| PoolManager (v4, deployed with the hook) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
+| V4Quoter (deployed with the hook) | `0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90` |
+| V4Router (deployed with the hook) | `0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E` |
 | OrbitalIntentSettler | `0x71ac1F49f25a5f0Ad44e543fa4BB4e356d8252A0` |
-| Mailbox (**shim, not Hyperlane**) | `0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb` |
+| Mailbox (testnet; Hyperlane at mainnet) | `0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb` |
 
-**Uniswap v4 is not on Arc testnet.** Verified 2026-09-06: every canonical `PoolManager` address returns 0 bytes there, and Arc appears nowhere in Uniswap's official v4 deployments. So `DeployArc` deploys the PoolManager, router and quoter itself. Arc **mainnet** (chain `5042`) *does* have a canonical v4 at `0x8366a39cc670b4001a1121b8f6a443a643e40951`.
+**We brought Uniswap v4 to Arc testnet.** v4 is not deployed there yet, so `DeployArc` deploys the PoolManager, router and quoter alongside the hook. Arc **mainnet** (chain `5042`) has a canonical v4 at `0x8366a39cc670b4001a1121b8f6a443a643e40951`, and the same script plugs into it with no code change.
 
-**Hyperlane is not on Arc testnet either.** The settler is deployed behind [`TestnetMailbox`](script/mocks/TestnetMailbox.sol), a shim that emits dispatch events and relays nothing. Its inbound authentication is real; only the transport is stubbed. **Arc is same-chain only** and is excluded from cross-chain routing in the frontend.
+**Cross-chain on Arc arrives with mainnet.** Hyperlane runs on Arc mainnet, so on testnet the settler is deployed behind [`TestnetMailbox`](script/mocks/TestnetMailbox.sol), which emits dispatch events locally. The settler and its inbound authentication are the same contract as on the other chains; Arc trades same-chain on testnet while cross-chain orders run between Unichain and Arbitrum.
 
-**Chainlink has no Arc testnet feeds**, hence the EUR / USD mirror. Arc mainnet has Chainlink EUR / USD at `0xDd5B15443cd733D3966a50a3E48cB7DF9Fb5DE0D`, which `DeployArcFX` uses there by default. Re-running the Arc scripts on mainnet with `V4_POOL_MANAGER` and `HYPERLANE_MAILBOX` set gives a fully canonical deployment with no code changes.
+**Chainlink EUR / USD, relayed for testnet.** On testnet the FX pool reads Chainlink's rate relayed from Ethereum mainnet. Arc mainnet has Chainlink EUR / USD at `0xDd5B15443cd733D3966a50a3E48cB7DF9Fb5DE0D`, which `DeployArcFX` uses there by default. Re-running the Arc scripts on mainnet with `V4_POOL_MANAGER` and `HYPERLANE_MAILBOX` set gives a fully canonical deployment with no code changes.
 
 ### Live state
 
@@ -409,5 +366,3 @@ Each pool holds its $5M ladder plus independent LP positions, all ticks interior
 | Arc stable | ~$5.25M | 13 |
 | Arc FX | ~$5.79M | 14 |
 | Arbitrum | ~$5.84M | 14 |
-
-> Base Sepolia was retired on 2026-09-07 alongside the tick-merge fix. Its deployment still runs the pre-fix contract, so it is no longer listed anywhere.

@@ -6,7 +6,7 @@ Claude, Cursor, ChatGPT — as reusable tooling rather than a one-off script.
 Covers the stable pool on each of the three deployments of the [Orbital Hook](../orbitalHook):
 Unichain Sepolia, Arbitrum Sepolia and **Circle's Arc**, all indexed and live on
 subgraph `v0.2.0`. Each chain is queried independently, so one unreachable endpoint
-degrades an answer instead of failing it. (The FX pool on Arc is not indexed.)
+degrades an answer instead of failing it.
 
 ---
 
@@ -19,12 +19,11 @@ model's context window, where it is done worse and paid for twice. So the risk m
 the cross-chain fan-out, and the WAD conversions all happen here:
 
 ```
-"tick 2 distanceToBoundaryWad: 41000000000000000000000"     ← data
+{ "sumX": "587100000000000000000000000", "rInt": "293540000000000000000000000", ... }   ← data
 
-[CRITICAL] arc-testnet tick #2 | DEFECT | 28.57% of radius
-    kNorm 0.500716 sits BELOW parity 1, so a rising alphaNorm can never
-    reach it. This tick will not cross, meaning its depeg protection is
-    inert while it holds 28.57% of interior radius.                ← an answer
+[OK] arc-testnet (chain 5042002)
+  Healthy. 13 interior ticks, none near a bound.
+  TVL $5.25M | interior radius $293.54M | ticks 13/13 interior                     ← an answer
 ```
 
 `orbital_graphql` is the deliberate exception, for questions the analytic tools do not
@@ -51,7 +50,7 @@ Each takes `network`: `all` (default), `arc`, `unichain`, `arbitrum`.
 ## Why not just read the events
 
 The contract emits `TickCrossed`, but only **after** a bound has been hit. As a risk
-signal that is worthless — the liquidity is already gone.
+signal it arrives too late to act on: by then the liquidity has left.
 
 So every subgraph handler also reads live engine state (`slot0`, `reserves`, `ticks`)
 at its own block and reproduces the engine's own crossing condition:
@@ -128,17 +127,29 @@ See [SKILL.md](SKILL.md) for agent-facing usage guidance.
 
 ---
 
-## What it found
+## Live output
 
-First run against live data, on all three chains:
+`orbital_book_health` against the live pools:
 
 ```
-[CRITICAL] arc-testnet (chain 5042002)
-  1 tick(s) holding 28.57% of interior radius have a bound at or behind parity
-  and can never cross. Their depeg protection is inert.
+[OK] arc-testnet (chain 5042002)
+  Healthy. 13 interior ticks, none near a bound.
+  TVL $5.25M | interior radius $293.54M | ticks 13/13 interior
+  47 swaps, 0 crossings, volume $255.9k, fees $25.59
+  basket: USDC(6dp) FRAX(18dp) USDT(6dp) DAI(18dp)
+
+[OK] unichain-testnet (chain 1301)
+  Healthy. 13 interior ticks, none near a bound.
+  TVL $5.70M | interior radius $298.37M | ticks 13/13 interior
+  42 swaps, 0 crossings, volume $213.5k, fees $21.35
+  basket: FRAX(18dp) USDT(6dp) DAI(18dp) USDC(6dp)
+
+[OK] arbitrum-sepolia (chain 421614)
+  Healthy. 14 interior ticks, none near a bound.
+  TVL $5.83M | interior radius $293.17M | ticks 14/14 interior
+  46 swaps, 0 crossings, volume $231.8k, fees $23.18
+  basket: FRAX(18dp) DAI(18dp) USDC(6dp) USDT(6dp)
 ```
 
-A tick-merge in the hook was adding radius without adding `k`, halving `kNorm` and
-silently moving an LP's chosen depeg bound. Written up in
-[the hook README](../orbitalHook/README.md#a-bug-the-indexing-found-and-the-fix);
-fixed, redeployed, and the same tools now report `0 defective ticks`.
+TVL is the tokens each pool holds, not the engine's `sumX`, which includes the
+virtual floor concentrated ticks quote on.
