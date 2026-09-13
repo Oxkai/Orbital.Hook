@@ -8,6 +8,13 @@ import "./SphereMath.sol";
 /// @notice Tick geometry for the orbital AMM (paper §4.5–4.9).
 ///         All monetary values WAD (1e18) fixed-point unless noted.
 library TickLib {
+    error PriceOutOfRange();
+    error KAboveValidRange();
+    error NegativeDiscriminant();
+    error XMinAboveBase();
+    error KOutOfRange();
+    error GeometryError();
+
     // Tick struct
 
     struct Tick {
@@ -75,7 +82,7 @@ library TickLib {
         // (follows from n²*(p²+n-1) >= (p+n-1)² by Cauchy-Schwarz for p∈[0,1], n>=2).
         uint256 lhs = sqrtN * sqrtDenom;           // ≈ n*sqrt(p²+n-1)*WAD²  ≤ ~1e37
         uint256 rhs = numerator * WAD;             // ≈ (p+n-1)*WAD²          ≤ ~1e37
-        require(lhs >= rhs, "TickLib: price out of range");
+        if (lhs < rhs) revert PriceOutOfRange();
 
         uint256 k = FullMath.mulDiv(r, lhs - rhs, WAD * sqrtDenom);
 
@@ -117,7 +124,7 @@ library TickLib {
         uint256 A;
         {
             uint256 nMinus1R = (n - 1) * r;
-            require(nMinus1R >= kSqrtN, "TickLib: k above valid range");
+            if (nMinus1R < kSqrtN) revert KAboveValidRange();
             A = nMinus1R - kSqrtN;
         }
 
@@ -126,7 +133,14 @@ library TickLib {
         {
             uint256 kSqN = n * FullMath.mulDiv(k, k, WAD);
             uint256 nASq = n * FullMath.mulDiv(A, A, WAD);
-            require(kSqN >= nASq, "TickLib: negative discriminant");
+            // At k = kMin (a zero-width band) the discriminant is exactly 0, and
+            // the floored products can leave it a few wei negative. Treat a
+            // deficit within 1e-12 of k²n as that zero; anything larger means
+            // k is genuinely out of range.
+            if (kSqN < nASq) {
+                if (nASq - kSqN > kSqN / 1e12) revert NegativeDiscriminant();
+                nASq = kSqN;
+            }
             sqrtDisc = SphereMath.sqrt((kSqN - nASq) * WAD);
         }
 
@@ -150,7 +164,7 @@ library TickLib {
         uint256 xBase = SphereMath.equalPricePoint(r, n);
         uint256 xLo   = xMin(r, n, k);
 
-        require(xBase > xLo, "TickLib: xMin >= xBase");
+        if (xBase <= xLo) revert XMinAboveBase();
         return FullMath.mulDiv(xBase, SphereMath.WAD, xBase - xLo);
     }
 
@@ -168,13 +182,13 @@ library TickLib {
         uint256 sqrtN  = _sqrtN(n);
         uint256 rSqrtN = FullMath.mulDiv(r, sqrtN, WAD);
 
-        require(k >= kMin(r, n) && k <= kMax(r, n), "TickLib: k out of range");
+        if (k < kMin(r, n) || k > kMax(r, n)) revert KOutOfRange();
 
         // k < r*sqrt(n) in valid range so diff >= 0
         uint256 diff   = rSqrtN - k;
         uint256 rSq    = FullMath.mulDiv(r, r, WAD);
         uint256 diffSq = FullMath.mulDiv(diff, diff, WAD);
-        require(rSq >= diffSq, "TickLib: geometry error");
+        if (rSq < diffSq) revert GeometryError();
         uint256 inner  = rSq - diffSq;
         return SphereMath.sqrt(inner * WAD);
     }

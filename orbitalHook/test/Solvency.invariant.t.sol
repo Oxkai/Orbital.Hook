@@ -32,10 +32,9 @@ interface IERC6909Balance {
 abstract contract SolvencyInvariantBase is BaseTest {
     OrbitalHook hook;
     Currency[3] assets;
-    uint256[3] scales; // 10^(18-decimals) per asset
+    uint256[3] scales; // raw -> WAD multiplier per asset, as the hook must hold it
     PoolKey key01;
     uint256[] heldTicks;
-
 
     uint8 constant N = 3;
     uint160 constant HOOK_FLAGS = uint160(
@@ -46,8 +45,35 @@ abstract contract SolvencyInvariantBase is BaseTest {
     /// @dev Decimals for each of the three assets. Overridden per profile.
     function _decimals() internal pure virtual returns (uint8[3] memory);
 
-    /// @dev Distinct hook address per profile so the two runs cannot collide.
+    /// @dev Distinct hook address per profile so the runs cannot collide.
     function _hookSalt() internal pure virtual returns (uint160);
+
+    /// @dev Deploy the hook under test at `flagged`, over the address-sorted
+    ///      `regd`. A plain OrbitalHook by default; a profile may deploy a
+    ///      subclass (e.g. the FX hook) so the same handlers and invariants
+    ///      run against it.
+    function _deployHook(Currency[] memory regd, address flagged) internal virtual {
+        deployCodeTo(
+            "OrbitalHook.sol:OrbitalHook",
+            abi.encode(poolManager, permit2, regd, uint24(100), address(this)),
+            flagged
+        );
+    }
+
+    /// @dev The raw -> WAD scale the hook must hold for asset `i` (address
+    ///      order) with `dec` decimals. `10^(18-dec)` unless a profile prices it.
+    function _expectedScale(uint8, uint8 dec) internal view virtual returns (uint256) {
+        return 10 ** uint256(18 - dec);
+    }
+
+    /// @dev Handlers the fuzzer may call. A profile may append its own.
+    function _handlerSelectors() internal view virtual returns (bytes4[] memory sel) {
+        sel = new bytes4[](4);
+        sel[0] = this.h_add.selector;
+        sel[1] = this.h_swap.selector;
+        sel[2] = this.h_remove.selector;
+        sel[3] = this.h_collect.selector;
+    }
 
     function setUp() public {
         deployArtifactsAndLabel();
@@ -68,22 +94,18 @@ abstract contract SolvencyInvariantBase is BaseTest {
         for (uint256 i = 0; i < N; ++i) {
             assets[i] = Currency.wrap(address(t[i]));
             regd[i] = assets[i];
-            // Read decimals back off the token: sorting above reshuffled `t`, so it
-            // no longer lines up with the `dec` array it was built from.
-            scales[i] = 10 ** uint256(18 - t[i].decimals());
         }
 
         address flagged = address(HOOK_FLAGS ^ (_hookSalt() << 144));
-        deployCodeTo(
-            "OrbitalHook.sol:OrbitalHook",
-            abi.encode(poolManager, permit2, regd, uint24(100), address(this)),
-            flagged
-        );
+        _deployHook(regd, flagged);
         hook = OrbitalHook(flagged);
 
         // Sanity: the hook must agree with us about the scaling factors, or every
-        // assertion below is measuring the wrong thing.
+        // assertion below is measuring the wrong thing. Decimals are read back off
+        // the token: sorting above reshuffled `t`, so it no longer lines up with
+        // the `dec` array it was built from.
         for (uint8 i = 0; i < N; ++i) {
+            scales[i] = _expectedScale(i, t[i].decimals());
             assertEq(hook.scaleOf(i), scales[i], "scale mismatch between test and hook");
         }
 
@@ -106,12 +128,7 @@ abstract contract SolvencyInvariantBase is BaseTest {
         (uint256 tick0,) = hook.addLiquidity(k0, r0, _maxAmounts());
         heldTicks.push(tick0);
 
-        bytes4[] memory sel = new bytes4[](4);
-        sel[0] = this.h_add.selector;
-        sel[1] = this.h_swap.selector;
-        sel[2] = this.h_remove.selector;
-        sel[3] = this.h_collect.selector;
-        targetSelector(FuzzSelector({addr: address(this), selectors: sel}));
+        targetSelector(FuzzSelector({addr: address(this), selectors: _handlerSelectors()}));
         targetContract(address(this));
     }
 
@@ -179,14 +196,41 @@ abstract contract SolvencyInvariantBase is BaseTest {
     ///         `feesAccrued` are WAD. Comparing them directly is only valid when
     ///         `scale == 1`, so the claim balance is lifted into WAD first. This is
     ///         what makes the assertion meaningful for a 6-decimal asset.
+    ///
+    ///         `reserves` is the engine's VIRTUAL reserve vector; the part the
+    ///         pool actually owes in tokens is `reserves − virtualReserve`.
     function invariant_pool_is_solvent() public view {
         for (uint8 i = 0; i < N; ++i) {
             uint256 id = uint256(uint160(Currency.unwrap(assets[i])));
             uint256 claimRaw = IERC6909Balance(address(poolManager)).balanceOf(address(hook), id);
             uint256 claimWad = claimRaw * scales[i];
-            uint256 owedWad = hook.reserves(i) + hook.feesAccrued(i);
+            uint256 owedWad = hook.reserves(i) - hook.virtualReserve() + hook.feesAccrued(i);
             assertGe(claimWad, owedWad, "pool owes more WAD than its raw custody covers");
         }
+    }
+
+    /// @notice No asset's reserve ever falls below the virtual floor: the real
+    ///         part of every reserve stays non-negative through any sequence of
+    ///         mints, swaps (including tick crossings) and burns.
+    function invariant_reserves_cover_the_virtual_floor() public view {
+        uint256 v = hook.virtualReserve();
+        for (uint8 i = 0; i < N; ++i) {
+            assertGe(hook.reserves(i), v, "a reserve fell below the virtual floor");
+        }
+    }
+
+    /// @notice The pool's virtual reserve is exactly the sum over live ticks:
+    ///         mint adds a tick's share, burn removes the burned part, and
+    ///         nothing else touches either.
+    function invariant_virtual_reserve_is_the_sum_over_ticks() public view {
+        uint256 sum;
+        uint256 n = hook.numTicks();
+        for (uint256 t = 0; t < n; ++t) {
+            (, uint256 r,,,) = hook.ticks(t);
+            if (r == 0) assertEq(hook.tickVirtual(t), 0, "a dead tick still carries virtual reserve");
+            sum += hook.tickVirtual(t);
+        }
+        assertEq(sum, hook.virtualReserve(), "virtualReserve drifted from the per-tick sum");
     }
 
     /// @notice A payout must never be roundable up into insolvency.
@@ -198,10 +242,21 @@ abstract contract SolvencyInvariantBase is BaseTest {
         for (uint8 i = 0; i < N; ++i) {
             uint256 id = uint256(uint160(Currency.unwrap(assets[i])));
             uint256 claimRaw = IERC6909Balance(address(poolManager)).balanceOf(address(hook), id);
-            uint256 owedWad = hook.reserves(i) + hook.feesAccrued(i);
+            uint256 owedWad = hook.reserves(i) - hook.virtualReserve() + hook.feesAccrued(i);
             // Raw units needed to cover the WAD obligation, rounded up.
             uint256 neededRaw = (owedWad + scales[i] - 1) / scales[i];
             assertGe(claimRaw, neededRaw, "rounding leaked value out of the pool");
+        }
+    }
+
+    /// @notice The raw <-> WAD scale is fixed for the pool's lifetime.
+    /// @dev    Reserves, radii and fees are stored in WAD against raw custody, so
+    ///         a scale that moved after the first mint would silently
+    ///         re-denominate every stored figure. `_setScale` forbids it; this
+    ///         proves no handler sequence gets around that.
+    function invariant_scale_never_changes() public view {
+        for (uint8 i = 0; i < N; ++i) {
+            assertEq(hook.scaleOf(i), scales[i], "scale changed after liquidity existed");
         }
     }
 

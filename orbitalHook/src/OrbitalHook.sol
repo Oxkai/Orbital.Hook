@@ -93,9 +93,12 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
     Currency[] private _assets;
     mapping(Currency => uint8) private _assetIndexPlusOne;
-    /// @dev Per-asset multiplier `10^(18-decimals)` to convert raw token units to
-    ///      WAD. 1 for 18-decimal tokens; 1e12 for 6-decimal (USDC/USDT). Applied
-    ///      only at the token-transfer boundaries — the engine stays in WAD.
+    /// @dev Per-asset multiplier converting raw token units to WAD. Defaults to
+    ///      `10^(18-decimals)`: 1 for 18-decimal tokens, 1e12 for 6-decimal
+    ///      (USDC/USDT). A subclass may replace it before the first mint via
+    ///      `_setScale` to price assets in a common numeraire (see
+    ///      `OrbitalFXHook`). Applied only at the token-transfer boundaries; the
+    ///      engine stays in WAD.
     mapping(uint8 => uint256) private _scale;
 
     // ─────────────────────────────────────────────────────────────
@@ -113,6 +116,23 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     Slot0 public slot0;
 
     mapping(uint8 => uint256) public reserves; // virtual x⃗, WAD
+
+    /// @notice Per-asset VIRTUAL reserve of the whole pool, WAD: Σ over live
+    ///         ticks of `tickVirtual`. The tokens actually held for asset i are
+    ///         `reserves[i] − virtualReserve`.
+    /// @dev    CONCENTRATED LIQUIDITY (paper §4.7, §4.9). Inside a tick's band no
+    ///         reserve of that tick can fall below `xMin(r, n, k)`: its cap is
+    ///         bounded by the plane α = k, and xMin is the smallest coordinate on
+    ///         it. That part of the tick's reserves is never paid out, so the LP
+    ///         never deposits it. The engine still runs on the full (virtual)
+    ///         reserves, which is what gives a concentrated tick its depth; only
+    ///         the token boundaries (mint, burn, swap payout) see the real part.
+    ///         The pool's reserves are the sum of every tick's, each inside its
+    ///         own cap, so `reserves[i] ≥ virtualReserve` holds geometrically;
+    ///         every swap also checks it explicitly.
+    uint256 public virtualReserve;
+    /// @notice A tick's per-asset virtual reserve, WAD (see `virtualReserve`).
+    mapping(uint256 => uint256) public tickVirtual;
     mapping(uint8 => uint256) public feesAccrued; // WAD (scaled to raw on collect)
     mapping(uint8 => uint256) public feeGrowthGlobal; // WAD per unit interior rInt
 
@@ -152,6 +172,9 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     error ZeroSwapInput();
     error ZeroSwapOutput();
     error TooManyCrossings();
+    /// @notice The trade would move the last interior tick to its boundary: it
+    ///         is larger than the pool's liquidity can fill in this direction.
+    error SwapExceedsLiquidity();
     error CrossingPartialExceedsRemaining();
     error CrossingPartialExceedsOutputReserve();
     error CrossingInputUnderflow();
@@ -166,6 +189,14 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     error FeeTooLow(uint24 fee);
     error BurnBlockedByBoundaryTicks();
     error TokenTransferShortfall(Currency asset, uint256 requested, uint256 received);
+    error ScaleFrozen();
+    error ZeroScale(uint8 asset);
+    /// @notice The pool has already moved past the new tick's band, so the tick
+    ///         would start outside it (a position must begin inside its range).
+    error TickOutsideItsBand();
+    /// @notice A payout would take an asset's reserve below the pool's virtual
+    ///         reserve, i.e. pay out tokens the pool does not hold.
+    error InsufficientRealReserves(uint8 asset);
 
     event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts);
     event Burn(address indexed owner, uint256 indexed tickIdx, uint256 rWad, uint256[] amounts);
@@ -388,6 +419,8 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         // sumX/sumXSq deltas telescope over partials so a single update with
         // (amountInNet, amountOut) and pre-trade xi/xj gives the correct totals.
         _updateReserves(assetIn, assetOut, amountInNet, amountOut);
+        // The payout comes out of real tokens: never below the virtual floor.
+        if (reserves[assetOut] < virtualReserve) revert InsufficientRealReserves(assetOut);
 
         {
             (bool ok,) = TorusMath.checkInvariant(_buildTorusState());
@@ -399,6 +432,8 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         uint256 amountOutRaw = _toRawDown(assetOut, amountOut);
         if (amountOutRaw == 0) revert ZeroSwapOutput();
         if (amountOutRaw > uint256(uint128(type(int128).max))) revert SwapAmountTooLarge(amountOutRaw);
+
+        _validateSwap(assetIn, assetOut, amountInRaw, amountOutRaw);
 
         // `swapper` is the address that called `poolManager.swap` (the router, or
         // an EOA going direct). `msg.sender` here is always the PoolManager,
@@ -415,6 +450,14 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             0
         );
     }
+
+    /// @dev Extension point for subclasses that must accept or reject a trade on
+    ///      its final terms. Called exactly once per swap with
+    ///      `(assetIn, assetOut, amountInRaw, amountOutRaw)` in each token's raw
+    ///      units, after the engine has solved and booked the trade and before
+    ///      any tokens move. Reverting rejects the swap atomically, since the
+    ///      engine state written so far is rolled back with it. No-op here.
+    function _validateSwap(uint8, uint8, uint256, uint256) internal view virtual {}
 
     // ─────────────────────────────────────────────────────────────
     // Tick-crossing solver (ports of OrbitalPool.* swap internals)
@@ -464,6 +507,12 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     ///      18-decimal tokens — far above any real pool, with >1e6× int256 margin.
     uint256 internal constant MAX_RINT = 1e34;
 
+    /// @dev A tick's virtual reserve is its xMin less 1e-9 of it. xMin is exact
+    ///      geometry, but reserves carry wei-level rounding from the solver and
+    ///      from pro-rata burns; this margin, immaterial to capital efficiency,
+    ///      keeps every tick's real part strictly positive through it.
+    uint256 internal constant VIRTUAL_HAIRCUT_DIVISOR = 1e9;
+
     function _solveWithCrossings(SwapState memory state, uint256[] memory res, uint8 assetIn, uint8 assetOut)
         internal
         returns (uint256 totalOut)
@@ -478,10 +527,16 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             uint256 savedSumX = state.torus.sumX;
             uint256 savedSumXSq = state.torus.sumXSq;
 
-            uint256 candidateOut =
-                TorusMath.solveSwap(state.torus, assetIn, assetOut, state.amountInRemaining, res);
+            (uint256 candidateOut, bool found) =
+                TorusMath.solveSwapBounded(state.torus, assetIn, assetOut, state.amountInRemaining, res);
 
-            uint256 alphaNormNew = _alphaNormOf(state.torus, state.torus.sumX - candidateOut);
+            // No output in this configuration restores the invariant: the trade
+            // would drain the output asset, or the input alone overshoots the
+            // surface. Both are an input the current ticks cannot absorb, so
+            // αNorm is still rising and the next event on the path is the next
+            // interior tick reaching its boundary.
+            uint256 alphaNormNew =
+                found ? _alphaNormOf(state.torus, state.torus.sumX - candidateOut) : type(uint256).max;
 
             state.torus.sumX = savedSumX;
             state.torus.sumXSq = savedSumXSq;
@@ -489,10 +544,18 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             (bool crossed, uint256 crossIdx) = _detectCrossing(alphaNormOld, alphaNormNew);
 
             if (!crossed) {
+                if (!found) revert SwapExceedsLiquidity();
                 totalOut += candidateOut;
                 state.amountInRemaining = 0;
                 break;
             }
+
+            // Moving the last interior tick to its boundary would leave
+            // rInt = 0: every tick on the boundary, where no swap can run (not
+            // even the reverse trade that would recover them) and mint and burn
+            // are blocked. That state is terminal for the pool and its LPs, so
+            // a trade reaching it is refused instead.
+            if (ticks[crossIdx].isInterior && ticks[crossIdx].r >= state.torus.rInt) revert SwapExceedsLiquidity();
 
             (uint256 partialIn, uint256 partialOut) =
                 _tradeToXover(state, res, assetIn, assetOut, crossIdx);
@@ -681,9 +744,10 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         res[assetOut] = xj - partialOut;
 
         state.torus.sumX = state.torus.sumX + partialIn - partialOut;
+        // Add before subtracting, as in `_updateReserves`.
         state.torus.sumXSq = state.torus.sumXSq + FullMath.mulDiv(2 * xi, partialIn, WAD)
-            + FullMath.mulDiv(partialIn, partialIn, WAD) - FullMath.mulDiv(2 * xj, partialOut, WAD)
-            + FullMath.mulDiv(partialOut, partialOut, WAD);
+            + FullMath.mulDiv(partialIn, partialIn, WAD) + FullMath.mulDiv(partialOut, partialOut, WAD)
+            - FullMath.mulDiv(2 * xj, partialOut, WAD);
     }
 
     function _alphaNormOf(TorusMath.TorusState memory ts, uint256 sumX) internal pure returns (uint256) {
@@ -704,7 +768,9 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
         uint256 twoXjAmountOut = FullMath.mulDiv(2 * xjOld, amountOut, WAD);
         uint256 amountOutSq = FullMath.mulDiv(amountOut, amountOut, WAD);
 
-        slot0.sumXSq = slot0.sumXSq + addIn - twoXjAmountOut + amountOutSq;
+        // Add before subtracting: Σx² − 2·xⱼ·out + out² ≥ 0, but the running
+        // value can dip below zero if the subtraction comes first.
+        slot0.sumXSq = slot0.sumXSq + addIn + amountOutSq - twoXjAmountOut;
 
         reserves[assetIn] += amountIn;
         reserves[assetOut] -= amountOut;
@@ -841,7 +907,11 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             if (m.kWad < km || m.kWad > kM) revert KOutOfRange();
         }
 
-        amounts = _computeDepositAmounts(m.rWad);
+        // The tick's share of the (virtual) reserves, and the part of it the LP
+        // actually deposits: the share less the tick's virtual reserve.
+        uint256 virt;
+        uint256[] memory share;
+        (amounts, share, virt) = _depositAmounts(m.kWad, m.rWad);
 
         // Slippage check.
         for (uint8 i = 0; i < N; ++i) {
@@ -850,9 +920,11 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
         // Tick merge-or-create.
         tickIdx = _findOrCreateTick(m.kWad, m.rWad);
+        tickVirtual[tickIdx] = virt;
+        virtualReserve += virt;
 
-        // Update reserves, sumX, sumXSq, rInt.
-        _applyMintToTorus(amounts, m.rWad);
+        // Update reserves, sumX, sumXSq, rInt (with the full, virtual share).
+        _applyMintToTorus(share, m.rWad);
 
         // Bound total radius so the crossing-path solver coefficients stay within
         // int256 (see MAX_RINT). kBound == 0 here (mints are gated on it), so rInt
@@ -941,9 +1013,28 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     // these are applied only where real tokens cross the PoolManager.
     // ─────────────────────────────────────────────────────────────
 
-    /// @notice Per-asset multiplier `10^(18-decimals)` (1 for 18-decimal tokens).
-    function scaleOf(uint8 i) external view returns (uint256) {
+    /// @notice Per-asset raw -> WAD multiplier. `10^(18-decimals)` by default
+    ///         (1 for 18-decimal tokens); a numeraire-priced subclass folds the
+    ///         asset's price into it, so `raw * scaleOf(i)` is always the WAD
+    ///         value the engine books.
+    function scaleOf(uint8 i) public view returns (uint256) {
         return _scale[i];
+    }
+
+    /// @dev Replace an asset's raw -> WAD multiplier. Only legal before the
+    ///      pool has EVER held liquidity.
+    ///
+    ///      Reserves, tick radii and fee accumulators are all stored in WAD. The
+    ///      scale is the only link between those WAD figures and the raw tokens
+    ///      the PoolManager actually holds, so changing it on a pool with any
+    ///      history would silently re-denominate stored WAD against unchanged
+    ///      balances and break solvency. `ticks.length == 0` is the strictest
+    ///      available proof of "no history": the tick array only grows on mint
+    ///      and freed slots are recycled rather than popped.
+    function _setScale(uint8 i, uint256 s) internal {
+        if (ticks.length != 0) revert ScaleFrozen();
+        if (s == 0) revert ZeroScale(i);
+        _scale[i] = s;
     }
 
     /// @dev Raw token amount -> WAD (exact; scale is an integer multiplier).
@@ -962,6 +1053,43 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     function _toRawUp(uint8 i, uint256 wad) internal view returns (uint256) {
         uint256 s = _scale[i];
         return (wad + s - 1) / s;
+    }
+
+    /// @notice Tokens (WAD per asset) a mint of radius `rWad` at plane `kWad`
+    ///         would take right now. Reverts where the mint itself would.
+    function depositAmounts(uint256 kWad, uint256 rWad) external view returns (uint256[] memory amounts) {
+        (amounts,,) = _depositAmounts(kWad, rWad);
+    }
+
+    /// @dev The new tick's share of the virtual reserves (it joins the interior
+    ///      at the pool's current normalised position), its virtual reserve,
+    ///      and the real deposit: share − virtual, per asset.
+    function _depositAmounts(uint256 kWad, uint256 rWad)
+        internal
+        view
+        returns (uint256[] memory amounts, uint256[] memory share, uint256 virt)
+    {
+        share = _computeDepositAmounts(rWad);
+
+        // A new tick starts at the pool's position, so that position must be
+        // inside its band: αNorm ≤ kNorm, computed exactly as `_detectCrossing`
+        // will later judge the tick (kBound == 0 is guaranteed by
+        // `_computeDepositAmounts`), so a tick accepted here is one the crossing
+        // logic also sees as interior.
+        if (slot0.rInt != 0) {
+            uint256 alphaNorm = _alphaNormOf(_buildTorusState(), slot0.sumX);
+            if (alphaNorm > FullMath.mulDiv(kWad, WAD, rWad)) revert TickOutsideItsBand();
+        }
+
+        uint256 xMin = TickLib.xMin(rWad, N, kWad);
+        virt = xMin - xMin / VIRTUAL_HAIRCUT_DIVISOR;
+
+        amounts = new uint256[](N);
+        for (uint8 i = 0; i < N; ++i) {
+            // Inside the band every coordinate is ≥ xMin > virt.
+            if (share[i] < virt) revert TickOutsideItsBand();
+            amounts[i] = share[i] - virt;
+        }
     }
 
     function _computeDepositAmounts(uint256 rWad) internal view returns (uint256[] memory amounts) {
@@ -1127,7 +1255,31 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
 
         // kBound == 0 above guarantees every live tick is interior.
         TickLib.Tick storage t = ticks[b.tickIdx];
-        amounts = _computeWithdrawAmounts(b.rWad);
+        uint256[] memory share = _computeWithdrawAmounts(b.rWad);
+
+        // The burned share carries its pro-rata part of the tick's virtual
+        // reserve, which stays unpaid; the LP receives the real remainder, and
+        // `reserves − virtualReserve` falls by exactly what is paid.
+        //
+        // The virtual that REMAINS on the tick is floored, so the burned part
+        // rounds up. A tick's virtual must never exceed its proportional share
+        // of the reserves: rounded the other way, a near-total burn leaves a
+        // dust tick whose ≥ 1 wei of virtual outweighs the sub-wei reserves
+        // behind it, and the pool's reserves dip below the virtual floor. The
+        // haircut in `virt` cannot absorb that at dust sizes, where it rounds
+        // to zero. Solvency is unaffected, since the payout is derived from the
+        // same `virtOut`, and the rounding favours the pool. A full burn always
+        // pays: every coordinate of an interior tick's share is at least its
+        // virtual. Only a burn too small to pay a whole wei of real tokens on
+        // some asset is refused below.
+        uint256 tickR = t.r;
+        uint256 virtOut =
+            tickVirtual[b.tickIdx] - FullMath.mulDiv(tickVirtual[b.tickIdx], tickR - b.rWad, tickR);
+        amounts = new uint256[](N);
+        for (uint8 i = 0; i < N; ++i) {
+            if (share[i] < virtOut) revert InsufficientRealReserves(i);
+            amounts[i] = share[i] - virtOut;
+        }
 
         // Slippage check.
         for (uint8 i = 0; i < N; ++i) {
@@ -1144,7 +1296,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             uint256 totalSqRemoved;
             for (uint8 i = 0; i < N; ++i) {
                 uint256 xOld = reserves[i];
-                uint256 amt = amounts[i];
+                uint256 amt = share[i];
                 totalRemoved += amt;
                 // Δ(x²) = 2·x·amt − amt²
                 totalSqRemoved += FullMath.mulDiv(2 * xOld, amt, WAD) - FullMath.mulDiv(amt, amt, WAD);
@@ -1155,8 +1307,20 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
             slot0.sumXSq = slot0.sumXSq > totalSqRemoved ? slot0.sumXSq - totalSqRemoved : 0;
         }
 
-        t.r -= b.rWad;
+        // Shrink the tick PROPORTIONALLY: the band is encoded in kNorm = k/r, so
+        // `k` must scale with `r` or a partial burn would silently widen the
+        // band (burning half would double kNorm). The k removed rounds down, so
+        // kNorm never tightens; clamped so k stays a valid plane for the new r.
+        {
+            uint256 rLeft = tickR - b.rWad;
+            uint256 kLeft = rLeft == 0 ? 0 : t.k - FullMath.mulDiv(t.k, b.rWad, tickR);
+            uint256 kCap = TickLib.kMax(rLeft, N);
+            t.k = kLeft > kCap ? kCap : kLeft;
+            t.r = rLeft;
+        }
         t.liquidityGross -= b.rWad.toUint128();
+        tickVirtual[b.tickIdx] -= virtOut;
+        virtualReserve -= virtOut;
         pos.r -= b.rWad;
 
         if (pos.r == 0) {
