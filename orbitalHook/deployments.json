@@ -1,5 +1,5 @@
 {
-  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp), deep 4-tier seed of 12M rInt (~$24M TVL). Settlement is by authenticated Hyperlane message. REDEPLOYED 2026-09-07 after the tick-merge fix (mints are no longer merged; see OrbitalHook._findOrCreateTick). Base Sepolia was retired at the same time: the live set is Unichain, Arbitrum and Arc.",
+  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: 6M per asset (~$24M TVL per pool); stable profile 25% each at 0.9995 / 0.998 / 0.99 bands + full range. Settlement is by authenticated Hyperlane message. REDEPLOYED 2026-09-13 with virtual liquidity, the safeguarded Newton solver and the last-interior-tick guard. The Arc FX pool (5042002.fx) shares the Arc stable pool's USDC and USDT.",
   "1301": {
     "name": "Unichain Sepolia",
     "short": "Unichain",
@@ -8,33 +8,33 @@
     "poolManager": "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
     "v4Router": "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540",
     "quoter": "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472",
-    "orbitalHook": "0xA4E98Ae00FdC5F62C53496a3B207632F4727aa88",
-    "intentSettler": "0xF430302b0F8f70806feE5117f45DB019ddaA3a99",
+    "orbitalHook": "0xB9cD5ccF597e49F87C9c73eFABb5410195fE6A88",
+    "intentSettler": "0x905Ef8cb78aaDc33dC1de0f22471561f7d921E8A",
     "hyperlaneMailbox": "0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD",
     "hyperlaneDomain": 1301,
-    "deployBlock": 61913398,
+    "deployBlock": 62428261,
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     "peers": {
-      "421614": "0xD8447BeAcf4a2768C4DCDb195b8D7122809a64e6"
+      "421614": "0x050A876F5F4883ea17588077940c1E0dd4867D2B"
     },
     "assets": {
-      "USDT": {
-        "address": "0x287ca3Cc67FDE6c45717dD420146C937a93Ed237",
+      "FRAX": {
+        "address": "0x530f64feE1F4DCBd2A7c725156f53DAa8f8191Db",
         "index": 0,
+        "decimals": 18
+      },
+      "USDT": {
+        "address": "0x5F134Ec4C77A71a6a7B008e951762bf26e763B6D",
+        "index": 1,
         "decimals": 6
       },
       "DAI": {
-        "address": "0x7467369a0267505603c2D0dbfC369502508Cce75",
-        "index": 1,
-        "decimals": 18
-      },
-      "FRAX": {
-        "address": "0x90aA5b5Db105DC190dD29e01b40e75549C39C3dF",
+        "address": "0x8FE0995C389dF28f2aB910599Ff41E2F992d113f",
         "index": 2,
         "decimals": 18
       },
       "USDC": {
-        "address": "0xC09DefF23c7Ac44C1B4bfB11EF3AC7b0ec46328f",
+        "address": "0xa2d96B6101231ea3DDBc056819834293e0c5849B",
         "index": 3,
         "decimals": 6
       }
@@ -48,11 +48,11 @@
     "poolManager": "0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7",
     "v4Router": "0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E",
     "quoter": "0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90",
-    "orbitalHook": "0x9474a0Eff4d0501c472b29987925E03F69bd6a88",
-    "intentSettler": "0xE82C3dFe38bb607E5c409C2b9b361a05855d8715",
+    "orbitalHook": "0x1D922FB97c92b00706A449ba78EEFc0D3E01aa88",
+    "intentSettler": "0x71ac1F49f25a5f0Ad44e543fa4BB4e356d8252A0",
     "hyperlaneMailbox": "0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb",
     "hyperlaneDomain": 5042002,
-    "deployBlock": 60874911,
+    "deployBlock": 61854987,
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     "peers": {},
     "_arc": {
@@ -63,26 +63,73 @@
       "mainnetPath": "Arc mainnet opens 2026-09-16 with both canonical v4 and canonical Hyperlane. Re-run script/DeployArc.s.sol with V4_POOL_MANAGER and HYPERLANE_MAILBOX set to get real cross-chain with no code changes."
     },
     "assets": {
-      "DAI": {
-        "address": "0x44406ad771b05827F5fd95b002189e51EEbEDC91",
+      "USDC": {
+        "address": "0x18033E198A2b0af2AfA75aFcc520f42179955a68",
         "index": 0,
-        "decimals": 18
+        "decimals": 6
       },
       "FRAX": {
-        "address": "0x60Cb112631Ce92f9fe164878d690FAc1FD1C295d",
+        "address": "0x5A2EB33e6Ec0c8bbE9c18ED09428e4E7B5A86265",
         "index": 1,
         "decimals": 18
       },
-      "USDC": {
-        "address": "0xADdb0fcA532961745baed77B5346Aa32E4E10239",
+      "USDT": {
+        "address": "0x7d1c2f283811A0aa7D538e3C859DA8BB45330e35",
         "index": 2,
         "decimals": 6
       },
-      "USDT": {
-        "address": "0xc4EeEDB4C5e194ec422AF850B9ff60F164c8aa72",
+      "DAI": {
+        "address": "0xdA585869c1b63F20Cb54226cd99B006d90BAD784",
         "index": 3,
-        "decimals": 6
+        "decimals": 18
       }
+    },
+    "fx": {
+      "hook": "0xb7343fC8aA0Aaa583E3929B8De70D8e5751d2A88",
+      "deployBlock": 61855148,
+      "fee": 100,
+      "maxPriceAge": 108000,
+      "maxDeviationBps": 50,
+      "eurUsdFeed": "0x8a4a34d41f3234215D20bb7472C9Cf2d71D3BD24",
+      "_feed": {
+        "kind": "TestnetFxFeed",
+        "mirrors": {
+          "chainId": 1,
+          "feed": "0xb49f677943BC038e9857d61E7d053CaA2C1734C1",
+          "pair": "EUR / USD",
+          "provider": "Chainlink"
+        },
+        "note": "Chainlink has no Arc testnet feeds. This mirror copies each round of Chainlink EUR / USD on Ethereum mainnet (script/mocks/TestnetFxFeed.sol, synced by script/fx/SyncFxFeed.s.sol). Arc mainnet (5042) has Chainlink EUR / USD at 0xDd5B15443cd733D3966a50a3E48cB7DF9Fb5DE0D, the DeployArcFX default there.",
+        "maxPriceAgeNote": "30h = Chainlink 24h FX heartbeat + relay lag for the mirror hop. A direct Chainlink feed uses 25h."
+      },
+      "assets": {
+        "EURe": {
+          "address": "0x09972c389552E02747336b87c557127fA0f6A385",
+          "index": 0,
+          "decimals": 6,
+          "feed": "0x8a4a34d41f3234215D20bb7472C9Cf2d71D3BD24"
+        },
+        "USDC": {
+          "address": "0x18033E198A2b0af2AfA75aFcc520f42179955a68",
+          "index": 1,
+          "decimals": 6,
+          "feed": null
+        },
+        "EURC": {
+          "address": "0x2d59F25e42B396B25a9d4F474Ec1E230CEe02D82",
+          "index": 2,
+          "decimals": 6,
+          "feed": "0x8a4a34d41f3234215D20bb7472C9Cf2d71D3BD24"
+        },
+        "USDT": {
+          "address": "0x7d1c2f283811A0aa7D538e3C859DA8BB45330e35",
+          "index": 3,
+          "decimals": 6,
+          "feed": null
+        }
+      },
+      "_tokens": "USDC and USDT are the Arc stable pool's own contracts (shared, one USDC per chain); EURC and EURe are unique to this pool.",
+      "_ladder": "TierLadder FX profile: 25% of capital each at 0.995 / 0.99 / 0.97 bands + full range."
     }
   },
   "421614": {
@@ -93,35 +140,35 @@
     "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     "v4Router": "0xcD8D7e10A7aA794C389d56A07d85d63E28780220",
     "quoter": "0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE",
-    "orbitalHook": "0x35C9D292768779E040e296AC20cf10b9D7A22a88",
-    "intentSettler": "0xD8447BeAcf4a2768C4DCDb195b8D7122809a64e6",
+    "orbitalHook": "0x8e7BEf4320f73a39100C42325Fc426CBD1842a88",
+    "intentSettler": "0x050A876F5F4883ea17588077940c1E0dd4867D2B",
     "hyperlaneMailbox": "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8",
     "hyperlaneDomain": 421614,
-    "deployBlock": 306305946,
+    "deployBlock": 308368410,
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     "peers": {
-      "1301": "0xF430302b0F8f70806feE5117f45DB019ddaA3a99"
+      "1301": "0x905Ef8cb78aaDc33dC1de0f22471561f7d921E8A"
     },
     "assets": {
-      "USDT": {
-        "address": "0x11d99F5D06ec687704A563a425064f74F9929C97",
-        "index": 0,
-        "decimals": 6
-      },
-      "USDC": {
-        "address": "0x2E02885397e0c9E77c432C252Decc60d1af2494C",
-        "index": 1,
-        "decimals": 6
-      },
       "FRAX": {
-        "address": "0x32825BCb9E24E7CFC87c7f8956Ab833D4480A389",
-        "index": 2,
+        "address": "0x20b4287b2214bC45be698a8112D8041564E560Fc",
+        "index": 0,
         "decimals": 18
       },
       "DAI": {
-        "address": "0x3b6C33Be36B633Fe04f2A987f5BD627D55CA2734",
-        "index": 3,
+        "address": "0x7f9510069Bc2c9b0Caa2b67dA83993c023f37403",
+        "index": 1,
         "decimals": 18
+      },
+      "USDC": {
+        "address": "0x9F1D4cA186fa3fb9ED4BBA5b1E199808d73Fe14f",
+        "index": 2,
+        "decimals": 6
+      },
+      "USDT": {
+        "address": "0xF5D81CbFb68DAF9AbBc8A4056E04CC09B88E9002",
+        "index": 3,
+        "decimals": 6
       }
     }
   }

@@ -49,10 +49,6 @@ contract SimulateMultiLPScript is Script {
     uint8 internal constant N = 4;
     uint256 internal constant LP_TOKEN_BUDGET = 2_000_000 ether;
 
-    // Tick indices are deterministic: first to addLiquidity at a given k gets tickIdx=0, etc.
-    uint256 internal constant TICK_MID = 0; // Alice/Bob share this
-    uint256 internal constant TICK_WIDE = 1; // Carol's own
-
     OrbitalHook internal hook;
     IPoolManager internal poolManager;
     IUniswapV4Router04 internal swapRouter;
@@ -77,7 +73,7 @@ contract SimulateMultiLPScript is Script {
         // └──────────────────────────────────────────────────────────┘
         uint256 kMid = (TickLib.kMin(100_000 ether, N) + TickLib.kMax(100_000 ether, N)) / 2;
         _logHeader("Alice mints 100k at midpoint k");
-        _mintAs(PK_ALICE, kMid, 100_000 ether);
+        uint256 aliceTick = _mintAs(PK_ALICE, kMid, 100_000 ether);
         _logEngine();
 
         // ┌──────────────────────────────────────────────────────────┐
@@ -87,10 +83,12 @@ contract SimulateMultiLPScript is Script {
         _swapAs(PK_SWAPPER, 0, 1, 0.5 ether);
 
         // ┌──────────────────────────────────────────────────────────┐
-        // │ 3. Bob — joins Alice's tick (imbalanced-pool pro-rata)   │
+        // │ 3. Bob — same k as Alice (imbalanced-pool pro-rata)      │
         // └──────────────────────────────────────────────────────────┘
-        _logHeader("Bob mints 100k at SAME midpoint tick (merge)");
-        _mintAs(PK_BOB, kMid, 100_000 ether);
+        // Every mint gets its own tick, even at an existing k: merging
+        // positions into one tick let a later LP share an earlier LP's fees.
+        _logHeader("Bob mints 100k at the SAME midpoint k (own tick)");
+        uint256 bobTick = _mintAs(PK_BOB, kMid, 100_000 ether);
         _logEngine();
         console2.log("  tick count:", hook.numTicks());
 
@@ -105,7 +103,7 @@ contract SimulateMultiLPScript is Script {
         // └──────────────────────────────────────────────────────────┘
         uint256 kCarol = TickLib.kMax(50_000 ether, N) - 5_000 ether;
         _logHeader("Carol mints 50k at her OWN wider tick");
-        _mintAs(PK_CAROL, kCarol, 50_000 ether);
+        uint256 carolTick = _mintAs(PK_CAROL, kCarol, 50_000 ether);
         _logEngine();
         console2.log("  tick count:", hook.numTicks());
 
@@ -125,10 +123,9 @@ contract SimulateMultiLPScript is Script {
         // ┌──────────────────────────────────────────────────────────┐
         // │ 8. Alice tops up her position                            │
         // └──────────────────────────────────────────────────────────┘
-        // For tick merge to work, top-up rWad must keep the existing kWad in [kMin, kMax].
-        // Easiest path: use the same rWad as the original mint.
-        _logHeader("Alice tops up with another 100k at the same tick");
-        _mintAs(PK_ALICE, kMid, 100_000 ether);
+        // A second position at the same k: its own tick, alongside the first.
+        _logHeader("Alice adds another 100k at the same k");
+        uint256 aliceTick2 = _mintAs(PK_ALICE, kMid, 100_000 ether);
         _logEngine();
 
         // ┌──────────────────────────────────────────────────────────┐
@@ -141,23 +138,24 @@ contract SimulateMultiLPScript is Script {
         // ┌──────────────────────────────────────────────────────────┐
         // │ 10. Each LP collects their fees                          │
         // └──────────────────────────────────────────────────────────┘
-        _logHeader("Alice collects");
-        _collectAs(PK_ALICE, TICK_MID);
+        _logHeader("Alice collects (both positions)");
+        _collectAs(PK_ALICE, aliceTick);
+        _collectAs(PK_ALICE, aliceTick2);
         _logHeader("Bob collects");
-        _collectAs(PK_BOB, TICK_MID);
+        _collectAs(PK_BOB, bobTick);
         _logHeader("Carol collects");
-        _collectAs(PK_CAROL, TICK_WIDE);
+        _collectAs(PK_CAROL, carolTick);
         _logEngine();
 
         // ┌──────────────────────────────────────────────────────────┐
         // │ 11. Burns — partial and full                             │
         // └──────────────────────────────────────────────────────────┘
-        _logHeader("Alice burns 50% (100k of 200k)");
-        _burnAs(PK_ALICE, TICK_MID, 100_000 ether);
+        _logHeader("Alice burns her first position (100k of her 200k)");
+        _burnAs(PK_ALICE, aliceTick, 100_000 ether);
         _logHeader("Bob burns ALL (100k)");
-        _burnAs(PK_BOB, TICK_MID, 100_000 ether);
+        _burnAs(PK_BOB, bobTick, 100_000 ether);
         _logHeader("Carol burns half (25k of 50k)");
-        _burnAs(PK_CAROL, TICK_WIDE, 25_000 ether);
+        _burnAs(PK_CAROL, carolTick, 25_000 ether);
         _logEngine();
 
         _logHeader("FINAL HOLDINGS");
@@ -262,11 +260,12 @@ contract SimulateMultiLPScript is Script {
     // LP actions
     // ─────────────────────────────────────────────────────────────
 
-    function _mintAs(uint256 pk, uint256 kWad, uint256 rWad) internal {
+    function _mintAs(uint256 pk, uint256 kWad, uint256 rWad) internal returns (uint256 tickIdx) {
         uint256[] memory maxA = new uint256[](N);
         for (uint256 i = 0; i < N; ++i) maxA[i] = type(uint256).max;
         vm.startBroadcast(pk);
-        (uint256 tickIdx, uint256[] memory amounts) = hook.addLiquidity(kWad, rWad, maxA);
+        uint256[] memory amounts;
+        (tickIdx, amounts) = hook.addLiquidity(kWad, rWad, maxA);
         vm.stopBroadcast();
         console2.log("  tickIdx :", tickIdx);
         console2.log("  rWad    :", rWad);
@@ -356,12 +355,11 @@ contract SimulateMultiLPScript is Script {
                 MockERC20(Currency.unwrap(assets[i])).balanceOf(who)
             );
         }
-        // ERC-6909 shares
-        if (hook.balanceOf(who, TICK_MID) > 0) {
-            console2.log("    shares@tickMid :", hook.balanceOf(who, TICK_MID));
-        }
-        if (hook.balanceOf(who, TICK_WIDE) > 0) {
-            console2.log("    shares@tickWide:", hook.balanceOf(who, TICK_WIDE));
+        // ERC-6909 shares, one id per tick
+        uint256 numTicks = hook.numTicks();
+        for (uint256 t = 0; t < numTicks; ++t) {
+            uint256 shares = hook.balanceOf(who, t);
+            if (shares > 0) console2.log("    shares @tick", t, shares);
         }
     }
 }

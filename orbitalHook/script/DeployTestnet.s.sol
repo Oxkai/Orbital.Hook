@@ -15,7 +15,7 @@ import {IUniswapV4Router04} from "hookmate/interfaces/router/IUniswapV4Router04.
 import {AddressConstants} from "hookmate/constants/AddressConstants.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
-import {TickLib} from "../src/libraries/TickLib.sol";
+import {TierLadder} from "./lib/TierLadder.sol";
 import {OrbitalIntentSettler} from "../src/crosschain/OrbitalIntentSettler.sol";
 import {IMailbox} from "../src/crosschain/IHyperlane.sol";
 
@@ -27,9 +27,8 @@ import {IMailbox} from "../src/crosschain/IHyperlane.sol";
 ///          than hardcoding Unichain Sepolia
 ///        - uses REALISTIC MIXED DECIMALS (USDC/USDT 6, DAI/FRAX 18) so the hook's
 ///          `_scale` conversion path is exercised, not bypassed
-///        - seeds TIGHT depeg tiers (0.97 / 0.90). A mid-range k is nearly
-///          unconcentrated and quotes ~19bps on a 1k swap; concentrating is the
-///          entire point of the tick design, so the demo pool should show it.
+///        - seeds the shared `TierLadder`: six concentrated bands whose depth
+///          tapers away from the peg, plus a small full-range backstop
 ///        - also deploys the intent settler, so one run per chain is enough
 ///
 ///      Required env: HYPERLANE_MAILBOX
@@ -46,31 +45,6 @@ contract DeployTestnetScript is Script {
     string[4] internal NAMES = ["USD Coin", "Tether USD", "Dai Stablecoin", "Frax"];
     uint8[4] internal DECIMALS = [6, 6, 18, 18];
 
-    /// @dev Deep, tiered seed: 12M rInt across four depeg bounds.
-    ///
-    ///      At the equal-price point each asset holds r*(1 - 1/sqrt(4)) = 0.5r, so
-    ///      with N=4 the book's TVL is 2 * rInt = ~$24M. Two shallow tiers left the
-    ///      pool at $6M, which quoted far worse than the curve is capable of.
-    ///
-    ///      Bounds are graduated rather than uniform: the tight top tier carries
-    ///      normal near-peg flow (concentration is what buys the low slippage),
-    ///      while the 0.80 tier is a deliberately WIDE backstop that ordinary
-    ///      swaps can never reach. That guarantees at least one interior tick
-    ///      survives any crossing, and `kBound` can return to 0 -- otherwise a
-    ///      boundary tick would freeze mint and burn for the whole pool.
-    ///
-    ///        tier   radius        depeg bound
-    ///        0      5,000,000     0.97
-    ///        1      4,000,000     0.93
-    ///        2      2,000,000     0.88
-    ///        3      1,000,000     0.80
-    uint256[4] internal TIER_R = [
-        uint256(5_000_000 ether),
-        4_000_000 ether,
-        2_000_000 ether,
-        1_000_000 ether
-    ];
-    uint256[4] internal TIER_P = [uint256(0.97e18), 0.93e18, 0.88e18, 0.80e18];
 
     function run() external {
         address mailbox = vm.envAddress("HYPERLANE_MAILBOX");
@@ -156,15 +130,7 @@ contract DeployTestnetScript is Script {
         for (uint8 i = 0; i < N; ++i) {
             MockERC20(Currency.unwrap(assets[i])).approve(address(hook), type(uint256).max);
         }
-        uint256[] memory maxA = new uint256[](N);
-        for (uint8 i = 0; i < N; ++i) maxA[i] = type(uint256).max;
-
-        for (uint256 t = 0; t < TIER_R.length; ++t) {
-            uint256 k = TickLib.kFromDepegPrice(TIER_R[t], N, TIER_P[t]);
-            (uint256 tickIdx,) = hook.addLiquidity(k, TIER_R[t], maxA);
-            console2.log("  seeded tick", tickIdx, "r:", TIER_R[t]);
-            console2.log("    depeg bound (wad):", TIER_P[t]);
-        }
+        TierLadder.seed(hook, N, TierLadder.Profile.STABLE, TierLadder.DEFAULT_CAPITAL_PER_ASSET);
     }
 
     function _report(
@@ -186,7 +152,10 @@ contract DeployTestnetScript is Script {
         console2.log("mailbox:       ", mailbox);
         console2.log("localDomain:   ", settler.localDomain());
         console2.log("rInt:          ", rInt);
-        console2.log("sumX (TVL wad):", sumX);
+        // sumX is the engine's (virtual) total; the tokens held are that less
+        // the virtual floor on every asset.
+        console2.log("TVL (real, wad):", sumX - uint256(N) * hook.virtualReserve());
+        console2.log("sumX (virtual): ", sumX);
         console2.log("--- assets (sorted, index order) ---");
         for (uint8 i = 0; i < N; ++i) {
             address a = Currency.unwrap(assets[i]);

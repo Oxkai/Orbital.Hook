@@ -21,5 +21,9 @@ lint_on_build = false
 base_sepolia = "https://sepolia.base.org"
 arbitrum_sepolia = "https://sepolia-rollup.arbitrum.io/rpc"
 unichain_sepolia = "https://sepolia.unichain.org"
+# Ethereum Sepolia: canonical v4 core plus live Chainlink FX feeds (FX fork test).
+eth_sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
+# Ethereum mainnet: read-only source for the Arc testnet FX feed mirror.
+eth_mainnet = "https://ethereum-rpc.publicnode.com"
 # Circle Arc. Gas is USDC; fund the deployer at https://faucet.circle.com.
 arc_testnet = "https://rpc.testnet.arc.io"

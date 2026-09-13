@@ -17,7 +17,7 @@ import {V4PoolManagerDeployer} from "hookmate/artifacts/V4PoolManager.sol";
 import {V4RouterDeployer} from "hookmate/artifacts/V4Router.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
-import {TickLib} from "../src/libraries/TickLib.sol";
+import {TierLadder} from "./lib/TierLadder.sol";
 import {OrbitalIntentSettler} from "../src/crosschain/OrbitalIntentSettler.sol";
 import {IMailbox} from "../src/crosschain/IHyperlane.sol";
 import {TestnetMailbox} from "./mocks/TestnetMailbox.sol";
@@ -74,12 +74,6 @@ contract DeployArcScript is Script {
     string[4] internal SYMBOLS = ["USDC", "USDT", "DAI", "FRAX"];
     string[4] internal NAMES = ["USD Coin", "Tether USD", "Dai Stablecoin", "Frax"];
     uint8[4] internal DECIMALS = [6, 6, 18, 18];
-
-    /// @dev Identical tier ladder to `DeployTestnet.s.sol`; see that script for
-    ///      why the bounds are graduated rather than uniform. ~$24M seeded TVL.
-    uint256[4] internal TIER_R =
-        [uint256(5_000_000 ether), 4_000_000 ether, 2_000_000 ether, 1_000_000 ether];
-    uint256[4] internal TIER_P = [uint256(0.97e18), 0.93e18, 0.88e18, 0.80e18];
 
     bool internal mailboxIsShim;
 
@@ -207,15 +201,7 @@ contract DeployArcScript is Script {
         for (uint8 i = 0; i < N; ++i) {
             MockERC20(Currency.unwrap(assets[i])).approve(address(hook), type(uint256).max);
         }
-        uint256[] memory maxA = new uint256[](N);
-        for (uint8 i = 0; i < N; ++i) maxA[i] = type(uint256).max;
-
-        for (uint256 t = 0; t < TIER_R.length; ++t) {
-            uint256 k = TickLib.kFromDepegPrice(TIER_R[t], N, TIER_P[t]);
-            (uint256 tickIdx,) = hook.addLiquidity(k, TIER_R[t], maxA);
-            console2.log("  seeded tick", tickIdx, "r:", TIER_R[t]);
-            console2.log("    depeg bound (wad):", TIER_P[t]);
-        }
+        TierLadder.seed(hook, N, TierLadder.Profile.STABLE, TierLadder.DEFAULT_CAPITAL_PER_ASSET);
     }
 
     // ─────────────────────────────── report ──────────────────────────────────
@@ -239,7 +225,10 @@ contract DeployArcScript is Script {
         console2.log("mailbox:       ", mb);
         console2.log("localDomain:   ", settler.localDomain());
         console2.log("rInt:          ", rInt);
-        console2.log("sumX (TVL wad):", sumX);
+        // sumX is the engine's (virtual) total; the tokens held are that less
+        // the virtual floor on every asset.
+        console2.log("TVL (real, wad):", sumX - uint256(N) * hook.virtualReserve());
+        console2.log("sumX (virtual): ", sumX);
         console2.log("--- assets (sorted, index order) ---");
         for (uint8 i = 0; i < N; ++i) {
             address a = Currency.unwrap(assets[i]);
