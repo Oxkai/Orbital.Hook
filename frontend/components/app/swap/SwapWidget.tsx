@@ -19,6 +19,7 @@ import {
   useSwitchChain,
   useWriteContract,
   useReadContract,
+  useReadContracts,
   useWaitForTransactionReceipt,
 } from "wagmi";
 import { type Address, type Hash, type Hex, formatUnits, parseUnits, maxUint256 } from "viem";
@@ -26,11 +27,13 @@ import { color, typography } from "@/constants";
 import { ERC20_ABI, MOCK_ERC20_ABI, ROUTER_ABI, QUOTER_ABI } from "@/lib/contracts";
 import {
   DEPLOYMENTS,
-  CHAIN_IDS,
   DEFAULT_SWAP_CHAIN_ID,
   ALL_TOKENS,
   tokenByKey,
-  routeBlockedReason,
+  venuesFor,
+  POOL_TYPE_LABEL,
+  type Venue,
+  tokenRouteBlocked,
   assetOn,
   SETTLER_ABI,
   OrderStatus,
@@ -46,6 +49,8 @@ import {
   useAllowance,
 } from "@/lib/hooks/useCrossChainOrder";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
+import { PoolTypeTag } from "@/components/app/shared/PoolTypeTag";
+import { explainPoolError, FX_HOOK_ABI } from "@/lib/fx";
 
 const LBL = {
   fontFamily: typography.caption.family,
@@ -120,18 +125,13 @@ function TokenDropdown({ balances, selectedKey, excludedKey, onSelect, onClose }
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
+  // One flat list; each row names its chain. A token can trade in more than one
+  // pool on its chain (Arc's USDC is in both the stable and the FX pool); the
+  // pair picks the pool.
   const q = filter.trim().toLowerCase();
-  const groups = CHAIN_IDS.map((chainId) => ({
-    chainId,
-    dep: DEPLOYMENTS[chainId],
-    rows: ALL_TOKENS.filter(
-      (t) =>
-        t.chainId === chainId &&
-        (q === "" ||
-          t.symbol.toLowerCase().includes(q) ||
-          DEPLOYMENTS[chainId].short.toLowerCase().includes(q))
-    ),
-  })).filter((g) => g.rows.length > 0);
+  const rows = ALL_TOKENS.filter(
+    (t) => q === "" || t.symbol.toLowerCase().includes(q) || t.chainShort.toLowerCase().includes(q),
+  );
 
   return (
     <div
@@ -150,59 +150,42 @@ function TokenDropdown({ balances, selectedKey, excludedKey, onSelect, onClose }
         />
       </div>
 
-      {groups.map((g) => (
-        <div key={g.chainId} className="flex flex-col gap-px">
-          <div
-            className="flex items-center justify-between px-4 py-2"
-            style={{ backgroundColor: color.surface2 }}
+      {rows.map((t) => {
+        const isSelected = t.key === selectedKey;
+        const isExcluded = t.key === excludedKey;
+        const bal = balances[t.key] ?? 0n;
+        return (
+          <button
+            key={t.key}
+            disabled={isExcluded}
+            onClick={() => {
+              onSelect(t.key);
+              onClose();
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-(--color-surface-2) transition-colors disabled:opacity-35"
+            style={{
+              backgroundColor: isSelected ? color.surface2 : color.surface1,
+              cursor: isExcluded ? "not-allowed" : "pointer",
+            }}
           >
-            <span style={{ ...LBL, color: color.textMuted }}>{g.dep.short}</span>
-            {!g.dep.intentSettler && (
-              <span style={{ ...body("caption", color.textMuted), textTransform: "none" }}>
-                same-chain only
-              </span>
-            )}
-          </div>
+            <TokenIcon
+              symbol={t.symbol}
+              size={26}
+              chainId={t.chainId}
+              ringColor={isSelected ? color.surface2 : color.surface1}
+            />
+            <span className="flex-1 flex flex-col items-start min-w-0">
+              <span style={{ ...body("p2", color.textPrimary), fontWeight: 500 }}>{t.symbol}</span>
+              <span style={body("caption", color.textMuted)}>{t.chainShort}</span>
+            </span>
+            {t.pools.every((s) => s.type === "fx") && <PoolTypeTag type="fx" />}
+            <span style={body("caption", color.textMuted)}>{fmtAmount(bal, t.decimals)}</span>
+            {isSelected && <Check size={11} color={color.success} weight="bold" />}
+          </button>
+        );
+      })}
 
-          {g.rows.map((t) => {
-            const isSelected = t.key === selectedKey;
-            const isExcluded = t.key === excludedKey;
-            const bal = balances[t.key] ?? 0n;
-            return (
-              <button
-                key={t.key}
-                disabled={isExcluded}
-                onClick={() => {
-                  onSelect(t.key);
-                  onClose();
-                }}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-(--color-surface-2) transition-colors disabled:opacity-35"
-                style={{
-                  backgroundColor: isSelected ? color.surface2 : color.surface1,
-                  cursor: isExcluded ? "not-allowed" : "pointer",
-                }}
-              >
-                <TokenIcon
-                  symbol={t.symbol}
-                  size={26}
-                  chainId={t.chainId}
-                  ringColor={isSelected ? color.surface2 : color.surface1}
-                />
-                <span
-                  className="flex-1 text-left"
-                  style={{ ...body("p2", color.textPrimary), fontWeight: 500 }}
-                >
-                  {t.symbol}
-                </span>
-                <span style={body("caption", color.textMuted)}>{fmtAmount(bal, t.decimals)}</span>
-                {isSelected && <Check size={11} color={color.success} weight="bold" />}
-              </button>
-            );
-          })}
-        </div>
-      ))}
-
-      {groups.length === 0 && (
+      {rows.length === 0 && (
         <div className="px-4 py-6 text-center" style={{ backgroundColor: color.surface1 }}>
           <span style={body("p3", color.textMuted)}>No match</span>
         </div>
@@ -251,7 +234,7 @@ function TokenBox({
             </button>
           )}
           <span style={body("caption", color.textMuted)}>
-            {mode === "in" ? `Balance ${balanceStr}` : DEPLOYMENTS[token.chainId]?.short}
+            {mode === "in" ? `Balance ${balanceStr}` : token.chainShort}
           </span>
         </span>
       </div>
@@ -431,9 +414,13 @@ function SettingsPanel({ slippage, setSlippage, deadline, setDeadline, onClose }
 
 // ─── Info panel ──────────────────────────────────────────────────────────────
 
-function SwapInfoPanel({ tokenIn, tokenOut, numIn, amountOut, slippage, fee, isCrossChain }: {
+function SwapInfoPanel({ tokenIn, tokenOut, numIn, amountOut, slippage, fee, isCrossChain, routeLabel, oracleRate }: {
   tokenIn: TokenRow; tokenOut: TokenRow;
   numIn: number; amountOut: number; slippage: number; fee: number; isCrossChain: boolean;
+  /// Same-chain: which pool the quote came from.
+  routeLabel: string;
+  /// FX only: the live oracle rate (out per in) to compare the quote against.
+  oracleRate?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [rateFlipped, setRateFlipped] = useState(false);
@@ -464,7 +451,14 @@ function SwapInfoPanel({ tokenIn, tokenOut, numIn, amountOut, slippage, fee, isC
           label: "Min received",
           value: hasValues ? `${(amountOut * (1 - slippage / 100)).toFixed(4)} ${tokenOut.symbol}` : "—",
         },
-        { label: "Route", value: `Direct · ${DEPLOYMENTS[tokenIn.chainId]?.short}` },
+        { label: "Route", value: `Direct · ${routeLabel}` },
+        ...(oracleRate !== undefined && hasValues
+          ? [{
+              label: "Oracle rate",
+              value: `${oracleRate.toFixed(5)} ${tokenOut.symbol}`,
+              note: `${rate / oracleRate - 1 >= 0 ? "+" : ""}${((rate / oracleRate - 1) * 10_000).toFixed(1)} bps`,
+            }]
+          : []),
       ];
 
   return (
@@ -603,7 +597,7 @@ export function SwapWidget() {
   const isCrossChain = tokenIn.chainId !== tokenOut.chainId;
   const originChainId = tokenIn.chainId;
   const originDep = DEPLOYMENTS[originChainId];
-  const blockedReason = routeBlockedReason(tokenIn.chainId, tokenOut.chainId);
+  const blocked = tokenRouteBlocked(tokenIn, tokenOut);
 
   const { balances, refetch: refetchBalances, isLoading: balancesLoading } = useAllTokenBalances(address);
   const balanceReady = !!address && !balancesLoading;
@@ -640,18 +634,26 @@ export function SwapWidget() {
     : tokenIn.address;
   const isPureBridge = isCrossChain && tokenIn.symbol === tokenOut.symbol;
 
-  const quotePoolKey = useMemo(() => {
-    if (!quoteDep || !quoteInAddr || isPureBridge) return undefined;
-    if (quoteInAddr.toLowerCase() === tokenOut.address.toLowerCase()) return undefined;
+  // Candidate pools to quote. Same-chain, every pool holding both tokens is a
+  // candidate (Arc's USDC and USDT are in both its stable and FX pools): all
+  // are quoted and the best output wins. Cross-chain, the fill is a stable-pool
+  // trade on the destination chain, so that pool is the only candidate.
+  const quoteCandidates = useMemo(() => {
+    if (!quoteDep || !quoteInAddr || isPureBridge) return [];
+    if (quoteInAddr.toLowerCase() === tokenOut.address.toLowerCase()) return [];
     const zeroForOne = quoteInAddr.toLowerCase() < tokenOut.address.toLowerCase();
     const [currency0, currency1] = zeroForOne
       ? [quoteInAddr, tokenOut.address]
       : [tokenOut.address, quoteInAddr];
-    return {
-      key: { currency0, currency1, fee: 0, tickSpacing: 1, hooks: quoteDep.orbitalHook },
+    const pools: { hooks: Address; venue?: Venue }[] = isCrossChain
+      ? [{ hooks: quoteDep.orbitalHook }]
+      : venuesFor(tokenIn, tokenOut).map((venue) => ({ hooks: venue.pool, venue }));
+    return pools.map(({ hooks, venue }) => ({
+      key: { currency0, currency1, fee: 0, tickSpacing: 1, hooks },
       zeroForOne,
-    };
-  }, [quoteDep, quoteInAddr, tokenOut.address, isPureBridge]);
+      venue,
+    }));
+  }, [quoteDep, quoteInAddr, isPureBridge, isCrossChain, tokenIn, tokenOut]);
 
   // The cross-chain leg is denominated in the DESTINATION chain's copy of the
   // input token, whose decimals can differ from the origin's (Unichain is all
@@ -669,18 +671,64 @@ export function SwapWidget() {
     }
   }, [isCrossChain, amtInRaw, amountIn, tokenOut.chainId, tokenIn.symbol]);
 
-  const { data: quoteData } = useReadContract({
-    chainId: quoteChainId,
-    address: quoteDep?.quoter,
-    abi: QUOTER_ABI,
-    functionName: "quoteExactInputSingle",
-    args: quotePoolKey
-      ? [{ poolKey: quotePoolKey.key, zeroForOne: quotePoolKey.zeroForOne, exactAmount: quoteAmtInRaw, hookData: "0x" as const }]
-      : undefined,
-    query: { enabled: quoteAmtInRaw > 0n && !!quotePoolKey },
+  const quotes = useReadContracts({
+    allowFailure: true,
+    contracts: quoteCandidates.map((c) => ({
+      chainId: quoteChainId,
+      address: quoteDep!.quoter,
+      abi: QUOTER_ABI,
+      functionName: "quoteExactInputSingle" as const,
+      args: [{ poolKey: c.key, zeroForOne: c.zeroForOne, exactAmount: quoteAmtInRaw, hookData: "0x" as const }] as const,
+    })),
+    query: { enabled: quoteAmtInRaw > 0n && quoteCandidates.length > 0 },
   });
 
-  const quotedOutRaw = quoteData ? (quoteData as readonly [bigint, bigint])[0] : undefined;
+  // The candidate paying the most. Results are matched to candidates by
+  // position, so a result list from a previous set of candidates is ignored.
+  let best: { candidate: (typeof quoteCandidates)[number]; out: bigint } | undefined;
+  if (quotes.data && quotes.data.length === quoteCandidates.length) {
+    quotes.data.forEach((r, i) => {
+      if (r.status !== "success") return;
+      const out = r.result[0];
+      if (!best || out > best.out) best = { candidate: quoteCandidates[i], out };
+    });
+  }
+  const quotedOutRaw = best?.out;
+  const venue = best?.candidate.venue;
+
+  // No candidate quoted: the trade is one every pool refuses (the FX band
+  // guard, a stale oracle, too many crossings). Surface why and block the
+  // button instead of letting the user sign a transaction that must revert.
+  const quoteError = best ? undefined : quotes.data?.find((r) => r.status === "failure")?.error ?? quotes.error;
+  const quoteFailure =
+    !isCrossChain && !blocked && amtInRaw > 0n && quoteError
+      ? explainPoolError(quoteError) ?? "No quote available for this trade."
+      : undefined;
+
+  // Live oracle rate for a trade routed through an FX pool, to set the
+  // pool's quote against.
+  const fxVenue = !isCrossChain && venue?.type === "fx" ? venue : undefined;
+  const oracleReads = useReadContracts({
+    allowFailure: true,
+    contracts: fxVenue
+      ? ([
+          { chainId: tokenIn.chainId, address: fxVenue.pool, abi: FX_HOOK_ABI, functionName: "oracleScaleOf", args: [fxVenue.indexIn] },
+          { chainId: tokenIn.chainId, address: fxVenue.pool, abi: FX_HOOK_ABI, functionName: "oracleScaleOf", args: [fxVenue.indexOut] },
+        ] as const)
+      : [],
+    query: { enabled: !!fxVenue },
+  });
+  const [oracleIn, oracleOut] = oracleReads.data ?? [];
+  // oracleScaleOf is WAD per raw unit; per whole token that is scale * 10^decimals / 1e18.
+  const oracleRate =
+    fxVenue && oracleIn?.status === "success" && oracleOut?.status === "success"
+      ? (Number(oracleIn.result) * 10 ** tokenIn.decimals) / (Number(oracleOut.result) * 10 ** tokenOut.decimals)
+      : undefined;
+
+  const venueCount = quoteCandidates.length;
+  const routeLabel = venue
+    ? `${tokenIn.chainShort} ${POOL_TYPE_LABEL[venue.type]} pool${venueCount > 1 ? ` · best of ${venueCount}` : ""}`
+    : tokenIn.chainShort;
 
   // ── Cross-chain order ──
   const order = useBuildOrder({
@@ -806,7 +854,7 @@ export function SwapWidget() {
   }
 
   function handleSameChainSwap() {
-    const sameChainPoolKey = quotePoolKey;
+    const sameChainPoolKey = best?.candidate;
     if (!address || !sameChainPoolKey || !originDep || isCrossChain) return;
     const amtMin = amountOut > 0
       ? parseUnits((amountOut * (1 - slippage / 100)).toFixed(tokenOut.decimals), tokenOut.decimals)
@@ -870,8 +918,10 @@ export function SwapWidget() {
 
   const btnLabel = !isConnected
     ? "Connect Wallet"
-    : blockedReason
-    ? blockedReason
+    : blocked
+    ? blocked.reason
+    : quoteFailure
+    ? "Trade unavailable"
     : onWrongChain
     ? `Switch to ${originDep?.short}`
     : numIn <= 0
@@ -887,7 +937,7 @@ export function SwapWidget() {
     : "Swap";
 
   const btnDisabled =
-    isConnected && (!!blockedReason || (!onWrongChain && (numIn <= 0 || isInsufficient || isPending)));
+    isConnected && (!!blocked || !!quoteFailure || (!onWrongChain && (numIn <= 0 || isInsufficient || isPending)));
 
   function handleBtn() {
     if (!isConnected) {
@@ -895,7 +945,7 @@ export function SwapWidget() {
       if (connector) connect({ connector });
       return;
     }
-    if (blockedReason) return;
+    if (blocked || quoteFailure) return;
     if (onWrongChain) { switchChain({ chainId: originChainId }); return; }
     if (needsApproval) { handleApprove(); return; }
     if (isCrossChain) handleCrossChainOpen();
@@ -1002,21 +1052,28 @@ export function SwapWidget() {
         />
       </div>
 
-      {blockedReason && (
+      {blocked && (
         <div className="mt-px px-5 py-4" style={{ backgroundColor: color.surface1 }}>
           <span style={body("p3", color.warning)}>
-            {blockedReason}. Cross-chain routes exist only between chains that have an
-            intent settler deployed.
+            {blocked.reason}. {blocked.detail}
           </span>
         </div>
       )}
 
-      {!blockedReason && numIn > 0 && amountOut > 0 && (
+      {quoteFailure && (
+        <div className="mt-px px-5 py-4" style={{ backgroundColor: color.surface1 }}>
+          <span style={body("p3", color.warning)}>{quoteFailure}</span>
+        </div>
+      )}
+
+      {!blocked && !quoteFailure && numIn > 0 && amountOut > 0 && (
         <div className="mt-px">
           <SwapInfoPanel
             tokenIn={tokenIn} tokenOut={tokenOut}
             numIn={numIn} amountOut={amountOut}
             slippage={slippage} fee={100} isCrossChain={isCrossChain}
+            routeLabel={routeLabel}
+            oracleRate={oracleRate}
           />
         </div>
       )}
@@ -1027,14 +1084,14 @@ export function SwapWidget() {
         onClick={handleBtn}
         className="w-full flex items-center justify-center h-12 mt-3 hover:opacity-90 transition-opacity"
         style={{
-          backgroundColor: isInsufficient || blockedReason
+          backgroundColor: isInsufficient || blocked || quoteFailure
             ? color.surface1
             : numIn <= 0 && isConnected && !onWrongChain
             ? color.surface1
             : color.textPrimary,
           color: isInsufficient
             ? color.error
-            : blockedReason
+            : blocked || quoteFailure
             ? color.textMuted
             : numIn <= 0 && isConnected && !onWrongChain
             ? color.textMuted

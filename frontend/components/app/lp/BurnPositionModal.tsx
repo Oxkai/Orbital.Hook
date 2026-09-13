@@ -53,7 +53,7 @@ export function BurnPositionModal({ tokenId, hash, tokens, finalLiquidity, onClo
         {/* stats */}
         <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
           {[
-            { label: "Liquidity at burn", value: fmtUSD(finalLiquidity), accent: finalLiquidity > 0 ? "#E89B3A" : color.textMuted },
+            { label: "Withdrawn",         value: fmtUSD(finalLiquidity), accent: color.textPrimary },
             { label: "LP shares",         value: "Burned",               accent: accent },
           ].map(s => (
             <div key={s.label} style={{ flex: 1, padding: "10px 12px", backgroundColor: color.surface2, border: `1px solid ${color.borderSubtle}` }}>
@@ -63,18 +63,9 @@ export function BurnPositionModal({ tokenId, hash, tokens, finalLiquidity, onClo
           ))}
         </div>
 
-        {finalLiquidity > 0 && (
-          <div style={{ padding: "10px 12px", backgroundColor: `${accent}10`, border: `1px solid ${accent}30`, marginTop: 6, marginBottom: 4 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: accent, display: "inline-block", marginRight: 8 }} />
-            <span style={{ ...M, fontSize: "10px", color: color.textMuted }}>
-              Remaining liquidity ({fmtUSD(finalLiquidity)}) was forfeited. Decrease to zero before burning next time.
-            </span>
-          </div>
-        )}
-
         <div style={{ padding: "10px 0 16px" }}>
           <span style={{ ...M, fontSize: "10px", color: color.textMuted }}>
-            The position&apos;s LP shares have been burned. This action is permanent and cannot be reversed.
+            The whole position was withdrawn to your wallet and its LP shares burned. This is permanent.
           </span>
         </div>
       </div>

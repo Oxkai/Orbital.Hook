@@ -5,7 +5,7 @@ import { ChainBadge, chainPlateColor } from "@/components/app/shared/ChainBadge"
  *  32x32 discs with the glyph already on top, so they need no backing shape 
  *  unlike the @token-icons variants, which are either outline art or a knockout
  *  that has to be composited over a disc. */
-const CUSTOM_ICONS = new Set(["USDC", "USDT", "DAI", "FRAX"]);
+const CUSTOM_ICONS = new Set(["USDC", "USDT", "DAI", "FRAX", "EURC", "EURE"]);
 
 /** Brand colors, used only by the fallback badge for symbols with no SVG. */
 export const TOKEN_COLORS: Record<string, string> = {
@@ -13,6 +13,8 @@ export const TOKEN_COLORS: Record<string, string> = {
   USDT: "#26A17B",
   DAI: "#F4B731",
   FRAX: "#BFBFBF",
+  EURC: "#6E56CF",
+  EURE: "#EA6A1F",
   CRVUSD: "#FF6B35",
   USDS: "#7C5CFC",
 };

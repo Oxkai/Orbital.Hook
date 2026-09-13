@@ -1,30 +1,32 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { color, typography } from "@/constants";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useConfig, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { usePool } from "@/lib/hooks/usePool";
-import { usePositions, useTickStatus, fmtWad } from "@/lib/hooks/usePositions";
+import { usePositions, useTickStatus } from "@/lib/hooks/usePositions";
+import { fetchDepositQuote } from "@/lib/hooks/useDepositQuote";
+import { positionValueWad } from "@/lib/orbital/liquidity";
 import { useTokenBalances, useTokenAllowances } from "@/lib/hooks/useTokenBalances";
 import { fmtUSD } from "@/lib/mock/data";
-import { POOL_ADDRESSES, HOOK_ADDRESS, HOOK_LP_ABI, ERC20_ABI } from "@/lib/contracts";
-import { type Address, type Hash, maxUint256 } from "viem";
+import { HOOK_LP_ABI, ERC20_ABI } from "@/lib/contracts";
+import { DEPLOYMENTS, type PoolType } from "@/lib/crosschain";
+import { type Address, type Hash, type TransactionReceipt, maxUint256, parseAbi, parseEventLogs } from "viem";
 import { X, Circle, CurrencyDollar, Pulse, TrendUp } from "@phosphor-icons/react";
 
-const ZERO = "0x0000000000000000000000000000000000000000" as Address;
-function useAllPools(addresses: readonly Address[]) {
-  const a = usePool(addresses[0] ?? ZERO);
-  const b = usePool(addresses[1] ?? ZERO);
-  const c = usePool(addresses[2] ?? ZERO);
-  const d = usePool(addresses[3] ?? ZERO);
-  return [a, b, c, d].slice(0, addresses.length);
-}
 import { IncreaseLiquidityModal } from "@/components/app/lp/IncreaseLiquidityModal";
 import { DecreaseLiquidityModal } from "@/components/app/lp/DecreaseLiquidityModal";
 import { CollectFeesModal }       from "@/components/app/lp/CollectFeesModal";
 import { BurnPositionModal }      from "@/components/app/lp/BurnPositionModal";
 import type { TokenAmount }       from "@/components/app/lp/IncreaseLiquidityModal";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
+import { ChainBadge } from "@/components/app/shared/ChainBadge";
+import { PoolTypeTag } from "@/components/app/shared/PoolTypeTag";
+
+/// Mint event, to learn the tick (position id) a new deposit landed on.
+const MINT_EVENT = parseAbi([
+  "event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts)",
+]);
 
 const WAD = 1e18;
 
@@ -306,17 +308,28 @@ function ConfirmModal({ title, body: bodyText, confirmLabel, onConfirm, onClose,
 type ModalState = { type: "increase" } | { type: "decrease" } | { type: "collect" } | { type: "burn" } | null;
 
 function PositionRow({
-  tokenId, poolAddress, tickIndex, rWad, pool, onActionDone, onTxResult,
+  tokenId, poolAddress, chainId, poolType, tickIndex, rWad, onActionDone, onTxResult,
 }: {
-  tokenId: bigint; poolAddress: Address; tickIndex: number; rWad: bigint;
-  pool: ReturnType<typeof usePool>["pool"];
+  tokenId: bigint; poolAddress: Address; chainId: number; poolType: PoolType; tickIndex: number; rWad: bigint;
   onActionDone: () => void;
   onTxResult: (r: TxResult) => void;
 }) {
-  const { address } = useAccount();
-  const tick    = useTickStatus(poolAddress, tickIndex, !!pool);
-  const rUSD    = fmtWad(rWad);
-  const rNum    = Number(rWad) / WAD;
+  const { address, chainId: walletChainId } = useAccount();
+  const { switchChain } = useSwitchChain();
+  // Each row reads its OWN pool on its own chain. Rows of the same pool share
+  // the query, so this costs nothing over a page-level lookup.
+  const { pool, refetch: refetchPool } = usePool(poolAddress, { chainId });
+  const tick    = useTickStatus(poolAddress, tickIndex, chainId, !!pool);
+  const onChain = walletChainId === chainId;
+  const chainName = DEPLOYMENTS[chainId]?.name ?? `chain ${chainId}`;
+  const config  = useConfig();
+  // What the position is actually worth: its share of the pool's reserves less
+  // its share of the tick's virtual reserve (a concentrated band's radius is far
+  // larger than the capital behind it, so the radius is not a value).
+  const valueWad = pool
+    ? positionValueWad(pool.reservesVirtual, pool.rIntWad, tick.rWad, tick.virtualWad, rWad)
+    : 0n;
+  const valueUsd = Number(valueWad) / WAD;
 
   const [modal,       setModal]       = useState<ModalState>(null);
   const [pendingHash, setPendingHash] = useState<Hash | undefined>();
@@ -328,14 +341,14 @@ function PositionRow({
 
   const tokens     = pool?.tokens ?? [];
   const tokenAddrs = tokens.map(t => t.address as Address);
-  const { allowances, refetch: refetchAllowances } = useTokenAllowances(tokenAddrs, address, HOOK_ADDRESS);
-  const { balances } = useTokenBalances(tokenAddrs, address);
+  const { allowances, refetch: refetchAllowances } = useTokenAllowances(tokenAddrs, address, poolAddress, chainId);
+  const { balances } = useTokenBalances(tokenAddrs, address, chainId);
   // Maximum depositable USD = n * the smallest per-token balance (each token contributes equally)
   const n          = tokenAddrs.length || 1;
   const minBalance = balances.length > 0 ? Math.min(...balances) : 0;
   const walletUSD  = minBalance * n;
 
-  const { isSuccess: txDone } = useWaitForTransactionReceipt({ hash: pendingHash, query: { enabled: !!pendingHash } });
+  const { isSuccess: txDone, data: receipt } = useWaitForTransactionReceipt({ chainId, hash: pendingHash, query: { enabled: !!pendingHash } });
 
   // Build equal-split token amounts array for display (real amounts from receipt decode not available client-side)
   function splitAmounts(totalUsd: number): TokenAmount[] {
@@ -343,53 +356,74 @@ function PositionRow({
     return tokens.map(t => ({ symbol: t.symbol, color: t.color, amount: perToken }));
   }
 
-  const handleTxDone = useCallback((hash: Hash) => {
+  const handleTxDone = useCallback((hash: Hash, txReceipt: TransactionReceipt | undefined) => {
     setPendingHash(undefined);
     setModal(null);
+    refetchPool();
     onActionDone();
 
     if (pendingKind === "increase") {
-      onTxResult({ kind: "increase", hash, tokenId, amounts: splitAmounts(pendingUsd), rWadAdded: pendingUsd });
+      // Every mint opens its own tick, so the deposit is a NEW position. Report
+      // the id it actually landed on, read from the receipt's Mint event.
+      const minted = txReceipt
+        ? parseEventLogs({ abi: MINT_EVENT, logs: txReceipt.logs, eventName: "Mint" })
+            .find((l) => l.address.toLowerCase() === poolAddress.toLowerCase())?.args.tickIdx
+        : undefined;
+      onTxResult({ kind: "increase", hash, tokenId: minted ?? tokenId, amounts: splitAmounts(pendingUsd), rWadAdded: pendingUsd });
     } else if (pendingKind === "decrease") {
-      const remaining = Math.max(0, rNum - pendingUsd);
+      const remaining = Math.max(0, valueUsd - pendingUsd);
       onTxResult({ kind: "decrease", hash, tokenId, amounts: splitAmounts(pendingUsd), rWadRemoved: pendingUsd, rWadRemaining: remaining });
     } else if (pendingKind === "collect") {
       onTxResult({ kind: "collect", hash, tokenId, fees: splitAmounts(0) });
     } else if (pendingKind === "burn") {
-      onTxResult({ kind: "burn", hash, tokenId, tokens: tokens.map(t => ({ symbol: t.symbol, color: t.color, amount: 0 })), finalLiquidity: rNum });
+      onTxResult({ kind: "burn", hash, tokenId, tokens: splitAmounts(pendingUsd), finalLiquidity: pendingUsd });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onActionDone, onTxResult, pendingKind, pendingUsd, rNum, tokenId, tokens]);
+  }, [onActionDone, onTxResult, pendingKind, pendingUsd, valueUsd, tokenId, tokens, refetchPool, poolAddress]);
 
   useEffect(() => {
-    if (txDone && pendingHash) handleTxDone(pendingHash);
+    if (txDone && pendingHash) handleTxDone(pendingHash, receipt);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txDone, pendingHash]);
 
   const deadline = () => BigInt(Math.floor(Date.now() / 1000) + 600);
 
-  // maxAmounts/minAmounts arrays sized to the asset count. Per-asset deposit is
-  // always < rWad, so rWad is a safe spending ceiling; 0 is a safe withdraw floor.
-  const maxAmounts = (rWad_: bigint) => Array(n).fill(rWad_);
   const zeroFloor = () => Array(n).fill(0n);
 
-  function handleIncrease(amountStr: string) {
-    if (!address) return;
-    const usd    = parseFloat(amountStr);
-    const rWadNew = BigInt(Math.round(usd * WAD));
-    const needsApproval = tokenAddrs.findIndex((_, i) => (allowances[i] ?? 0n) < rWadNew);
+  async function handleIncrease(amountStr: string) {
+    if (!address || tick.rWad === 0n) return;
+    const usd = parseFloat(amountStr);
+    if (!(usd > 0)) return;
+    // Quote a new position at THIS position's band (its kNorm), worth `usd`.
+    const quote = await fetchDepositQuote(config, {
+      pool: poolAddress,
+      chainId,
+      n,
+      kNormWad: (tick.kWad * BigInt(WAD)) / tick.rWad,
+      valueWad: BigInt(Math.round(usd * 1e6)) * 10n ** 12n,
+    });
+    if (quote.error || quote.rWad === 0n) {
+      setModal(null);
+      onTxResult({ kind: "error", title: "Add at this band", msg: quote.error ?? "Could not price this deposit." });
+      return;
+    }
+    // Allowances are raw token units: compare with the raw deposit.
+    const needsApproval = tokenAddrs.findIndex((_, i) => (allowances[i] ?? 0n) < (quote.amountsRaw[i] ?? 0n));
     if (needsApproval >= 0) {
       writeContract(
-        { address: tokenAddrs[needsApproval], abi: ERC20_ABI, functionName: "approve", args: [HOOK_ADDRESS, maxUint256] },
+        { chainId, address: tokenAddrs[needsApproval], abi: ERC20_ABI, functionName: "approve", args: [poolAddress, maxUint256] },
         { onSuccess: () => refetchAllowances() }
       );
       return;
     }
     setPendingKind("increase");
     setPendingUsd(usd);
-    // Add to the existing tick by re-using its kWad (the hook merges by k).
+    // Deposit at this position's band (its k). Every mint gets its own tick,
+    // so this opens a NEW position at the same band rather than growing this one.
+    // Each asset may cost at most its quote plus 0.5%, should the pool move.
+    const maxAmounts = quote.amountsWad.map((a) => a + a / 200n + 1n);
     writeContract(
-      { address: HOOK_ADDRESS, abi: HOOK_LP_ABI, functionName: "addLiquidity", args: [tick.kWad, rWadNew, maxAmounts(rWadNew)] },
+      { chainId, address: poolAddress, abi: HOOK_LP_ABI, functionName: "addLiquidity", args: [quote.kWad, quote.rWad, maxAmounts] },
       {
         onSuccess: (hash) => setPendingHash(hash),
         onError: (e) => { setModal(null); onTxResult({ kind: "error", title: "Increase liquidity", msg: e.message.split("\n")[0] }); },
@@ -398,13 +432,16 @@ function PositionRow({
   }
 
   function handleDecrease(amountStr: string) {
-    if (!address) return;
+    if (!address || valueWad === 0n) return;
     const usd    = parseFloat(amountStr);
-    const rWadOut = BigInt(Math.round(usd * WAD));
+    if (!(usd > 0)) return;
+    // Withdrawals are pro-rata in shares, so remove the matching fraction.
+    const usdWad = BigInt(Math.round(usd * 1e6)) * 10n ** 12n;
+    const rWadOut = usdWad >= valueWad ? rWad : (rWad * usdWad) / valueWad;
     setPendingKind("decrease");
     setPendingUsd(usd);
     writeContract(
-      { address: HOOK_ADDRESS, abi: HOOK_LP_ABI, functionName: "removeLiquidity", args: [tokenId, rWadOut, zeroFloor()] },
+      { chainId, address: poolAddress, abi: HOOK_LP_ABI, functionName: "removeLiquidity", args: [tokenId, rWadOut, zeroFloor()] },
       {
         onSuccess: (hash) => setPendingHash(hash),
         onError: (e) => { setModal(null); onTxResult({ kind: "error", title: "Decrease liquidity", msg: e.message.split("\n")[0] }); },
@@ -417,7 +454,7 @@ function PositionRow({
     setPendingKind("collect");
     setPendingUsd(0);
     writeContract(
-      { address: HOOK_ADDRESS, abi: HOOK_LP_ABI, functionName: "collect", args: [tokenId] },
+      { chainId, address: poolAddress, abi: HOOK_LP_ABI, functionName: "collect", args: [tokenId] },
       {
         onSuccess: (hash) => setPendingHash(hash),
         onError: (e) => { setModal(null); onTxResult({ kind: "error", title: "Collect fees", msg: e.message.split("\n")[0] }); },
@@ -428,10 +465,10 @@ function PositionRow({
   function handleBurn() {
     if (!address) return;
     setPendingKind("burn");
-    setPendingUsd(rNum);
+    setPendingUsd(valueUsd);
     // "Burn" = remove the entire remaining position (the full share balance).
     writeContract(
-      { address: HOOK_ADDRESS, abi: HOOK_LP_ABI, functionName: "removeLiquidity", args: [tokenId, rWad, zeroFloor()] },
+      { chainId, address: poolAddress, abi: HOOK_LP_ABI, functionName: "removeLiquidity", args: [tokenId, rWad, zeroFloor()] },
       {
         onSuccess: (hash) => setPendingHash(hash),
         onError: (e) => { setModal(null); onTxResult({ kind: "error", title: "Burn position", msg: e.message.split("\n")[0] }); },
@@ -492,8 +529,11 @@ function PositionRow({
                   #{tokenId.toString()}
                 </span>
               </div>
-              <span style={body("caption", color.textMuted)}>
-                Tick #{tickIndex} · {pool?.tokens.length ?? 0}-asset pool
+              <span className="flex items-center gap-1.5" style={body("caption", color.textMuted)}>
+                <ChainBadge chainId={chainId} size={11} />
+                {DEPLOYMENTS[chainId]?.short ?? chainId}
+                <PoolTypeTag type={poolType} />
+                <span>· Tick #{tickIndex} · {pool?.tokens.length ?? 0}-asset pool</span>
               </span>
             </div>
           </div>
@@ -507,8 +547,8 @@ function PositionRow({
         >
           <StatItem
             icon={<CurrencyDollar size={11} weight="regular" />}
-            label="Liquidity"
-            value={rUSD}
+            label="Value"
+            value={fmtUSD(valueUsd)}
           />
           <StatItem
             icon={<Pulse size={11} weight="regular" />}
@@ -528,9 +568,17 @@ function PositionRow({
           className="flex flex-wrap gap-2 px-5 py-3"
           style={{ backgroundColor: color.surface1 }}
         >
-          {([
-            { label: "Increase", onClick: () => setModal({ type: "increase" }) },
-            { label: "Decrease", onClick: () => setModal({ type: "decrease" }), disabled: rNum <= 0 },
+          {!onChain && address ? (
+            <button
+              onClick={() => switchChain({ chainId })}
+              className="flex items-center justify-center h-9 px-4 hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: color.surface2, color: color.textPrimary, fontFamily: typography.p2.family, fontSize: typography.p2.size }}
+            >
+              Switch to {chainName} to manage
+            </button>
+          ) : ([
+            { label: "Add at this band", onClick: () => setModal({ type: "increase" }) },
+            { label: "Decrease", onClick: () => setModal({ type: "decrease" }), disabled: valueWad === 0n },
             { label: "Collect",  onClick: () => setModal({ type: "collect" }) },
             { label: "Burn",     onClick: () => setModal({ type: "burn" }), danger: true },
           ] as { label: string; onClick: () => void; disabled?: boolean; danger?: boolean }[]).map(btn => (
@@ -558,11 +606,11 @@ function PositionRow({
 
       {/* Input modals */}
       {modal?.type === "increase" && (
-        <AmountModal title={`Increase Position #${tokenId}`} maxLabel="Wallet" maxValue={walletUSD.toFixed(2)}
+        <AmountModal title={`Add at the band of position #${tokenId}`} maxLabel="Wallet" maxValue={walletUSD.toFixed(2)}
           onConfirm={handleIncrease} onClose={() => setModal(null)} isPending={isPending} />
       )}
       {modal?.type === "decrease" && (
-        <AmountModal title={`Decrease Position #${tokenId}`} maxLabel="Max" maxValue={rNum.toFixed(2)}
+        <AmountModal title={`Decrease Position #${tokenId}`} maxLabel="Max" maxValue={valueUsd.toFixed(2)}
           onConfirm={handleDecrease} onClose={() => setModal(null)} isPending={isPending} />
       )}
       {modal?.type === "collect" && (
@@ -584,25 +632,13 @@ function PositionRow({
 export default function PositionsPage() {
   const { address } = useAccount();
 
-  // Load all known pools so each position row gets the right token metadata
-  const poolHooks = useAllPools(POOL_ADDRESSES);
-  const poolMap: Record<string, ReturnType<typeof usePool>["pool"]> = Object.fromEntries(
-    POOL_ADDRESSES.map((addr, i) => [addr.toLowerCase(), poolHooks[i].pool])
-  );
-  // poolHooks is a new array each render; capture refetch fns in a ref so useCallback stays stable
-  const poolRefetchsRef = useRef(poolHooks.map(h => h.refetch));
-  poolRefetchsRef.current = poolHooks.map(h => h.refetch);
-  const refetchPools = useCallback(() => { poolRefetchsRef.current.forEach(fn => fn()); }, []);
-
   const { positions, isLoading, refetch: refetchPositions } = usePositions(address);
   const [txResult, setTxResult] = useState<TxResult | null>(null);
 
-  const totalR = positions.reduce((s, p) => s + Number(p.rWad), 0);
-
+  // Rows refresh their own pool; the page only re-reads which positions exist.
   const handleActionDone = useCallback(() => {
-    refetchPools();
     refetchPositions();
-  }, [refetchPools, refetchPositions]);
+  }, [refetchPositions]);
 
   return (
     <section className="flex-1 flex flex-col py-8 sm:py-10">
@@ -662,12 +698,14 @@ export default function PositionsPage() {
         <div className="flex flex-col gap-3">
           {positions.map(pos => (
             <PositionRow
-              key={pos.tokenId.toString()}
+              // tokenId is the tick index, unique only within a pool.
+              key={`${pos.poolAddress}-${pos.tokenId}`}
               tokenId={pos.tokenId}
               poolAddress={pos.poolAddress}
+              chainId={pos.chainId}
+              poolType={pos.poolType}
               tickIndex={pos.tickIndex}
               rWad={pos.rWad}
-              pool={poolMap[pos.poolAddress.toLowerCase()] ?? null}
               onActionDone={handleActionDone}
               onTxResult={setTxResult}
             />

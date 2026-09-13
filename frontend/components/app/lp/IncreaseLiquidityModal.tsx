@@ -17,7 +17,7 @@ export function IncreaseLiquidityModal({ tokenId, hash, amounts, rWadAdded, onCl
   const total = amounts.reduce((s, t) => s + t.amount, 0);
 
   return (
-    <ModalShell accentHex={accent} success hash={hash} label="Increase liquidity" onClose={onClose}>
+    <ModalShell accentHex={accent} success hash={hash} label="Add liquidity" onClose={onClose}>
       {/* hero */}
       <div style={{ padding: "22px 20px 16px", borderBottom: `1px solid ${color.borderSubtle}` }}>
         <div style={{ ...M, fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase" as const, color: color.textMuted, marginBottom: 6 }}>

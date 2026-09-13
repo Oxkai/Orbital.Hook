@@ -28,11 +28,21 @@ export type Pool = {
   tokens:              Token[];
   fee:                 number;
   rInt:                number;
-  reserves:            number[];  // WAD / 1e18
+  /** Tokens the pool actually holds per asset (WAD / 1e18): the engine's
+   *  reserve less the virtual part concentrated liquidity never pays out. */
+  reserves:            number[];
+  /** The engine's full (virtual) reserve per asset, WAD, for pool math. */
+  reservesVirtual:     bigint[];
+  /** Per-asset virtual reserve of the whole pool, WAD. */
+  virtualReserve:      bigint;
+  /** Interior radius, WAD (exact; `rInt` is the float view). */
+  rIntWad:             bigint;
   ticks:               Tick[];
+  /** Sum of the real reserves, in the engine's USD value units. */
   tvl:                 number;
-  volume24h:           number;
-  fees24h:             number;
+  /** USD over the last 24h; undefined until loaded (or not requested). */
+  volume24h?:          number;
+  fees24h?:            number;
   kBound:              number;
   sumX:                bigint;
   depeggedTokenIndices: number[];

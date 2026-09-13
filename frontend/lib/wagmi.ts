@@ -1,5 +1,5 @@
 import { createConfig, http, fallback, type Config } from "wagmi";
-import { defineChain } from "viem";
+import { defineChain, type Transport } from "viem";
 import { arbitrumSepolia } from "wagmi/chains";
 import { injected, coinbaseWallet } from "wagmi/connectors";
 
@@ -54,6 +54,34 @@ export const explorerTxUrl      = (hash: string)    => `${EXPLORER_BASE}/tx/${ha
 // same-chain only, since Hyperlane has no Arc testnet deployment to peer with.
 export { arbitrumSepolia };
 
+/// Sends `eth_getLogs` through `logs` and every other method through `rest`.
+///
+/// A dedicated provider's free tier is fast and not rate-limited, but may cap
+/// eth_getLogs far below what history scans need: Alchemy's free tier allows
+/// a 10-block range, while the activity feed and 24h volume read 10,000
+/// blocks at a time, which the public endpoints accept. So state reads and
+/// quotes go to the dedicated provider, and log scans to the public endpoints.
+function splitLogs(logs: Transport, rest: Transport): Transport {
+  return (params) => {
+    const logsT = logs(params);
+    const restT = rest(params);
+    return {
+      ...restT,
+      request: (args) => (args.method === "eth_getLogs" ? logsT.request(args) : restT.request(args)),
+    };
+  };
+}
+
+const ARC_PUBLIC = [http("https://rpc.testnet.arc.io"), http("https://rpc.testnet.arc.network")];
+
+/// Arc testnet: the dedicated RPC (NEXT_PUBLIC_ARC_RPC_URL) when set, with the
+/// public endpoints as fallback, and log scans always on the public endpoints.
+function arcTransport(): Transport {
+  const dedicated = process.env.NEXT_PUBLIC_ARC_RPC_URL;
+  if (!dedicated) return fallback(ARC_PUBLIC);
+  return splitLogs(fallback(ARC_PUBLIC), fallback([http(dedicated), ...ARC_PUBLIC]));
+}
+
 export function createWagmiConfig(): Config {
   const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL;
   return createConfig({
@@ -64,10 +92,7 @@ export function createWagmiConfig(): Config {
         ? fallback([http(RPC_URL), http("https://sepolia.unichain.org")])
         : http("https://sepolia.unichain.org"),
       [arbitrumSepolia.id]: http("https://sepolia-rollup.arbitrum.io/rpc"),
-      [arcTestnet.id]: fallback([
-        http("https://rpc.testnet.arc.io"),
-        http("https://rpc.testnet.arc.network"),
-      ]),
+      [arcTestnet.id]: arcTransport(),
     },
   });
 }

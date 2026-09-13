@@ -123,6 +123,19 @@ export const POOL_ABI = [
     stateMutability: "view",
   },
   { type: "function", name: "feeGrowthGlobal", inputs: [{ name: "", type: "uint8" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
+  // Concentrated liquidity: the per-asset part of `reserves` that is virtual
+  // (never paid out), pool-wide and per tick. Tokens actually held for asset i
+  // are `reserves(i) − virtualReserve()`.
+  { type: "function", name: "virtualReserve", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "tickVirtual", inputs: [{ name: "", type: "uint256" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
+  // Exact per-asset deposit (WAD) a mint of (k, r) takes right now.
+  {
+    type: "function", name: "depositAmounts",
+    inputs: [{ name: "kWad", type: "uint256" }, { name: "rWad", type: "uint256" }],
+    outputs: [{ name: "amounts", type: "uint256[]" }],
+    stateMutability: "view",
+  },
+  { type: "function", name: "scaleOf", inputs: [{ name: "i", type: "uint8" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
 ] as const;
 
 export const ERC20_ABI = [

@@ -1,13 +1,17 @@
 "use client";
 
-import { useReadContract, useReadContracts } from "wagmi";
-import { type Address } from "viem";
-import { HOOK_ADDRESS, HOOK_LP_ABI, POOL_ABI } from "@/lib/contracts";
-import { PRIMARY_CHAIN_ID } from "@/lib/crosschain";
+import { useReadContracts } from "wagmi";
+import { type Address, zeroAddress } from "viem";
+import { HOOK_LP_ABI, POOL_ABI } from "@/lib/contracts";
+import { ALL_POOLS, type PoolType } from "@/lib/crosschain";
 
 export type OnChainPosition = {
-  tokenId: bigint; // == tickIdx (ERC-6909 share id)
+  /// ERC-6909 share id, which is the tick index. Unique only WITHIN a pool:
+  /// every pool has a tick #0, so identity is (poolAddress, tokenId).
+  tokenId: bigint;
   poolAddress: Address;
+  chainId: number;
+  poolType: PoolType;
   tickIndex: number;
   kWad: bigint;
   rWad: bigint; // current ERC-6909 share balance
@@ -15,71 +19,95 @@ export type OnChainPosition = {
 
 const WAD = 1e18;
 
-// Positions are soulbound ERC-6909 shares with tokenId == tickIdx. Rather than
-// scan Mint events (the public RPC caps getLogs at 100 blocks), we read
-// the hook's tick count and check the account's share balance at each tick.
+/// The account's positions across EVERY pool, of either type.
+///
+/// Positions are soulbound ERC-6909 shares with tokenId == tickIdx. Rather than
+/// scan Mint events (public RPCs cap getLogs ranges), read each pool's tick
+/// count, then the account's share balance at every tick. Each read carries its
+/// pool's chain: reading without one queries whatever chain the wallet is on.
 export function usePositions(account: Address | undefined) {
-  const { data: numTicksData } = useReadContract({
-    address: HOOK_ADDRESS,
-    chainId: PRIMARY_CHAIN_ID,
-    abi: POOL_ABI,
-    functionName: "numTicks",
+  const counts = useReadContracts({
+    contracts: ALL_POOLS.map((p) => ({
+      address: p.address,
+      chainId: p.chainId,
+      abi: POOL_ABI,
+      functionName: "numTicks" as const,
+    })),
   });
-  const numTicks = Number(numTicksData ?? 0n);
 
-  const balanceReads = useReadContracts({
-    contracts: Array.from({ length: numTicks }, (_, i) => ({
-      address: HOOK_ADDRESS,
-      chainId: PRIMARY_CHAIN_ID,
+  // Every (pool, tick) slot that could hold a position.
+  const slots = ALL_POOLS.flatMap((pool, pi) => {
+    const r = counts.data?.[pi];
+    const n = r?.status === "success" ? Number(r.result) : 0;
+    return Array.from({ length: n }, (_, tick) => ({ pool, tick }));
+  });
+
+  const balances = useReadContracts({
+    contracts: slots.map((s) => ({
+      address: s.pool.address,
+      chainId: s.pool.chainId,
       abi: HOOK_LP_ABI,
       functionName: "balanceOf" as const,
-      args: [account ?? "0x0000000000000000000000000000000000000000", BigInt(i)] as const,
+      args: [account ?? zeroAddress, BigInt(s.tick)] as const,
     })),
-    query: { enabled: numTicks > 0 && !!account },
+    query: { enabled: slots.length > 0 && !!account },
   });
 
-  const tickReads = useReadContracts({
-    contracts: Array.from({ length: numTicks }, (_, i) => ({
-      address: HOOK_ADDRESS,
-      chainId: PRIMARY_CHAIN_ID,
+  const ticks = useReadContracts({
+    contracts: slots.map((s) => ({
+      address: s.pool.address,
+      chainId: s.pool.chainId,
       abi: POOL_ABI,
       functionName: "ticks" as const,
-      args: [BigInt(i)] as const,
+      args: [BigInt(s.tick)] as const,
     })),
-    query: { enabled: numTicks > 0 },
+    query: { enabled: slots.length > 0 },
   });
 
-  const positions: OnChainPosition[] = Array.from({ length: numTicks }, (_, i) => {
-    const bal = balanceReads.data?.[i]?.result as bigint | undefined;
-    if (!bal || bal === 0n) return null;
-    const tick = tickReads.data?.[i]?.result as readonly [bigint, bigint, boolean, bigint, bigint] | undefined;
-    return {
-      tokenId: BigInt(i),
-      poolAddress: HOOK_ADDRESS,
-      tickIndex: i,
-      kWad: tick?.[0] ?? 0n,
-      rWad: bal,
-    };
-  }).filter(Boolean) as OnChainPosition[];
+  const positions: OnChainPosition[] = slots.flatMap((s, i) => {
+    const bal = balances.data?.[i]?.result as bigint | undefined;
+    if (!bal) return [];
+    const tick = ticks.data?.[i]?.result as readonly [bigint, bigint, boolean, bigint, bigint] | undefined;
+    return [
+      {
+        tokenId: BigInt(s.tick),
+        poolAddress: s.pool.address,
+        chainId: s.pool.chainId,
+        poolType: s.pool.type,
+        tickIndex: s.tick,
+        kWad: tick?.[0] ?? 0n,
+        rWad: bal,
+      },
+    ];
+  });
 
   return {
     positions,
-    isLoading: balanceReads.isLoading || tickReads.isLoading,
+    isLoading: counts.isLoading || balances.isLoading || ticks.isLoading,
     refetch: () => {
-      balanceReads.refetch();
-      tickReads.refetch();
+      counts.refetch();
+      balances.refetch();
+      ticks.refetch();
     },
   };
 }
 
-// Read tick isInterior for a given pool + tickIndex.
-export function useTickStatus(poolAddress: Address, tickIndex: number, enabled = true) {
+/// Tick state for one position, read from the position's own chain.
+export function useTickStatus(poolAddress: Address, tickIndex: number, chainId: number, enabled = true) {
   const { data } = useReadContracts({
     contracts: [
       {
         address: poolAddress,
+        chainId,
         abi: POOL_ABI,
         functionName: "ticks" as const,
+        args: [BigInt(tickIndex)] as const,
+      },
+      {
+        address: poolAddress,
+        chainId,
+        abi: POOL_ABI,
+        functionName: "tickVirtual" as const,
         args: [BigInt(tickIndex)] as const,
       },
     ],
@@ -91,6 +119,8 @@ export function useTickStatus(poolAddress: Address, tickIndex: number, enabled =
     kWad: raw?.[0] ?? 0n,
     rWad: raw?.[1] ?? 0n,
     isInterior: raw?.[2] ?? true,
+    /** Per-asset virtual reserve of the whole tick, WAD. */
+    virtualWad: (data?.[1]?.result as bigint | undefined) ?? 0n,
   };
 }
 

@@ -5,13 +5,13 @@ import { type Address } from "viem";
 import { POOL_ABI, TOKEN_META } from "@/lib/contracts";
 import { PRIMARY_CHAIN_ID } from "@/lib/crosschain";
 import { type Pool } from "@/lib/mock/data";
-import { useVolume24h } from "@/lib/hooks/useVolume24h";
+import { usePoolVolume24h } from "@/lib/hooks/usePoolVolume24h";
 
 const WAD = 1e18;
 
-/** `withVolume` runs a log scan costing tens of requests: only the pool
- *  detail page shows the number, and enabling it everywhere starved the
- *  balance and reserve reads on the public RPC. Off by default. */
+/** `withVolume` also loads the pool's 24h swap volume: one subgraph query
+ *  where the pool is indexed, otherwise a log scan over the last day. Off by
+ *  default so pages that don't show volume don't pay for it. */
 export function usePool(
   poolAddress: Address,
   opts: { withVolume?: boolean; chainId?: number } = {}
@@ -27,6 +27,7 @@ export function usePool(
       { address: poolAddress, chainId, abi: POOL_ABI, functionName: "fee"      },
       { address: poolAddress, chainId, abi: POOL_ABI, functionName: "numTicks" },
       { address: poolAddress, chainId, abi: POOL_ABI, functionName: "slot0"    },
+      { address: poolAddress, chainId, abi: POOL_ABI, functionName: "virtualReserve" },
     ],
   });
 
@@ -34,6 +35,7 @@ export function usePool(
   const fee       = Number(step1.data?.[1]?.result ?? 0n);
   const numTicks  = Number(step1.data?.[2]?.result ?? 0n);
   const slot0     = step1.data?.[3]?.result as readonly [bigint, bigint, bigint, bigint, bigint] | undefined;
+  const virtualReserve = (step1.data?.[4]?.result as bigint | undefined) ?? 0n;
 
   const ready = n > 0 && numTicks > 0;
 
@@ -70,7 +72,9 @@ export function usePool(
     return { address: addr, symbol: meta.symbol, name: meta.name, color: meta.color, balance: 0 };
   });
 
-  const reserves = reservesBig.map(b => Number(b) / WAD);
+  // The engine quotes on the full (virtual) reserves; the tokens held are
+  // those less the virtual floor concentrated liquidity never pays out.
+  const reserves = reservesBig.map(b => Number(b > virtualReserve ? b - virtualReserve : 0n) / WAD);
   const tvl      = reserves.reduce((a, b) => a + b, 0);
 
   const ticks = ticksRaw.map(t => ({
@@ -88,7 +92,7 @@ export function usePool(
   const rInt   = Number(slot0?.[2] ?? 0n) / WAD;
   const sumX   = slot0?.[0] ?? 0n;
 
-  const { volume24h, fees24h } = useVolume24h(fee, opts.withVolume === true);
+  const { volume24h, fees24h } = usePoolVolume24h(poolAddress, fee, opts.withVolume === true);
 
   const pool: Pool | null = ready && step2.data && addressesResolved ? {
     address: poolAddress,
@@ -98,6 +102,9 @@ export function usePool(
     fee,
     rInt,
     reserves,
+    reservesVirtual: reservesBig,
+    virtualReserve,
+    rIntWad: slot0?.[2] ?? 0n,
     ticks,
     tvl,
     volume24h,

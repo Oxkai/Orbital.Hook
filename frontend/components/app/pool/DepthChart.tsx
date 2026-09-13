@@ -14,13 +14,20 @@ import { color } from "@/constants";
 
 // ── Math ──────────────────────────────────────────────────────────────────────
 
+/** Depeg price at which a band of plane constant `kNorm` (k / r) ends: the
+ *  inverse of the hook's `kFromDepegPrice`. Null for a plane past the
+ *  single-asset limit (a full-range tick), which never leaves the pool.
+ *
+ *  Near the peg the plane sits only (n-1)/2n·(1-p)² above kMin (about 1e-7
+ *  for a 0.1% band), so the peg test must be far tighter than that or narrow
+ *  bands all collapse onto $1. */
 function kNormToDepegNum(n: number, kNorm: number): number | null {
   const kMin       = Math.sqrt(n) - 1;
   const kSingleMax = Math.sqrt(n) - (n - 1) / Math.sqrt(n * (n - 1));
-  if (kNorm <= kMin + 1e-6)        return 1.0;
-  if (kNorm >= kSingleMax - 1e-6)  return null;
-  let lo = 0.0001, hi = 0.9999;
-  for (let i = 0; i < 48; i++) {
+  if (kNorm <= kMin * (1 + 1e-13)) return 1.0;
+  if (kNorm >= kSingleMax)         return null;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 64; i++) {
     const mid = (lo + hi) / 2;
     const val = Math.sqrt(n) - (mid + n - 1) / Math.sqrt(n * (mid * mid + n - 1));
     if (val < kNorm) hi = mid; else lo = mid;
@@ -28,10 +35,19 @@ function kNormToDepegNum(n: number, kNorm: number): number | null {
   return (lo + hi) / 2;
 }
 
+/** Bands holding less than this share of the depth don't set the x-axis:
+ *  a sliver of wide liquidity would otherwise stretch the axis and squeeze
+ *  every visible step against the peg. It is still drawn. */
+const FRAME_MIN_SHARE = 0.02;
+
+/** Liquidity is the ticks' radius: the depth they quote with (like Uniswap
+ *  v3's L), not dollars. A concentrated band's radius is far larger than the
+ *  capital behind it, since most of its reserves are virtual. */
 function fmtR(v: number): string {
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
-  return `$${v.toFixed(0)}`;
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
+  return v.toFixed(0);
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -50,50 +66,40 @@ const TICK_STYLE = { fontFamily: FONT, fontSize: 10, fill: color.textMuted, lett
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function DepthChart({ ticks, n, rInt, kBound, sumX }: Props) {
-  if (ticks.length === 0) return null;
+  // Each live tick and the depeg price its band ends at (0 for full range,
+  // which is active at every price).
+  const bands = ticks
+    .filter((t) => t.r > 0)
+    .map((t) => ({ r: t.r, bound: kNormToDepegNum(n, Number(t.kWad) / 1e18 / t.r) ?? 0 }));
+  const totalR = bands.reduce((s, b) => s + b.r, 0);
+  if (totalR === 0) return null;
 
-  // Per-tick info
-  const tickInfos = ticks.map((t) => {
-    const kNorm    = t.r > 0 ? (Number(t.kWad) / 1e18) / t.r : 0;
-    const depegNum = kNormToDepegNum(n, kNorm);
-    return {
-      r:          t.r,
-      depeg:      depegNum ?? 0,
-      isMulti:    depegNum === null,
-      isInterior: t.isInterior,
-    };
-  });
-
-  // Only valid ticks (depeg > 0.5) filter degenerate seed ticks with kNorm > kSingleMax
-  const validTicks = tickInfos.filter(t => t.depeg > 0.5);
-  const sorted     = [...validTicks].sort((a, b) => b.depeg - a.depeg);
-  const totalR     = validTicks.reduce((s, t) => s + t.r, 0);
-
-  // x-axis: zoom to where liquidity lives
-  const minDepeg = validTicks.length > 0 ? Math.min(...validTicks.map(t => t.depeg)) : 0.98;
-  const spread   = 1 - minDepeg;
-  const xMin     = parseFloat(Math.max(0, minDepeg - spread * 2).toFixed(4));
-  const xMax     = 1.001;
-  const step     = parseFloat(((xMax - xMin) / 5).toFixed(4));
+  // x-axis: frame the bands that carry the depth, with a small margin.
+  const framed   = bands.filter((b) => b.bound > 0 && b.r >= totalR * FRAME_MIN_SHARE);
+  const minBound = framed.length > 0 ? Math.min(...framed.map((b) => b.bound)) : 0.99;
+  const spread   = 1 - minBound;
+  const xMin     = parseFloat(Math.max(0, minBound - spread * 0.15).toFixed(4));
+  const xMax     = parseFloat((1 + spread * 0.02).toFixed(4));
+  const step     = (xMax - xMin) / 5;
   const xTicks   = Array.from({ length: 6 }, (_, i) => parseFloat((xMin + i * step).toFixed(4)));
 
-  // Build step-curve: only between xMin and xMax
-  const pts: { x: number; y: number }[] = [];
+  // Liquidity active at price p: every tick whose band reaches below p. A
+  // step down at each band's end, from the peg outward.
+  const pts: { x: number; y: number }[] = [{ x: xMax, y: totalR }];
   let cumY = totalR;
-  pts.push({ x: xMax, y: cumY });
-  for (const t of sorted) {
-    pts.push({ x: t.depeg, y: cumY });
-    cumY -= t.r;
-    pts.push({ x: t.depeg, y: Math.max(0, cumY) });
+  for (const b of [...bands].sort((a, c) => c.bound - a.bound)) {
+    if (b.bound < xMin) break;
+    pts.push({ x: b.bound, y: cumY });
+    cumY -= b.r;
+    pts.push({ x: b.bound, y: Math.max(0, cumY) });
   }
   pts.push({ x: xMin, y: Math.max(0, cumY) });
 
-  // αNorm needle position
-  const sumXf     = Number(sumX) / 1e18;
-  const kBoundf   = kBound / 1e18;
-  const alphaNorm = rInt > 0
-    ? Math.min(xMax, Math.max(xMin, (sumXf / Math.sqrt(n) - kBoundf) / rInt))
-    : xMax;
+  // Needle: the pool sits on the boundary of a band whose plane is today's
+  // αNorm, so that band's depeg price is where the pool is (the peg when
+  // balanced, moving outward as it imbalances).
+  const alphaNorm = rInt > 0 ? (Number(sumX) / 1e18 / Math.sqrt(n) - kBound / 1e18) / rInt : Math.sqrt(n) - 1;
+  const needleX   = Math.min(xMax, Math.max(xMin, kNormToDepegNum(n, alphaNorm) ?? xMin));
 
   const yMax = totalR * 1.18;
 
@@ -169,7 +175,7 @@ export function DepthChart({ ticks, n, rInt, kBound, sumX }: Props) {
 
             {/* αNorm needle */}
             <ReferenceLine
-              x={alphaNorm}
+              x={needleX}
               stroke={color.accent}
               strokeWidth={1.2}
               strokeDasharray="3 2.5"

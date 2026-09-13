@@ -14,17 +14,25 @@ import {
   StackSimple,
   Pulse,
   Circle,
+  Broadcast,
 } from "@phosphor-icons/react";
 import { color, typography } from "@/constants";
 
 import { usePool }   from "@/lib/hooks/usePool";
-import { useTransactions, type TxType } from "@/lib/hooks/useTransactions";
+import { useTransactions } from "@/lib/hooks/useTransactions";
 import { DepthChart } from "@/components/app/pool/DepthChart";
 import { fmtUSD }   from "@/lib/mock/data";
 import { type Address } from "viem";
-import { explorerTxUrl } from "@/lib/wagmi";
-import { chainIdForPool, explorerAddress } from "@/lib/crosschain";
+import { chainIdForPool, explorerAddress, poolByAddress } from "@/lib/crosschain";
+import { PoolTypeTag } from "@/components/app/shared/PoolTypeTag";
+import { FX_POOL, type FxPool } from "@/lib/fx";
+import { ageLabel, useFxRates, type FxStatus } from "@/lib/hooks/useFxRates";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
+import {
+  TransactionListHeader,
+  TransactionListNotice,
+  TransactionRow,
+} from "@/components/app/transactions/TransactionRow";
 
 const TABS = ["Overview", "Liquidity", "Transactions"] as const;
 type Tab = typeof TABS[number];
@@ -178,9 +186,73 @@ function HashValue({ value, href }: { value: string; href?: string }) {
   );
 }
 
+// ─── FX: oracle rates ─────────────────────────────────────────────────────────
+
+const FX_STATUS: Record<FxStatus, { healthy: boolean; label: string } | undefined> = {
+  live: { healthy: true, label: "Live" },
+  stale: { healthy: false, label: "Feed stale · swaps paused" },
+  paused: { healthy: false, label: "Paused by admin" },
+  loading: undefined,
+};
+
+function OracleRatesSection({ fx }: { fx: FxPool }) {
+  const { rates, status, bandBps } = useFxRates(fx);
+  const pill = FX_STATUS[status];
+
+  return (
+    <div>
+      <SectionLabel
+        meta={
+          <div className="flex items-center gap-3">
+            {bandBps !== undefined && (
+              <span style={body("caption", color.textMuted)}>band ±{(bandBps / 100).toFixed(2)}%</span>
+            )}
+            {pill && <StatusPill healthy={pill.healthy} label={pill.label} />}
+          </div>
+        }
+      >
+        Oracle Rates
+      </SectionLabel>
+      <div className="flex flex-col gap-px">
+        {rates.map((r) => (
+          <InfoRow
+            key={r.asset.address}
+            icon={<TokenIcon symbol={r.asset.symbol} size={16} />}
+            label={`${r.asset.symbol} / USD`}
+          >
+            <span style={body("p2", color.textPrimary)}>
+              {r.market !== undefined ? r.market.toFixed(5) : "…"}
+            </span>
+            <span style={{ ...body("p3", color.textMuted), minWidth: 96, textAlign: "right" }}>
+              {r.poolVsMarketBps !== undefined
+                ? `pool ${r.poolVsMarketBps >= 0 ? "+" : ""}${r.poolVsMarketBps.toFixed(1)} bps`
+                : ""}
+            </span>
+            <span style={{ ...body("p3", color.textMuted), minWidth: 64, textAlign: "right" }}>
+              {r.ageSeconds !== undefined ? `${ageLabel(r.ageSeconds)} ago` : ""}
+            </span>
+          </InfoRow>
+        ))}
+        <InfoRow icon={<Broadcast size={14} weight="regular" />} label="Source">
+          <a
+            href={fx.rateSource.href}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2.5 hover:opacity-100 opacity-80 transition-opacity"
+            style={body("p3", color.textPrimary)}
+          >
+            {fx.rateSource.label}
+            <ArrowSquareOut size={12} weight="regular" color={color.textMuted} />
+          </a>
+        </InfoRow>
+      </div>
+    </div>
+  );
+}
+
 // ─── Overview tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["pool"]> }) {
+function OverviewTab({ pool, fx }: { pool: NonNullable<ReturnType<typeof usePool>["pool"]>; fx?: FxPool }) {
   const totalReserves = pool.reserves.reduce((a, b) => a + b, 0);
   const boundaryCount = pool.ticks.filter(t => !t.isInterior).length;
   const isHealthy     = boundaryCount === 0;
@@ -240,6 +312,9 @@ function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["p
         </div>
       </div>
 
+      {/* ── Oracle rates (FX pools) ─────────────────────────────── */}
+      {fx && <OracleRatesSection fx={fx} />}
+
       {/* ── Key metrics ─────────────────────────────────────────── */}
       <div>
         <SectionLabel>Key Metrics</SectionLabel>
@@ -249,12 +324,12 @@ function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["p
           </InfoRow>
           <InfoRow icon={<TrendUp size={14} weight="regular" />} label="Volume 24H">
             <span style={body("p2", color.textPrimary)}>
-              {pool.volume24h > 0 ? fmtUSD(pool.volume24h) : "—"}
+              {pool.volume24h !== undefined ? fmtUSD(pool.volume24h) : "…"}
             </span>
           </InfoRow>
           <InfoRow icon={<Coins size={14} weight="regular" />} label="Fees 24H">
             <span style={body("p2", color.textPrimary)}>
-              {pool.fees24h > 0 ? fmtUSD(pool.fees24h) : "—"}
+              {pool.fees24h !== undefined ? fmtUSD(pool.fees24h) : "…"}
             </span>
           </InfoRow>
           <InfoRow icon={<Percent size={14} weight="regular" />} label="Fee Tier">
@@ -460,176 +535,33 @@ function LiquidityTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["
 
 // ─── Transactions tab ─────────────────────────────────────────────────────────
 
-const TYPE_COLOR: Record<TxType, string> = {
-  Swap:    "#60A5FA",
-  Add:     color.success,
-  Remove:  color.warning,
-  Collect: color.textMuted,
-};
-
-function timeAgo(unix: number): string {
-  if (!unix) return "—";
-  const diff = Math.floor(Date.now() / 1000) - unix;
-  if (diff < 60)    return `${diff}s ago`;
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
-
-function TypePill({ type }: { type: TxType }) {
-  const c = TYPE_COLOR[type];
-  return (
-    <span
-      style={{
-        fontFamily: typography.caption.family,
-        fontSize: "10px",
-        fontWeight: 500,
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-        color: c,
-        backgroundColor: `${c}1a`,
-        padding: "3px 9px",
-        borderRadius: 2,
-        display: "inline-block",
-        whiteSpace: "nowrap",
-        width: "fit-content",
-      }}
-    >
-      {type}
-    </span>
-  );
-}
-
 function TransactionsTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["pool"]> }) {
-  const { txs, isLoading, isLoadingMore, hasMore, loadMore, error } = useTransactions();
+  const { txs, isLoading, isLoadingMore, hasMoreFor, loadMore, error } = useTransactions();
+  // The feed covers every pool (and is shared with the Transactions page);
+  // this tab is this pool's history only.
+  const mine = txs.filter((t) => t.pool.toLowerCase() === pool.address.toLowerCase());
+  const hasMore = hasMoreFor(pool.address);
 
   return (
     <div>
       <SectionLabel
         meta={
           <span style={body("caption", color.textMuted)}>
-            {isLoading ? "Loading…" : `${txs.length} loaded`}
+            {isLoading ? "Loading…" : `${mine.length} loaded`}
           </span>
         }
       >
         Transaction History
       </SectionLabel>
 
+      <TransactionListHeader scope="pool" />
       <div className="flex flex-col gap-px">
-        {/* Column headers: desktop */}
-        <div
-          className="hidden sm:grid items-center px-5 py-2.5"
-          style={{
-            backgroundColor: color.surface1,
-            gridTemplateColumns: "92px 1.2fr 1fr 1fr 90px 110px",
-          }}
-        >
-          {["Type", "From", "Amount In", "Amount Out", "Time", "Tx Hash"].map(h => (
-            <span key={h} style={{ ...LBL, color: color.textMuted }}>{h}</span>
-          ))}
-        </div>
+        {isLoading && <TransactionListNotice>Scanning on-chain events…</TransactionListNotice>}
+        {error && !isLoading && <TransactionListNotice tone="warning">{error}</TransactionListNotice>}
+        {!isLoading && !error && mine.length === 0 && <TransactionListNotice>No transactions found</TransactionListNotice>}
 
-        {isLoading && (
-          <div
-            className="flex items-center justify-center py-16"
-            style={{ backgroundColor: color.surface1 }}
-          >
-            <span style={body("p3", color.textMuted)}>Scanning on-chain events…</span>
-          </div>
-        )}
-
-        {error && !isLoading && (
-          <div
-            className="flex items-center justify-center py-16"
-            style={{ backgroundColor: color.surface1 }}
-          >
-            <span style={body("p3", color.warning)}>{error}</span>
-          </div>
-        )}
-
-        {!isLoading && !error && txs.length === 0 && (
-          <div
-            className="flex items-center justify-center py-16"
-            style={{ backgroundColor: color.surface1 }}
-          >
-            <span style={body("p3", color.textMuted)}>No transactions found</span>
-          </div>
-        )}
-
-        {txs.map((tx, i) => (
-          <div
-            key={tx.hash + i}
-            className="hover:bg-(--color-surface-2) transition-colors"
-            style={{ backgroundColor: color.surface1 }}
-          >
-            {/* Desktop row */}
-            <div
-              className="hidden sm:grid items-center px-5 py-3"
-              style={{ gridTemplateColumns: "92px 1.2fr 1fr 1fr 90px 110px" }}
-            >
-              <TypePill type={tx.type} />
-              <span style={{ ...body("p3", color.textSecondary), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {tx.actor.slice(0, 8)}…{tx.actor.slice(-4)}
-              </span>
-              <span style={{ ...body("p3", color.textPrimary), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {tx.amountIn}
-              </span>
-              <span style={{ ...body("p3", tx.amountOut ? color.success : color.textMuted), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {tx.amountOut || "—"}
-              </span>
-              <span
-                style={body("caption", color.textMuted)}
-                title={tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : ""}
-                suppressHydrationWarning
-              >
-                {timeAgo(tx.timestamp)}
-              </span>
-              <a
-                href={explorerTxUrl(tx.hash)}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 hover:opacity-100 opacity-70 transition-opacity"
-                style={body("caption", color.textMuted)}
-              >
-                {tx.hash.slice(0, 10)}…
-                <ArrowSquareOut size={11} weight="regular" />
-              </a>
-            </div>
-
-            {/* Mobile card */}
-            <div className="sm:hidden px-5 py-4 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <TypePill type={tx.type} />
-                <div className="flex items-center gap-3">
-                  <span style={body("caption", color.textMuted)} suppressHydrationWarning>
-                    {timeAgo(tx.timestamp)}
-                  </span>
-                  <a
-                    href={explorerTxUrl(tx.hash)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1"
-                    style={body("caption", color.textMuted)}
-                  >
-                    {tx.hash.slice(0, 8)}…
-                    <ArrowSquareOut size={11} weight="regular" />
-                  </a>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span style={body("p2", color.textPrimary)}>{tx.amountIn}</span>
-                {tx.amountOut && (
-                  <>
-                    <span style={body("caption", color.textMuted)}>→</span>
-                    <span style={body("p2", color.success)}>{tx.amountOut}</span>
-                  </>
-                )}
-              </div>
-              <span style={body("caption", color.textMuted)}>
-                From {tx.actor.slice(0, 8)}…{tx.actor.slice(-4)}
-              </span>
-            </div>
-          </div>
+        {mine.map((tx) => (
+          <TransactionRow key={`${tx.chainId}:${tx.eventId}`} tx={tx} scope="pool" />
         ))}
 
         {!isLoading && (hasMore || isLoadingMore) && (
@@ -655,7 +587,7 @@ function TransactionsTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool
           </div>
         )}
 
-        {!isLoading && !hasMore && txs.length > 0 && (
+        {!isLoading && !hasMore && mine.length > 0 && (
           <div
             className="flex items-center justify-center py-4"
             style={{ backgroundColor: color.surface1 }}
@@ -681,6 +613,8 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
   // the registry. Without this every non-primary pool (Base, Arbitrum, Arc)
   // would be read off the Unichain RPC and render as an empty pool.
   const poolChainId = chainIdForPool(poolAddr);
+  const poolType = poolByAddress(poolAddr)?.type ?? "stable";
+  const fxPool = FX_POOL && FX_POOL.hook.toLowerCase() === poolAddr.toLowerCase() ? FX_POOL : undefined;
   const { pool, isLoading } = usePool(poolAddr as Address, { withVolume: true, chainId: poolChainId });
 
   const pairLabel = pool ? pool.tokens.map(t => t.symbol).join(" / ") : "Pool";
@@ -706,6 +640,7 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
               </h1>
               {pool && (
                 <div className="flex items-center gap-2.5 flex-wrap">
+                  <PoolTypeTag type={poolType} />
                   <a
                     href={explorerAddress(poolChainId, poolAddr)}
                     target="_blank"
@@ -814,7 +749,7 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
               <span style={body("caption", color.textMuted)}>{poolAddr}</span>
             </div>
           )}
-          {pool && activeTab === "Overview"      && <OverviewTab      pool={pool} />}
+          {pool && activeTab === "Overview"      && <OverviewTab      pool={pool} fx={fxPool} />}
           {pool && activeTab === "Liquidity"     && <LiquidityTab     pool={pool} />}
           {pool && activeTab === "Transactions"  && <TransactionsTab  pool={pool} />}
         </div>
