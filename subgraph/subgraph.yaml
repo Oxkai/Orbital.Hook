@@ -11,8 +11,8 @@ dataSources:
     network: arbitrum-sepolia
     source:
       abi: OrbitalHook
-      address: "0x35C9D292768779E040e296AC20cf10b9D7A22a88"
-      startBlock: 306305946
+      address: "0x8e7BEf4320f73a39100C42325Fc426CBD1842a88"
+      startBlock: 308368410
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9

@@ -83,6 +83,7 @@ function loadPool(addr: Address, event: ethereum.Event): Pool {
   pool.rInt = ZERO;
   pool.kBound = ZERO;
   pool.sBound = ZERO;
+  pool.virtualReserveWad = ZERO;
   pool.tickCount = 0;
   pool.interiorTickCount = 0;
   pool.frozen = false;
@@ -113,6 +114,7 @@ function loadPool(addr: Address, event: ethereum.Event): Pool {
     asset.scale = sc.reverted ? ONE : sc.value;
 
     asset.reserveWad = ZERO;
+    asset.realReserveWad = ZERO;
     asset.feesAccruedWad = ZERO;
     asset.save();
   }
@@ -145,11 +147,19 @@ function refreshState(pool: Pool, event: ethereum.Event): BigInt | null {
     pool.frozen = s.value.value3.notEqual(ZERO);
   }
 
+  let v = hook.try_virtualReserve();
+  if (!v.reverted) pool.virtualReserveWad = v.value;
+
   for (let i = 0; i < pool.assetCount; i++) {
     let asset = Asset.load(pool.id.toHexString() + "-" + i.toString());
     if (asset == null) continue;
     let r = hook.try_reserves(i);
     if (!r.reverted) asset.reserveWad = r.value;
+    // The hook guarantees reserves never fall below the virtual floor; the
+    // guard only keeps a failed read from underflowing.
+    asset.realReserveWad = asset.reserveWad.gt(pool.virtualReserveWad)
+      ? asset.reserveWad.minus(pool.virtualReserveWad)
+      : ZERO;
     let f = hook.try_feesAccrued(i);
     if (!f.reverted) asset.feesAccruedWad = f.value;
     asset.save();

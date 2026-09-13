@@ -47,6 +47,13 @@ type Pool @entity(immutable: false) {
   """
   frozen: Boolean!
 
+  """
+  Per-asset virtual reserve: the part of every asset's engine reserve that
+  concentrated ticks quote on but never deposited. TVL is the sum of the
+  assets' `realReserveWad`, not their `reserveWad`.
+  """
+  virtualReserveWad: BigInt!
+
   "Cumulative counters."
   swapCount: BigInt!
   crossCount: BigInt!
@@ -80,7 +87,10 @@ type Asset @entity(immutable: false) {
   decimals: Int!
   "10^(18-decimals), the hook's own WAD conversion factor."
   scale: BigInt!
+  "The engine's reserve, including the virtual floor concentrated liquidity never deposits."
   reserveWad: BigInt!
+  "Tokens the pool actually holds: `reserveWad` less the pool's `virtualReserveWad`."
+  realReserveWad: BigInt!
   feesAccruedWad: BigInt!
 }
 
