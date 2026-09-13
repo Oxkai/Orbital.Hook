@@ -13,7 +13,7 @@ This is written from the perspective of a hook that fights the framework in an u
 
 ## What worked well
 
-**`BeforeSwapDelta` is the right primitive for curve replacement.** Returning a delta from `_beforeSwap` and having `PoolManager` settle it means a hook can own the entire pricing decision without ever holding user funds. Custody stays in the `PoolManager` and the hook holds only matching ERC-6909 claims. That separation is the single feature that makes this project possible on v4 and impossible on v3. ([`OrbitalHook.sol:343-418`](src/OrbitalHook.sol#L343-L418))
+**`BeforeSwapDelta` is the right primitive for curve replacement.** Returning a delta from `_beforeSwap` and having `PoolManager` settle it means a hook can own the entire pricing decision without ever holding user funds. Custody stays in the `PoolManager` and the hook holds only matching ERC-6909 claims. That separation is the single feature that makes this project possible on v4 and impossible on v3. ([`OrbitalHook.sol:370-452`](src/OrbitalHook.sol#L370-L452))
 
 **Flag-encoded hook addresses are a good design, and `HookMiner` makes them painless.** Permissions being verifiable from the address alone removes a whole class of trust question. Mining took seconds in practice.
 
@@ -45,8 +45,8 @@ Orbital charges its own fee inside the engine. Setting a non-zero `lpFee` on the
 
 Orbital is one N-asset book, but v4 models everything as pairs, so we register `N(N-1)/2` pools that all point at the same hook and share one state. This works, but every pool-level abstraction fights it:
 
-- `_beforeInitialize` has to validate that each incoming `PoolKey` is a legal pair from the registered asset set. ([`OrbitalHook.sol:319`](src/OrbitalHook.sol#L319))
-- Liquidity has to be blocked at the pool level entirely (`_beforeAddLiquidity` / `_beforeRemoveLiquidity` revert) because LPing happens against the *engine*, not any single pair. ([`OrbitalHook.sol:325-341`](src/OrbitalHook.sol#L325-L341))
+- `_beforeInitialize` has to validate that each incoming `PoolKey` is a legal pair from the registered asset set. ([`OrbitalHook.sol:346`](src/OrbitalHook.sol#L346))
+- Liquidity has to be blocked at the pool level entirely (`_beforeAddLiquidity` / `_beforeRemoveLiquidity` revert) because LPing happens against the *engine*, not any single pair. ([`OrbitalHook.sol:352-368`](src/OrbitalHook.sol#L352-L368))
 - There is no way to express "these six pools are one book" to any downstream consumer. Routers, the API, and analytics all see six unrelated pairs, and TVL is either sextuple-counted or attributed arbitrarily.
 
 **Ask:** this is the deepest structural gap for multi-asset hooks. Even a purely advisory interface (`IMultiPoolHook.relatedPools(PoolId)`) that routers and indexers could opt into would let a shared-book hook describe itself honestly.
