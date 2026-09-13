@@ -3,11 +3,10 @@
 An MCP server that exposes the [Orbital subgraph](../subgraph) to AI environments —
 Claude, Cursor, ChatGPT — as reusable tooling rather than a one-off script.
 
-Covers three deployments of the [Orbital Hook](../orbitalHook): Unichain Sepolia,
-Arbitrum Sepolia, and **Circle's Arc**. Unichain and Arc are indexed and live;
-Arbitrum's subgraph is built and verified but not yet deployed (Subgraph Studio caps
-free accounts at three), so it is configured but unreachable until then — which is
-exactly the partial-availability case the fan-out is designed to survive.
+Covers the stable pool on each of the three deployments of the [Orbital Hook](../orbitalHook):
+Unichain Sepolia, Arbitrum Sepolia and **Circle's Arc**, all indexed and live on
+subgraph `v0.2.0`. Each chain is queried independently, so one unreachable endpoint
+degrades an answer instead of failing it. (The FX pool on Arc is not indexed.)
 
 ---
 
@@ -37,7 +36,7 @@ anticipate.
 
 | Tool | Answers |
 |---|---|
-| `orbital_book_health` | Is any pool frozen? TVL, interior tick count, volume, fees. Start here. |
+| `orbital_book_health` | Is any pool frozen? TVL (tokens held, not the engine's virtual total), interior tick count, volume, fees. Start here. |
 | `orbital_ticks_at_risk` | Which tick crosses first, weighted by how much liquidity leaves with it |
 | `orbital_freeze_risk` | Could this pool stop accepting liquidity, with direction over recent snapshots |
 | `orbital_slippage_report` | Realised slippage in bps, measured against 1:1 |
@@ -100,9 +99,9 @@ npm run build
 ```
 
 ```
-ORBITAL_SUBGRAPH_ARC=https://api.studio.thegraph.com/query/107768/orbital-arc/v0.1.0
-ORBITAL_SUBGRAPH_UNICHAIN=https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.1.0
-ORBITAL_SUBGRAPH_ARBITRUM=https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.1.0   # not yet deployed
+ORBITAL_SUBGRAPH_ARC=https://api.studio.thegraph.com/query/107768/orbital-arc/v0.2.0
+ORBITAL_SUBGRAPH_UNICHAIN=https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.2.0
+ORBITAL_SUBGRAPH_ARBITRUM=https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.2.0
 ```
 
 Any subset works. An unreachable chain degrades to a partial answer — reporting
@@ -116,7 +115,7 @@ the whole call.
       "command": "node",
       "args": ["/absolute/path/to/orbital-mcp/dist/index.js"],
       "env": {
-        "ORBITAL_SUBGRAPH_ARC": "https://api.studio.thegraph.com/query/107768/orbital-arc/v0.1.0"
+        "ORBITAL_SUBGRAPH_ARC": "https://api.studio.thegraph.com/query/107768/orbital-arc/v0.2.0"
       }
     }
   }

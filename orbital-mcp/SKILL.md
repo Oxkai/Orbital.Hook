@@ -78,9 +78,9 @@ npm install && npm run build
 Point it at the subgraphs:
 
 ```
-ORBITAL_SUBGRAPH_ARC=https://api.studio.thegraph.com/query/107768/orbital-arc/v0.1.0
-ORBITAL_SUBGRAPH_UNICHAIN=https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.1.0
-ORBITAL_SUBGRAPH_ARBITRUM=https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.1.0   # not yet deployed
+ORBITAL_SUBGRAPH_ARC=https://api.studio.thegraph.com/query/107768/orbital-arc/v0.2.0
+ORBITAL_SUBGRAPH_UNICHAIN=https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.2.0
+ORBITAL_SUBGRAPH_ARBITRUM=https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.2.0
 ```
 
 Any subset works — `orbital_networks` reports what is configured, and an unreachable
@@ -94,7 +94,7 @@ MCP client config:
     "orbital": {
       "command": "node",
       "args": ["/absolute/path/to/orbital-mcp/dist/index.js"],
-      "env": { "ORBITAL_SUBGRAPH_ARC": "https://api.studio.thegraph.com/query/107768/orbital-arc/v0.1.0" }
+      "env": { "ORBITAL_SUBGRAPH_ARC": "https://api.studio.thegraph.com/query/107768/orbital-arc/v0.2.0" }
     }
   }
 }

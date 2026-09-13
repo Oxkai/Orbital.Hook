@@ -4,18 +4,16 @@ Indexes the [Orbital Hook](../orbitalHook) across **three chains**, including Ci
 
 | Network | graph-cli name | chainId | Hook | Subgraph |
 |---|---|---|---|---|
-| Unichain Sepolia | `unichain-testnet` | 1301 | `0xA4E98Ae0…27aa88` | live, `v0.1.0` |
-| **Arc Testnet** | `arc-testnet` | 5042002 | `0x9474a0Ef…bd6a88` | live, `v0.1.0` |
-| Arbitrum Sepolia | `arbitrum-sepolia` | 421614 | `0x35C9D292…7A22a88` | built, deploy pending |
+| Unichain Sepolia | `unichain-testnet` | 1301 | `0xB9cD5ccF…fE6A88` | live, `v0.2.0` |
+| **Arc Testnet** | `arc-testnet` | 5042002 | `0x1D922FB9…01aa88` | live, `v0.2.0` |
+| Arbitrum Sepolia | `arbitrum-sepolia` | 421614 | `0x8e7BEf43…842a88` | live, `v0.2.0` |
 
 All three are supported by The Graph, confirmed against its networks registry: Arc
 offers `subgraphs` only, the other two also have `firehose` and `substreams`.
 
-Base Sepolia was retired on 2026-09-07 with the tick-merge fix; its contract still
-runs the pre-fix code. Arbitrum is built and verified but not yet deployed, because
-Subgraph Studio caps free accounts at **3 deployed subgraphs** and the retired
-`orbital-base` still holds the third slot. Deleting that subgraph in Studio (archiving
-a version is not enough) frees it, after which the deploy command below just works.
+Each indexes that chain's stable pool. The FX pool on Arc is not indexed; the
+frontend reads it over RPC. Base Sepolia was retired on 2026-09-07 with the
+tick-merge fix and is no longer indexed.
 
 ---
 
@@ -63,11 +61,11 @@ Create **one subgraph per network** (they are separate indexes) in the Studio UI
 then:
 
 ```bash
-npx graph auth <DEPLOY_KEY>
+npx graph auth <DEPLOY_KEY>      # or pass --deploy-key to each deploy
 
-npx graph deploy orbital-arc       --network arc-testnet       --version-label v0.1.0
-npx graph deploy orbital-unichain  --network unichain-testnet  --version-label v0.1.0
-npx graph deploy orbital-arbitrum  --network arbitrum-sepolia  --version-label v0.1.0
+npx graph deploy orbital-arc       --network arc-testnet       --version-label v0.2.0
+npx graph deploy orbital-unichain  --network unichain-testnet  --version-label v0.2.0
+npx graph deploy orbital-arbitrum  --network arbitrum-sepolia  --version-label v0.2.0
 ```
 
 ---
@@ -82,13 +80,19 @@ npx graph deploy orbital-arbitrum  --network arbitrum-sepolia  --version-label v
     network
     frozen                 # engine-wide: mint and burn are blocked while true
     rInt
+    virtualReserveWad      # per-asset virtual floor of the concentrated ticks
     interiorTickCount
     tickCount
     swapCount
     crossCount
+    assets { symbol reserveWad realReserveWad }
   }
 }
 ```
+
+TVL is the sum of `realReserveWad`, the tokens the pool holds. `reserveWad` is
+the engine's reserve, which includes the virtual floor concentrated bands quote
+on but never deposit, and is many times larger.
 
 **Which tick is closest to exiting**
 
@@ -153,8 +157,8 @@ slippage. This is the number the design exists to shrink.
 ## Gotchas
 
 **Asset indices are per chain.** The hook sorts its basket ascending by address,
-and addresses are unrelated across chains, so USDC is index 2 on Arc and index 0
-on Unichain. Events carry the **index**, never the symbol. Always resolve through
+and addresses are unrelated across chains, so USDC is index 0 on Arc, 3 on
+Unichain and 2 on Arbitrum. Events carry the **index**, never the symbol. Always resolve through
 `Asset` for the chain the event came from — indexing a cross-chain symbol table
 by a per-chain index silently returns the wrong token.
 

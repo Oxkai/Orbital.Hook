@@ -1,10 +1,23 @@
-# Orbital · UHI Frontend
+# Orbital · Frontend
 
-The web app for **Orbital**, an N-asset stableswap built as a **Uniswap v4 hook**, deployed on **Unichain Sepolia (chainId 1301)**. Swap, provide liquidity, and inspect the live pool, wired directly to the on-chain hook.
+The web app for **Orbital**, an N-asset stableswap built as a **Uniswap v4 hook**. Swap, provide liquidity and inspect every live pool across **Unichain Sepolia**, **Arbitrum Sepolia** and **Circle's Arc testnet**, including the USD / EUR FX pool on Arc.
 
 **Live → https://orbital-hook.vercel.app/**
 
-Contracts live in [`../orbitalHook`](../orbitalHook). The deployed addresses the app talks to are in [`lib/contracts.ts`](lib/contracts.ts).
+Contracts live in [`../orbitalHook`](../orbitalHook). The pools the app talks to are registered in [`lib/crosschain.ts`](lib/crosschain.ts) (from `orbitalHook/deployments.json`) and [`lib/fx.ts`](lib/fx.ts) (the FX pool).
+
+## What's in the app
+
+| Page | What it does |
+|---|---|
+| **Swap** | Quotes every pool that holds both tokens and routes to the best one; a token on another chain turns the widget into an ERC-7683 cross-chain order (Unichain ↔ Arbitrum). |
+| **Pools** | One row per pool: assets, network, address, 24h volume and TVL. |
+| **Pool detail** | Reserves, liquidity depth by price, key metrics, transaction history, and live oracle rates for the FX pool. |
+| **Add liquidity** | Pick a depeg band and an amount; the hook's own `depositAmounts` quote sizes the position exactly. |
+| **Positions** | Every ERC-6909 position across all pools at its real value: increase, decrease, collect fees, withdraw. |
+| **Transactions** | Swaps, deposits, withdrawals and fee claims across all pools, with type filters. |
+
+TVL and position values are the tokens a pool actually holds, excluding the virtual floor concentrated bands quote on.
 
 ## Stack
 
@@ -12,64 +25,68 @@ Contracts live in [`../orbitalHook`](../orbitalHook). The deployed addresses the
 |---|---|
 | Framework | Next.js 16 (App Router) |
 | UI | React 19 |
-| Chain | wagmi 3 + viem 2 (Unichain Sepolia) |
-| Styling | Tailwind CSS 4 + inline design tokens |
-| Math | KaTeX |
-| Charts / 3D | Recharts · three.js |
-| Fonts | Roboto · Geist Mono |
+| Chain | wagmi 3 + viem 2, TanStack Query 5 |
+| Styling | Tailwind CSS 4 + design tokens in `constants/` |
+| Charts / 3D / math | Recharts 3 · three.js · KaTeX |
 
 ## Run locally
 
 ```bash
+cp .env.example .env.local   # optional, see below
 npm install
 npm run dev      # http://localhost:3000
 npm run build
 npm run lint
 ```
 
-Connect a wallet on **Unichain Sepolia (1301)**. The Nav prompts a network switch if you're on the wrong chain.
+Connect a wallet on any of the three chains; the app prompts a network switch when an action needs a different one.
 
 ## Environment
 
-| Var | Required | Purpose |
-|---|---|---|
-| `NEXT_PUBLIC_RPC_URL` | optional | Private Unichain RPC. Falls back to the public `https://sepolia.unichain.org` (rate-limited; caps `getLogs` at 100 blocks). |
+All optional. Without them the app uses public endpoints.
 
-Copy `.env.example` → `.env.local` and fill in if you have one.
+| Var | Purpose |
+|---|---|
+| `NEXT_PUBLIC_RPC_URL` | Unichain Sepolia RPC. Defaults to `https://sepolia.unichain.org`. |
+| `NEXT_PUBLIC_ARC_RPC_URL` | Dedicated Arc testnet RPC (Alchemy, QuickNode, dRPC). Used for every Arc call except `eth_getLogs`, which always goes to Arc's public endpoints: Alchemy's free tier caps log queries at 10 blocks. Restrict the key to your domains, since it ships to the browser. |
+| `NEXT_PUBLIC_SUBGRAPH_UNICHAIN` · `_ARC` · `_ARBITRUM` | Override the Subgraph Studio endpoints in [`lib/subgraph.ts`](lib/subgraph.ts). |
+
+## Where the data comes from
+
+- **Pool state and quotes** are read on-chain through each chain's transport in [`lib/wagmi.ts`](lib/wagmi.ts).
+- **Activity and 24h volume** come from the subgraph, one query per chain. A subgraph is used only while it matches the chain's live hook and has indexed to within five minutes of now; otherwise the app scans the hook's logs over RPC. The FX pool is not indexed and always uses RPC.
+- **FX rates** are read from the same Chainlink `AggregatorV3` feed the FX hook prices against.
 
 ## Deploy on Vercel
 
-Deploy this folder as its own Vercel project:
-
-1. **Import** the `Oxkai/Orbital.Hook` repo into Vercel.
-2. Set **Root Directory** to `frontend`.
-3. Framework preset auto-detects **Next.js** (also pinned in `vercel.json`).
-4. (Optional) add `NEXT_PUBLIC_RPC_URL` as an env var.
-5. Deploy.
-
-`vercel.json` pins `framework: nextjs`, `buildCommand: next build`, `installCommand: npm install`.
+1. Import the repo into Vercel and set **Root Directory** to `frontend`.
+2. The Next.js preset is detected (and pinned in `vercel.json`).
+3. Add the environment variables above, at least `NEXT_PUBLIC_ARC_RPC_URL`.
+4. Deploy.
 
 ## Structure
 
 ```
 app/
-  layout.tsx              root layout: fonts, theme vars, KaTeX css
-  page.tsx                home page: assembles all sections
-  app/                    the dApp
-    swap/                 swap widget (V4Quoter + v4 router)
-    pools/  pool/[address]  pool list + detail + add-liquidity
-    positions/            LP positions (ERC-6909 shares)
-    transactions/         on-chain activity
+  page.tsx                  landing page
+  app/                      the dApp
+    swap/                   swap widget and venue routing
+    pools/  pool/[address]/ pool list, pool detail, add liquidity
+    positions/              LP positions
+    transactions/           activity across every pool
 components/
-  home/                   Masthead · Pillars · Mechanics · Architecture · PoolSim (3-token sphere simulation) · VsTable · Deployed · References
-  app/                    swap widget, pool/position cards, LP modals
-  layout/                 Nav (dark/light) · Footer
-  Tex.tsx                 KaTeX formula renderer
+  home/                     landing sections
+  app/                      swap, pools, pool, lp, positions, transactions, shared
 lib/
-  contracts.ts            deployed addresses + ABIs + PoolKey helper
-  wagmi.ts                Unichain Sepolia chain config
-  hooks/                  usePool · usePositions · useTokenBalances · useTransactions · useVolume24h
-constants/                color themes (dark/light) + type scale
+  crosschain.ts             pool and token registry, per chain and per pool
+  fx.ts                     FX pool registry, feed ABI, revert explanations
+  contracts.ts              hook ABIs and token metadata
+  subgraph.ts               Studio endpoints, freshness guard, activity and volume
+  wagmi.ts                  chains and transports
+  hooks/                    usePool · usePositions · useDepositQuote · usePoolVolume24h ·
+                            useTransactions · useFxRates · useTokenBalances · useCrossChainOrder
+  orbital/                  client-side Orbital math helpers
+constants/                  color themes and type scale
 ```
 
-> Research deployment on Unichain Sepolia. Not audited, not production.
+> Research deployment on testnets. Not audited, not production.
