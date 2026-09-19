@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useAccount, useConnect, useConnectors, useDisconnect, useChainId, useSwitchChain } from "wagmi";
-import { unichainSepolia } from "@/lib/wagmi";
+import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
 import { color, typography } from "@/constants";
 import { List as Menu, X, MagnifyingGlass } from "@phosphor-icons/react";
 
@@ -33,8 +32,6 @@ export function AppNav() {
   const { connect, isPending }   = useConnect();
   const connectors               = useConnectors();
   const { disconnect }           = useDisconnect();
-  const chainId                  = useChainId();
-  const { switchChain }          = useSwitchChain();
   const [isMounted, setIsMounted] = useState(false);
   const [menuOpen, setMenuOpen]   = useState(false);
 
@@ -44,7 +41,6 @@ export function AppNav() {
   useEffect(() => { setMenuOpen(false); }, [pathname]);
 
   const showConnectedWallet = isMounted && isConnected && address;
-  const wrongChain = isMounted && isConnected && chainId !== unichainSepolia.id;
 
   return (
     <>
@@ -137,23 +133,6 @@ export function AppNav() {
             </span>
           </label>
 
-          {wrongChain && (
-            <button
-              onClick={() => switchChain({ chainId: unichainSepolia.id })}
-              className="hidden sm:flex items-center h-9 px-3 hover:opacity-90 transition-opacity"
-              style={{
-                color: color.error,
-                backgroundColor: `${color.error}1f`,
-                fontFamily: typography.caption.family,
-                fontSize: "11px",
-                fontWeight: 500,
-                letterSpacing: "0.02em",
-                cursor: "pointer",
-              }}
-            >
-              Wrong network, switch
-            </button>
-          )}
           {showConnectedWallet ? (
             <button
               onClick={() => disconnect()}
@@ -215,20 +194,6 @@ export function AppNav() {
           className="sm:hidden fixed top-14 left-0 right-0 z-50 px-4 md:px-12 py-4"
           style={{ backgroundColor: color.bg }}
         >
-          {wrongChain && (
-            <button
-              onClick={() => { switchChain({ chainId: unichainSepolia.id }); setMenuOpen(false); }}
-              className="w-full text-left py-3"
-              style={{
-                color: color.error,
-                fontFamily: typography.p2.family,
-                fontSize: typography.p2.size,
-                cursor: "pointer",
-              }}
-            >
-              ⚠ Wrong network, tap to switch
-            </button>
-          )}
           {LINKS.map(({ href, label }) => {
             const active =
               pathname === href ||

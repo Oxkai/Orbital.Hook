@@ -79,7 +79,7 @@ contract DeployTestnetScript is Script {
         for (uint8 i = 0; i < N; ++i) {
             raw[i] = new MockERC20(NAMES[i], SYMBOLS[i], DECIMALS[i]);
             // Mint plenty: seeding takes ~1.5M per asset at these tiers.
-            raw[i].mint(msg.sender, 100_000_000 * (10 ** DECIMALS[i])); // >> the ~6M/asset the seed consumes
+            raw[i].mint(msg.sender, 100_000_000 * (10 ** DECIMALS[i])); // >> the 1.25M/asset the seed consumes
         }
         // Sort ascending by address (the hook constructor requires it).
         for (uint8 i = 0; i < N; ++i) {

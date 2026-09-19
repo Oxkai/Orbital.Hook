@@ -1,5 +1,5 @@
 {
-  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: 6M per asset (~$24M TVL per pool); stable profile 25% each at 0.9995 / 0.998 / 0.99 bands + full range. Settlement is by authenticated Hyperlane message. REDEPLOYED 2026-09-13 with virtual liquidity, the safeguarded Newton solver and the last-interior-tick guard. The Arc FX pool (5042002.fx) shares the Arc stable pool's USDC and USDT.",
+  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: 1.25M per asset ($5M per pool), six bands whose depth tapers away from the peg plus a small full-range tier; stable bands 0.999 / 0.997 / 0.995 / 0.99 / 0.98 / 0.95. Settlement is by authenticated Hyperlane message. REDEPLOYED 2026-09-13 with virtual liquidity, the safeguarded Newton solver and the last-interior-tick guard. The Arc FX pool (5042002.fx) shares the Arc stable pool's USDC and USDT.",
   "1301": {
     "name": "Unichain Sepolia",
     "short": "Unichain",
@@ -129,7 +129,7 @@
         }
       },
       "_tokens": "USDC and USDT are the Arc stable pool's own contracts (shared, one USDC per chain); EURC and EURe are unique to this pool.",
-      "_ladder": "TierLadder FX profile: 25% of capital each at 0.995 / 0.99 / 0.97 bands + full range."
+      "_ladder": "TierLadder FX profile: $5M over bands 0.995 / 0.99 / 0.98 / 0.97 / 0.95 / 0.90 plus a small full-range tier, depth tapering away from the rate."
     }
   },
   "421614": {

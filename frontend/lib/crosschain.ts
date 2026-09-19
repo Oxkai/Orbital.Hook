@@ -7,8 +7,8 @@ import { FX_POOL, fxAssetsByIndex } from "@/lib/fx";
 // chain verify that a fill really happened on the destination.
 //
 // NOTE ON ASSET ORDER: the hook sorts its assets ascending by address, and
-// addresses are unrelated across chains. USDC is index 3 on Base Sepolia and
-// index 1 on Arbitrum Sepolia. Always resolve by symbol, never by index.
+// addresses are unrelated across chains. USDC is index 0 on Arc, 3 on Unichain
+// Sepolia and 2 on Arbitrum Sepolia. Always resolve by symbol, never by index.
 
 export interface CrossChainAsset {
   symbol: string;
@@ -92,7 +92,7 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
       USDT:  { symbol: "USDT", address: "0xF5D81CbFb68DAF9AbBc8A4056E04CC09B88E9002", decimals: 6 , index: 3 },
     },
   },
-  // Circle's Arc. Same hook, same four stables, same $24M seed as the others,
+  // Circle's Arc. Same hook, same four stables, same $5M ladder as the others,
   // but SAME-CHAIN ONLY: see `mailboxRelays`. Arc testnet has neither a
   // canonical Uniswap v4 nor a Hyperlane deployment, so the PoolManager, router
   // and quoter here were deployed by `script/DeployArc.s.sol` and the settler
