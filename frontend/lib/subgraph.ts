@@ -13,8 +13,8 @@
  * timestamps already attached, and adds fields the logs simply do not carry:
  * realised slippage per swap and each tick's distance to its depeg bound.
  *
- * RPC scanning is kept as a per-chain fallback. Arbitrum currently has no
- * deployed subgraph, so it exercises that path for real rather than in theory.
+ * RPC scanning is kept as a per-chain fallback, used whenever a chain's
+ * subgraph is missing, behind, or indexing a retired hook.
  */
 
 import { CHAIN_IDS, DEPLOYMENTS } from "@/lib/crosschain";
@@ -26,21 +26,23 @@ import { CHAIN_IDS, DEPLOYMENTS } from "@/lib/crosschain";
  *  `hook` matches the chain's live hook; otherwise the chain falls back to RPC
  *  until the subgraph is redeployed and this entry updated. */
 const ENDPOINTS: Record<number, { url?: string; hook: string } | undefined> = {
-  1301: {
-    url:
-      process.env.NEXT_PUBLIC_SUBGRAPH_UNICHAIN ??
-      "https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.2.0",
-    hook: "0xB9cD5ccF597e49F87C9c73eFABb5410195fE6A88",
-  },
-  5042002: {
-    url: process.env.NEXT_PUBLIC_SUBGRAPH_ARC ?? "https://api.studio.thegraph.com/query/107768/orbital-arc/v0.2.0",
-    hook: "0x1D922FB97c92b00706A449ba78EEFc0D3E01aa88",
-  },
   421614: {
     url:
       process.env.NEXT_PUBLIC_SUBGRAPH_ARBITRUM ??
-      "https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.2.0",
-    hook: "0x8e7BEf4320f73a39100C42325Fc426CBD1842a88",
+      "https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.3.0",
+    hook: "0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88",
+  },
+  1301: {
+    url:
+      process.env.NEXT_PUBLIC_SUBGRAPH_UNICHAIN ??
+      "https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.3.0",
+    hook: "0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88",
+  },
+  84532: {
+    url:
+      process.env.NEXT_PUBLIC_SUBGRAPH_BASE ??
+      "https://api.studio.thegraph.com/query/107768/orbital-base/v0.3.0",
+    hook: "0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88",
   },
 };
 
@@ -58,8 +60,8 @@ export function hasSubgraph(chainId: number): boolean {
 
 export const SUBGRAPH_CHAINS = CHAIN_IDS.filter(hasSubgraph);
 
-/** Whether the chain's subgraph indexes `pool`. Each subgraph tracks that
- *  chain's stable OrbitalHook only; any other pool (an FX pool) is not in it. */
+/** Whether the chain's subgraph indexes `pool`: each subgraph tracks exactly
+ *  the chain's registered OrbitalHook. */
 export function subgraphIndexes(chainId: number, pool: string): boolean {
   return hasSubgraph(chainId) && DEPLOYMENTS[chainId]?.orbitalHook.toLowerCase() === pool.toLowerCase();
 }
@@ -280,7 +282,7 @@ export async function fetchActivity(chainId: number, first: number, skip: number
  *
  * Ordered by TIMESTAMP, never block number: heights are per-chain and not
  * comparable, so sorting merged rows by block would interleave a 306M-block
- * Arbitrum row against a 60M-block Arc row as though one preceded the other.
+ * Arbitrum row against a 62M-block Unichain row as though one preceded the other.
  *
  * A failing chain yields nothing rather than rejecting the batch, and is
  * reported separately so the caller can fall back for just that chain.

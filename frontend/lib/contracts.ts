@@ -34,9 +34,9 @@ export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as A
 // tickIdx) the Positions/LP pages read & write the hook directly via
 // HOOK_LP_ABI; there is no separate PositionManager.
 export const POOL_ADDRESS    = HOOK_ADDRESS;
-/// The pool. Orbital is one N-asset book shared by many LPs via ticks; the Base
-/// and Arbitrum deployments are the same pool with a settler at each end for
-/// cross-chain orders, not separate pools. `ALL_POOLS` in the registry has every
+/// The pool. Orbital is one N-asset book shared by many LPs via ticks; the
+/// Arbitrum, Unichain and Base deployments are the same pool with a settler at
+/// each end for cross-chain orders, not separate pools. `ALL_POOLS` in the registry has every
 /// deployment for anything that genuinely needs to enumerate them.
 export const POOL_ADDRESSES  = [HOOK_ADDRESS] as readonly Address[];
 export const ROUTER_ADDRESS  = SWAP_ROUTER;
@@ -64,7 +64,7 @@ export function deployBlockFor(chainId: number): bigint {
 // Keyed by lowercased token address, spanning EVERY chain, so a component that
 // resolves an address from any deployment gets the right symbol and: crucially
 //  the right decimals. The previous hardcoded table claimed USDC and USDT were
-// 18-decimal, which is wrong on all three chains now.
+// 18-decimal, which is wrong on every chain now.
 
 export const TOKEN_META = TOKEN_DISPLAY;
 

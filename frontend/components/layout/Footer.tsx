@@ -197,7 +197,7 @@ export function Footer() {
           >
             Research implementation of the Paradigm Orbital paper.
             <br />
-            Deployed on Unichain Sepolia. Not production.
+            Deployed on Arbitrum, Unichain and Base Sepolia. Not production.
           </p>
           <p
             style={{
@@ -310,7 +310,7 @@ export function Footer() {
         }}
       >
         <span>
-          UNICHAIN SEPOLIA · CHAIN ID 1301 · NOT AUDITED · NOT FINANCIAL ADVICE
+          ARBITRUM SEPOLIA · CHAIN ID 421614 · NOT AUDITED · NOT FINANCIAL ADVICE
         </span>
         <span>© 2026 ORBITAL</span>
       </div>

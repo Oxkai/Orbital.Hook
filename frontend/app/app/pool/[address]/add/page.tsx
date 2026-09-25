@@ -11,7 +11,7 @@ import { usePool } from "@/lib/hooks/usePool";
 import { useDepositQuote } from "@/lib/hooks/useDepositQuote";
 import { useTokenBalances, useTokenAllowances } from "@/lib/hooks/useTokenBalances";
 import { ERC20_ABI, HOOK_LP_ABI } from "@/lib/contracts";
-import { chainIdForPool, poolByAddress, type PoolType } from "@/lib/crosschain";
+import { chainIdForPool } from "@/lib/crosschain";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -143,28 +143,9 @@ function StepBar({ step }: { step: 1 | 2 | 3 }) {
 
 // ─── Step 1: set range ───────────────────────────────────────────────────────
 
-/// User-facing wording for the range control. The number is the same on both
-/// pool types, the tick's depeg bound `p`, but it means different things: on a
-/// stable pool it is a dollar price, on an FX pool the prices are dollar values
-/// around a centre rate, so `p` reads as "an FX rate `1 − p` below the rest".
-function rangeCopy(poolType: PoolType, p: number) {
-  if (poolType === "fx") {
-    const pct = (x: number) => `${((1 - x) * 100).toFixed(2)}%`;
-    return {
-      intro: "Choose an FX band around the pool's centre rate. Tighter bands earn more fees but pause sooner.",
-      blocked: "A boundary tick is active. Deposits resume when every rate is back inside its band.",
-      label: "FX Band",
-      value: pct(p),
-      valueNote: "Tick pauses when any currency trades this far below the rest",
-      sliderMin: `${pct(SLIDER_PMIN)} · wider · safer`,
-      sliderMax: `more efficient · tighter · ${pct(SLIDER_PMAX)}`,
-      barMin: "−100%",
-      barMark: `−${pct(p)}`,
-      barMax: "centre",
-      legendPaused: `paused beyond −${pct(p)}`,
-      legendEarning: `earning fees within ${pct(p)} of the centre`,
-    };
-  }
+/// User-facing wording for the range control: the tick's depeg bound `p`,
+/// read as a dollar price.
+function rangeCopy(p: number) {
   const usd = `$${p.toFixed(4)}`;
   return {
     intro: "Choose a depeg price threshold. Tighter ranges earn more fees but pause sooner.",
@@ -184,18 +165,17 @@ function rangeCopy(poolType: PoolType, p: number) {
 
 function Step1({
   depegPrice, setDepegPrice,
-  onContinue, kBound, n, poolType,
+  onContinue, kBound, n,
 }: {
   depegPrice: number;
   setDepegPrice: (p: number) => void;
   onContinue: () => void;
   kBound: number;
   n: number;
-  poolType: PoolType;
 }) {
   const [explainerOpen, setExplainerOpen] = useState(false);
   const blocked  = kBound > 0;
-  const copy     = rangeCopy(poolType, depegPrice);
+  const copy     = rangeCopy(depegPrice);
 
   const kNorm    = kNormFromDepegPrice(n, depegPrice);
   const effMult  = capitalEfficiency(n, kNorm);
@@ -911,10 +891,9 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
   // `poolAddress` from the route IS the hook: OrbitalHook is both the book and
   // the LP surface. Using the primary-chain HOOK_ADDRESS constant here approved
   // and minted against Unichain's hook no matter which pool was open, so on
-  // Base, Arbitrum or Arc it would have targeted a contract that is not this
+  // Arbitrum it would have targeted a contract that is not this
   // pool. Everything below routes through the pool's own address and chain.
   const poolChainId = chainIdForPool(poolAddress);
-  const poolType    = poolByAddress(poolAddress)?.type ?? "stable";
   const { pool }    = usePool(poolAddress, { chainId: poolChainId });
   const tokenAddrs  = (pool?.tokens.map(t => t.address as Address)) ?? [];
 
@@ -1007,7 +986,7 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
         {step === 1 && (
           <Step1
             depegPrice={clampedDepeg} setDepegPrice={setDepegPrice}
-            onContinue={() => setStep(2)} kBound={kBound} n={n} poolType={poolType}
+            onContinue={() => setStep(2)} kBound={kBound} n={n}
           />
         )}
         {step === 2 && (

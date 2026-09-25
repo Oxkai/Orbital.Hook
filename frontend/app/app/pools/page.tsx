@@ -45,7 +45,7 @@ export default function PoolsPage() {
             lineHeight: typography.p2.lineHeight,
           }}
         >
-          Multi-asset liquidity pools with capital-efficient ticks: stablecoins at parity, and FX pairs at oracle rates.
+          Multi-asset liquidity pools with capital-efficient ticks, keeping stablecoins at parity.
         </p>
       </header>
 

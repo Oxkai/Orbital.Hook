@@ -5,7 +5,6 @@ import { color, typography } from "@/constants";
 import { DEPLOYMENTS, explorerTx, poolByAddress } from "@/lib/crosschain";
 import type { TokenAmount, TxRecord, TxType } from "@/lib/hooks/useTransactions";
 import { ChainBadge } from "@/components/app/shared/ChainBadge";
-import { PoolTypeTag } from "@/components/app/shared/PoolTypeTag";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
 
 /// Where a list is shown: the all-pools feed names each row's chain; a single
@@ -200,7 +199,6 @@ export function TransactionRow({ tx, scope }: { tx: TxRecord; scope: Transaction
                 tick #{tx.tick}
               </span>
             )}
-            {scope === "all" && tx.poolType === "fx" && <PoolTypeTag type="fx" />}
           </div>
           {/* The amounts have their own columns from md up. */}
           {swap && (

@@ -6,8 +6,7 @@ import { CaretRight, Check, Copy } from "@phosphor-icons/react";
 import { color, typography } from "@/constants";
 import { fmtUSD, type Pool } from "@/lib/mock/data";
 import { ChainBadge } from "@/components/app/shared/ChainBadge";
-import { DEPLOYMENTS, poolByAddress, type PoolEntry } from "@/lib/crosschain";
-import { PoolTypeTag } from "@/components/app/shared/PoolTypeTag";
+import { DEPLOYMENTS, type PoolEntry } from "@/lib/crosschain";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
 
 /// Column template shared by the header and every row, so they line up. Every
@@ -102,7 +101,6 @@ export function PoolRowPlaceholder({ entry, failed }: { entry: PoolEntry; failed
           <span className="truncate" style={{ ...body("p2", color.textMuted), fontSize: "17px" }}>
             {entry.assets.map((a) => a.symbol).join(" / ")}
           </span>
-          <PoolTypeTag type={entry.type} />
         </div>
       </div>
       <span className={`${MD} items-center gap-2 min-w-0`} style={body("p2", color.textMuted)}>
@@ -119,11 +117,10 @@ export function PoolRowPlaceholder({ entry, failed }: { entry: PoolEntry; failed
   );
 }
 
-/// One pool as a single row: assets and type, network, address, 24h volume and
+/// One pool as a single row: assets, network, address, 24h volume and
 /// TVL. The whole row opens the pool's page.
 export function PoolRow({ pool }: { pool: Pool }) {
   const pairLabel = pool.tokens.map((t) => t.symbol).join(" / ");
-  const poolType = poolByAddress(pool.address)?.type ?? "stable";
   const chainName = DEPLOYMENTS[pool.chainId]?.name ?? "Unknown chain";
 
   return (
@@ -166,7 +163,6 @@ export function PoolRow({ pool }: { pool: Pool }) {
           >
             {pairLabel}
           </span>
-          <PoolTypeTag type={poolType} />
         </div>
       </div>
 

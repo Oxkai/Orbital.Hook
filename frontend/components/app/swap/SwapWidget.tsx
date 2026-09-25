@@ -31,7 +31,6 @@ import {
   ALL_TOKENS,
   tokenByKey,
   venuesFor,
-  POOL_TYPE_LABEL,
   type Venue,
   tokenRouteBlocked,
   assetOn,
@@ -49,8 +48,7 @@ import {
   useAllowance,
 } from "@/lib/hooks/useCrossChainOrder";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
-import { PoolTypeTag } from "@/components/app/shared/PoolTypeTag";
-import { explainPoolError, FX_HOOK_ABI } from "@/lib/fx";
+import { explainPoolError } from "@/lib/poolErrors";
 
 const LBL = {
   fontFamily: typography.caption.family,
@@ -126,8 +124,7 @@ function TokenDropdown({ balances, selectedKey, excludedKey, onSelect, onClose }
   }, [onClose]);
 
   // One flat list; each row names its chain. A token can trade in more than one
-  // pool on its chain (Arc's USDC is in both the stable and the FX pool); the
-  // pair picks the pool.
+  // pool on its chain; the pair picks the pool.
   const q = filter.trim().toLowerCase();
   const rows = ALL_TOKENS.filter(
     (t) => q === "" || t.symbol.toLowerCase().includes(q) || t.chainShort.toLowerCase().includes(q),
@@ -178,7 +175,6 @@ function TokenDropdown({ balances, selectedKey, excludedKey, onSelect, onClose }
               <span style={{ ...body("p2", color.textPrimary), fontWeight: 500 }}>{t.symbol}</span>
               <span style={body("caption", color.textMuted)}>{t.chainShort}</span>
             </span>
-            {t.pools.every((s) => s.type === "fx") && <PoolTypeTag type="fx" />}
             <span style={body("caption", color.textMuted)}>{fmtAmount(bal, t.decimals)}</span>
             {isSelected && <Check size={11} color={color.success} weight="bold" />}
           </button>
@@ -414,13 +410,11 @@ function SettingsPanel({ slippage, setSlippage, deadline, setDeadline, onClose }
 
 // ─── Info panel ──────────────────────────────────────────────────────────────
 
-function SwapInfoPanel({ tokenIn, tokenOut, numIn, amountOut, slippage, fee, isCrossChain, routeLabel, oracleRate }: {
+function SwapInfoPanel({ tokenIn, tokenOut, numIn, amountOut, slippage, fee, isCrossChain, routeLabel }: {
   tokenIn: TokenRow; tokenOut: TokenRow;
   numIn: number; amountOut: number; slippage: number; fee: number; isCrossChain: boolean;
   /// Same-chain: which pool the quote came from.
   routeLabel: string;
-  /// FX only: the live oracle rate (out per in) to compare the quote against.
-  oracleRate?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [rateFlipped, setRateFlipped] = useState(false);
@@ -452,13 +446,6 @@ function SwapInfoPanel({ tokenIn, tokenOut, numIn, amountOut, slippage, fee, isC
           value: hasValues ? `${(amountOut * (1 - slippage / 100)).toFixed(4)} ${tokenOut.symbol}` : "—",
         },
         { label: "Route", value: `Direct · ${routeLabel}` },
-        ...(oracleRate !== undefined && hasValues
-          ? [{
-              label: "Oracle rate",
-              value: `${oracleRate.toFixed(5)} ${tokenOut.symbol}`,
-              note: `${rate / oracleRate - 1 >= 0 ? "+" : ""}${((rate / oracleRate - 1) * 10_000).toFixed(1)} bps`,
-            }]
-          : []),
       ];
 
   return (
@@ -635,9 +622,8 @@ export function SwapWidget() {
   const isPureBridge = isCrossChain && tokenIn.symbol === tokenOut.symbol;
 
   // Candidate pools to quote. Same-chain, every pool holding both tokens is a
-  // candidate (Arc's USDC and USDT are in both its stable and FX pools): all
-  // are quoted and the best output wins. Cross-chain, the fill is a stable-pool
-  // trade on the destination chain, so that pool is the only candidate.
+  // candidate: all are quoted and the best output wins. Cross-chain, the fill is
+  // a trade in the destination chain's pool, so that pool is the only candidate.
   const quoteCandidates = useMemo(() => {
     if (!quoteDep || !quoteInAddr || isPureBridge) return [];
     if (quoteInAddr.toLowerCase() === tokenOut.address.toLowerCase()) return [];
@@ -696,8 +682,8 @@ export function SwapWidget() {
   const quotedOutRaw = best?.out;
   const venue = best?.candidate.venue;
 
-  // No candidate quoted: the trade is one every pool refuses (the FX band
-  // guard, a stale oracle, too many crossings). Surface why and block the
+  // No candidate quoted: the trade is one every pool refuses (larger than the
+  // pool can fill, too many crossings). Surface why and block the
   // button instead of letting the user sign a transaction that must revert.
   const quoteError = best ? undefined : quotes.data?.find((r) => r.status === "failure")?.error ?? quotes.error;
   const quoteFailure =
@@ -705,29 +691,9 @@ export function SwapWidget() {
       ? explainPoolError(quoteError) ?? "No quote available for this trade."
       : undefined;
 
-  // Live oracle rate for a trade routed through an FX pool, to set the
-  // pool's quote against.
-  const fxVenue = !isCrossChain && venue?.type === "fx" ? venue : undefined;
-  const oracleReads = useReadContracts({
-    allowFailure: true,
-    contracts: fxVenue
-      ? ([
-          { chainId: tokenIn.chainId, address: fxVenue.pool, abi: FX_HOOK_ABI, functionName: "oracleScaleOf", args: [fxVenue.indexIn] },
-          { chainId: tokenIn.chainId, address: fxVenue.pool, abi: FX_HOOK_ABI, functionName: "oracleScaleOf", args: [fxVenue.indexOut] },
-        ] as const)
-      : [],
-    query: { enabled: !!fxVenue },
-  });
-  const [oracleIn, oracleOut] = oracleReads.data ?? [];
-  // oracleScaleOf is WAD per raw unit; per whole token that is scale * 10^decimals / 1e18.
-  const oracleRate =
-    fxVenue && oracleIn?.status === "success" && oracleOut?.status === "success"
-      ? (Number(oracleIn.result) * 10 ** tokenIn.decimals) / (Number(oracleOut.result) * 10 ** tokenOut.decimals)
-      : undefined;
-
   const venueCount = quoteCandidates.length;
   const routeLabel = venue
-    ? `${tokenIn.chainShort} ${POOL_TYPE_LABEL[venue.type]} pool${venueCount > 1 ? ` · best of ${venueCount}` : ""}`
+    ? `${tokenIn.chainShort} pool${venueCount > 1 ? ` · best of ${venueCount}` : ""}`
     : tokenIn.chainShort;
 
   // ── Cross-chain order ──
@@ -1073,7 +1039,6 @@ export function SwapWidget() {
             numIn={numIn} amountOut={amountOut}
             slippage={slippage} fee={100} isCrossChain={isCrossChain}
             routeLabel={routeLabel}
-            oracleRate={oracleRate}
           />
         </div>
       )}

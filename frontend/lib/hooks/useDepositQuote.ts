@@ -5,7 +5,7 @@ import { readContract, readContracts } from "wagmi/actions";
 import { type Address } from "viem";
 
 import { POOL_ABI } from "@/lib/contracts";
-import { explainPoolError } from "@/lib/fx";
+import { explainPoolError } from "@/lib/poolErrors";
 
 const WAD = 10n ** 18n;
 /** Radius the hook is asked to price; deposits scale linearly from it. */

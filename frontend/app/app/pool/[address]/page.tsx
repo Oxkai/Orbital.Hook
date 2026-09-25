@@ -14,7 +14,6 @@ import {
   StackSimple,
   Pulse,
   Circle,
-  Broadcast,
 } from "@phosphor-icons/react";
 import { color, typography } from "@/constants";
 
@@ -23,10 +22,7 @@ import { useTransactions } from "@/lib/hooks/useTransactions";
 import { DepthChart } from "@/components/app/pool/DepthChart";
 import { fmtUSD }   from "@/lib/mock/data";
 import { type Address } from "viem";
-import { chainIdForPool, explorerAddress, poolByAddress } from "@/lib/crosschain";
-import { PoolTypeTag } from "@/components/app/shared/PoolTypeTag";
-import { FX_POOL, type FxPool } from "@/lib/fx";
-import { ageLabel, useFxRates, type FxStatus } from "@/lib/hooks/useFxRates";
+import { chainIdForPool, explorerAddress } from "@/lib/crosschain";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
 import {
   TransactionListHeader,
@@ -186,79 +182,14 @@ function HashValue({ value, href }: { value: string; href?: string }) {
   );
 }
 
-// ─── FX: oracle rates ─────────────────────────────────────────────────────────
-
-const FX_STATUS: Record<FxStatus, { healthy: boolean; label: string } | undefined> = {
-  live: { healthy: true, label: "Live" },
-  stale: { healthy: false, label: "Feed stale · swaps paused" },
-  paused: { healthy: false, label: "Paused by admin" },
-  loading: undefined,
-};
-
-function OracleRatesSection({ fx }: { fx: FxPool }) {
-  const { rates, status, bandBps } = useFxRates(fx);
-  const pill = FX_STATUS[status];
-
-  return (
-    <div>
-      <SectionLabel
-        meta={
-          <div className="flex items-center gap-3">
-            {bandBps !== undefined && (
-              <span style={body("caption", color.textMuted)}>band ±{(bandBps / 100).toFixed(2)}%</span>
-            )}
-            {pill && <StatusPill healthy={pill.healthy} label={pill.label} />}
-          </div>
-        }
-      >
-        Oracle Rates
-      </SectionLabel>
-      <div className="flex flex-col gap-px">
-        {rates.map((r) => (
-          <InfoRow
-            key={r.asset.address}
-            icon={<TokenIcon symbol={r.asset.symbol} size={16} />}
-            label={`${r.asset.symbol} / USD`}
-          >
-            <span style={body("p2", color.textPrimary)}>
-              {r.market !== undefined ? r.market.toFixed(5) : "…"}
-            </span>
-            <span style={{ ...body("p3", color.textMuted), minWidth: 96, textAlign: "right" }}>
-              {r.poolVsMarketBps !== undefined
-                ? `pool ${r.poolVsMarketBps >= 0 ? "+" : ""}${r.poolVsMarketBps.toFixed(1)} bps`
-                : ""}
-            </span>
-            <span style={{ ...body("p3", color.textMuted), minWidth: 64, textAlign: "right" }}>
-              {r.ageSeconds !== undefined ? `${ageLabel(r.ageSeconds)} ago` : ""}
-            </span>
-          </InfoRow>
-        ))}
-        <InfoRow icon={<Broadcast size={14} weight="regular" />} label="Source">
-          <a
-            href={fx.rateSource.href}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2.5 hover:opacity-100 opacity-80 transition-opacity"
-            style={body("p3", color.textPrimary)}
-          >
-            {fx.rateSource.label}
-            <ArrowSquareOut size={12} weight="regular" color={color.textMuted} />
-          </a>
-        </InfoRow>
-      </div>
-    </div>
-  );
-}
-
 // ─── Overview tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ pool, fx }: { pool: NonNullable<ReturnType<typeof usePool>["pool"]>; fx?: FxPool }) {
+function OverviewTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["pool"]> }) {
   const totalReserves = pool.reserves.reduce((a, b) => a + b, 0);
   const boundaryCount = pool.ticks.filter(t => !t.isInterior).length;
   const isHealthy     = boundaryCount === 0;
   const activeTicks   = pool.ticks.length - boundaryCount;
-  // Per-chain explorer: `explorerAddressUrl` is hardcoded to the primary chain
-  // and would point an Arc or Base address at Uniscan.
+  // Per-chain explorer: the pool's own chain, not the primary one.
   const explorer      = explorerAddress(pool.chainId, pool.address);
 
   return (
@@ -311,9 +242,6 @@ function OverviewTab({ pool, fx }: { pool: NonNullable<ReturnType<typeof usePool
           />
         </div>
       </div>
-
-      {/* ── Oracle rates (FX pools) ─────────────────────────────── */}
-      {fx && <OracleRatesSection fx={fx} />}
 
       {/* ── Key metrics ─────────────────────────────────────────── */}
       <div>
@@ -610,11 +538,9 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
   const { address: poolAddr } = use(params);
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
   // The route carries only an address, so the chain has to be recovered from
-  // the registry. Without this every non-primary pool (Base, Arbitrum, Arc)
-  // would be read off the Unichain RPC and render as an empty pool.
+  // the registry. Without this every non-primary pool would be read off the
+  // Unichain RPC and render as an empty pool.
   const poolChainId = chainIdForPool(poolAddr);
-  const poolType = poolByAddress(poolAddr)?.type ?? "stable";
-  const fxPool = FX_POOL && FX_POOL.hook.toLowerCase() === poolAddr.toLowerCase() ? FX_POOL : undefined;
   const { pool, isLoading } = usePool(poolAddr as Address, { withVolume: true, chainId: poolChainId });
 
   const pairLabel = pool ? pool.tokens.map(t => t.symbol).join(" / ") : "Pool";
@@ -640,7 +566,6 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
               </h1>
               {pool && (
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <PoolTypeTag type={poolType} />
                   <a
                     href={explorerAddress(poolChainId, poolAddr)}
                     target="_blank"
@@ -749,7 +674,7 @@ export default function PoolDetailPage({ params }: { params: Promise<{ address: 
               <span style={body("caption", color.textMuted)}>{poolAddr}</span>
             </div>
           )}
-          {pool && activeTab === "Overview"      && <OverviewTab      pool={pool} fx={fxPool} />}
+          {pool && activeTab === "Overview"      && <OverviewTab      pool={pool} />}
           {pool && activeTab === "Liquidity"     && <LiquidityTab     pool={pool} />}
           {pool && activeTab === "Transactions"  && <TransactionsTab  pool={pool} />}
         </div>

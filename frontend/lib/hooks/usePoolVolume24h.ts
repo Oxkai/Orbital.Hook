@@ -18,7 +18,7 @@ const SCALE_OF_ABI = [
 ] as const;
 
 /** Largest `eth_getLogs` block range each chain's public RPC accepts (measured:
- *  Arc rejects 50k with "requested range too large", Arbitrum takes 100k). */
+ *  Arbitrum takes 100k; the others are held to the 10k default). */
 const LOG_RANGE: Record<number, bigint> = {
   421614: 100_000n,
 };
@@ -30,8 +30,7 @@ const DEFAULT_LOG_RANGE = 10_000n;
  *  Source per pool: the chain's subgraph when it indexes the pool (one query,
  *  exact timestamps), otherwise a scan of the hook's Swap logs over the blocks
  *  of the last day. The Swap event carries RAW token amounts, so each is
- *  valued through the hook's own `scaleOf` (raw -> WAD, where WAD is USD for a
- *  stable pool and USD at the pool's centre rate for an FX pool). */
+ *  valued through the hook's own `scaleOf` (raw -> WAD, i.e. USD). */
 export function usePoolVolume24h(poolAddress: Address, fee: number, enabled: boolean) {
   const config = useConfig();
   const pool = poolByAddress(poolAddress);

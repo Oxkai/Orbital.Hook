@@ -10,7 +10,7 @@ import { positionValueWad } from "@/lib/orbital/liquidity";
 import { useTokenBalances, useTokenAllowances } from "@/lib/hooks/useTokenBalances";
 import { fmtUSD } from "@/lib/mock/data";
 import { HOOK_LP_ABI, ERC20_ABI } from "@/lib/contracts";
-import { DEPLOYMENTS, type PoolType } from "@/lib/crosschain";
+import { DEPLOYMENTS } from "@/lib/crosschain";
 import { type Address, type Hash, type TransactionReceipt, maxUint256, parseAbi, parseEventLogs } from "viem";
 import { X, Circle, CurrencyDollar, Pulse, TrendUp } from "@phosphor-icons/react";
 
@@ -21,7 +21,6 @@ import { BurnPositionModal }      from "@/components/app/lp/BurnPositionModal";
 import type { TokenAmount }       from "@/components/app/lp/IncreaseLiquidityModal";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
 import { ChainBadge } from "@/components/app/shared/ChainBadge";
-import { PoolTypeTag } from "@/components/app/shared/PoolTypeTag";
 
 /// Mint event, to learn the tick (position id) a new deposit landed on.
 const MINT_EVENT = parseAbi([
@@ -308,9 +307,9 @@ function ConfirmModal({ title, body: bodyText, confirmLabel, onConfirm, onClose,
 type ModalState = { type: "increase" } | { type: "decrease" } | { type: "collect" } | { type: "burn" } | null;
 
 function PositionRow({
-  tokenId, poolAddress, chainId, poolType, tickIndex, rWad, onActionDone, onTxResult,
+  tokenId, poolAddress, chainId, tickIndex, rWad, onActionDone, onTxResult,
 }: {
-  tokenId: bigint; poolAddress: Address; chainId: number; poolType: PoolType; tickIndex: number; rWad: bigint;
+  tokenId: bigint; poolAddress: Address; chainId: number; tickIndex: number; rWad: bigint;
   onActionDone: () => void;
   onTxResult: (r: TxResult) => void;
 }) {
@@ -532,7 +531,6 @@ function PositionRow({
               <span className="flex items-center gap-1.5" style={body("caption", color.textMuted)}>
                 <ChainBadge chainId={chainId} size={11} />
                 {DEPLOYMENTS[chainId]?.short ?? chainId}
-                <PoolTypeTag type={poolType} />
                 <span>· Tick #{tickIndex} · {pool?.tokens.length ?? 0}-asset pool</span>
               </span>
             </div>
@@ -703,7 +701,6 @@ export default function PositionsPage() {
               tokenId={pos.tokenId}
               poolAddress={pos.poolAddress}
               chainId={pos.chainId}
-              poolType={pos.poolType}
               tickIndex={pos.tickIndex}
               rWad={pos.rWad}
               onActionDone={handleActionDone}

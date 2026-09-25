@@ -1,47 +1,36 @@
 import { color, colors, typography } from "@/constants";
 import { SectionLabel } from "./SectionLabel";
-import { DEPLOYMENTS, explorerAddress } from "@/lib/crosschain";
-import { FX_POOL } from "@/lib/fx";
+import { CHAIN_IDS, DEPLOYMENTS, PRIMARY_CHAIN_ID, assetsByIndex, explorerAddress } from "@/lib/crosschain";
 
 type Contract = { name: string; address: string };
 
-/// The Arc testnet deployment, read from the same registries the app uses.
-const ARC_CHAIN_ID = 5042002;
-const ARC = DEPLOYMENTS[ARC_CHAIN_ID];
-
-/// Test tokens across both Arc pools, each listed once (USDC and USDT are
-/// shared by the stable pool and the FX pool).
-const ARC_TOKENS: Contract[] = [
-  ...Object.values(ARC?.assets ?? {}).map((a) => ({ name: `${a.symbol} (${a.decimals}dp)`, address: a.address })),
-  ...(FX_POOL?.assets ?? [])
-    .filter((a) => !Object.values(ARC?.assets ?? {}).some((s) => s.address.toLowerCase() === a.address.toLowerCase()))
-    .map((a) => ({ name: `${a.symbol} (${a.decimals}dp)`, address: a.address })),
-];
+/// The primary (Arbitrum Sepolia) deployment, on canonical Uniswap v4, read from
+/// the same registry the app uses.
+const CHAIN_ID = PRIMARY_CHAIN_ID;
+const DEP = DEPLOYMENTS[CHAIN_ID];
 
 const GROUPS: { kind: string; label: string; items: Contract[] }[] = [
   {
     kind: "CORE",
     label: "Core protocol",
     items: [
-      ...(ARC ? [{ name: "OrbitalHook (stable)", address: ARC.orbitalHook }] : []),
-      ...(FX_POOL ? [{ name: "OrbitalFXHook (USD / EUR)", address: FX_POOL.hook }] : []),
-      ...(ARC ? [{ name: "PoolManager (v4)", address: ARC.poolManager }] : []),
+      { name: "OrbitalHook (v4)", address: DEP.orbitalHook },
+      { name: "PoolManager (v4)", address: DEP.poolManager },
     ],
   },
   {
     kind: "PERIPHERY",
     label: "Periphery",
     items: [
-      ...(ARC ? [{ name: "V4Router", address: ARC.swapRouter }, { name: "V4Quoter", address: ARC.quoter }] : []),
-      ...(FX_POOL?.assets.find((a) => a.feed)?.feed
-        ? [{ name: "EUR / USD feed", address: FX_POOL.assets.find((a) => a.feed)!.feed! }]
-        : []),
+      { name: "V4Router", address: DEP.swapRouter },
+      { name: "V4Quoter", address: DEP.quoter },
+      ...(DEP.intentSettler ? [{ name: "IntentSettler", address: DEP.intentSettler }] : []),
     ],
   },
   {
     kind: "TEST TOKENS",
     label: "Test tokens",
-    items: ARC_TOKENS,
+    items: assetsByIndex(CHAIN_ID).map((a) => ({ name: `${a.symbol} (${a.decimals}dp)`, address: a.address })),
   },
 ];
 
@@ -74,7 +63,7 @@ function GroupHeader({ code, label, count }: { code: string; label: string; coun
 function Row({ c, index }: { c: Contract; index: string }) {
   return (
     <a
-      href={explorerAddress(ARC_CHAIN_ID, c.address)}
+      href={explorerAddress(CHAIN_ID, c.address)}
       target="_blank"
       rel="noopener noreferrer"
       className="group grid grid-cols-12 items-center gap-5 px-5 py-4 border-b border-dashed transition-colors hover:bg-white/[0.03]"
@@ -165,7 +154,7 @@ export function Deployed() {
               color: color.textPrimary,
             }}
           >
-            Deployed on Arc
+            Deployed on {DEP.short}
           </h2>
         </div>
 
@@ -178,8 +167,8 @@ export function Deployed() {
             color: color.textMuted,
           }}
         >
-          <span className="col-span-12 md:col-span-6">NETWORK / CIRCLE ARC TESTNET · GAS IN USDC</span>
-          <span className="col-span-12 md:col-span-6 md:justify-self-end">CHAIN ID / {ARC_CHAIN_ID}</span>
+          <span className="col-span-12 md:col-span-6">NETWORK / {DEP.name.toUpperCase()} · CANONICAL UNISWAP V4</span>
+          <span className="col-span-12 md:col-span-6 md:justify-self-end">CHAIN ID / {CHAIN_ID}</span>
         </div>
 
         <div
@@ -201,7 +190,7 @@ export function Deployed() {
           className="mt-6"
           style={{ fontFamily: MONO, fontSize: "11px", letterSpacing: "0.06em", color: color.textMuted }}
         >
-          ALSO LIVE / UNICHAIN SEPOLIA · ARBITRUM SEPOLIA
+          ALSO LIVE / {CHAIN_IDS.filter((id) => id !== CHAIN_ID).map((id) => DEPLOYMENTS[id].name.toUpperCase()).join(" · ")}
         </div>
       </div>
     </section>

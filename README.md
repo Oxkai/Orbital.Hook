@@ -2,13 +2,13 @@
 
 # Orbital Hook
 
-**One pool for every stablecoin.** A Uniswap v4 hook that replaces constant-product math with the Orbital sphere/torus curve, so USDC, USDT, DAI and FRAX all trade out of a single shared reserve book instead of six shallow pairs. The same engine also runs an **FX pool** on Arc, trading EURC and EURe against USDC and USDT at the Chainlink EUR / USD rate.
+**One pool for every stablecoin.** A Uniswap v4 hook that replaces constant-product math with the Orbital sphere/torus curve, so USDC, USDT, DAI and FRAX all trade out of a single shared reserve book instead of six shallow pairs.
 
 <p>
 <a href="https://orbital-hook.vercel.app/"><b>Live app</b></a> &nbsp;·&nbsp;
-<b>Circle's Arc</b> &nbsp;·&nbsp; Unichain &nbsp;·&nbsp; Arbitrum &nbsp;·&nbsp;
-<b>228 tests</b> &nbsp;·&nbsp;
-<b>4 live pools, ~$22.6M TVL</b> &nbsp;·&nbsp;
+Arbitrum &nbsp;·&nbsp; Unichain &nbsp;·&nbsp; Base &nbsp;·&nbsp;
+<b>179 tests</b> &nbsp;·&nbsp;
+<b>3 live pools, ~$15M TVL</b> &nbsp;·&nbsp;
 <b>N assets, one book</b>
 </p>
 
@@ -142,19 +142,6 @@ LP ─► hook.addLiquidity(k, r, maxAmounts)
 
 ---
 
-## Sponsors
-
-**Uniswap.** Orbital is a Uniswap v4 hook: `beforeSwap` returns a `BeforeSwapDelta` that replaces constant-product pricing with the Orbital N-asset curve, and six v4 pools share one engine, live on Unichain Sepolia, Arbitrum Sepolia and Arc.
-[`beforeSwap`](orbitalHook/src/OrbitalHook.sol#L370-L452) · [all integration points, by line](orbitalHook/README.md#uniswap-v4-integration-points) · [`FEEDBACK.md`](orbitalHook/FEEDBACK.md)
-
-**The Graph.** Three live subgraphs on Subgraph Studio index every stable pool and read engine state at each event, so tick crossings become a leading risk signal. [`orbital-mcp`](orbital-mcp) is a reusable MCP server that reasons over that live data for AI agents.
-[`mapping.ts`](subgraph/src/mapping.ts#L135) · [MCP tools](orbital-mcp/src/index.ts#L78) · [risk model](orbital-mcp/src/analysis.ts#L51) · [`SKILL.md`](orbital-mcp/SKILL.md)
-
-**Arc.** A stable pool and an FX pool (EURC and EURe against USDC and USDT, at the Chainlink EUR / USD rate) run on Arc testnet, where gas is USDC. We deploy the v4 core Arc lacks, and the same scripts target Arc mainnet's canonical v4, Hyperlane and Chainlink feed.
-[`DeployArc.s.sol`](orbitalHook/script/DeployArc.s.sol) · [`DeployArcFX.s.sol`](orbitalHook/script/DeployArcFX.s.sol) · [`OrbitalFXHook.sol`](orbitalHook/src/fx/OrbitalFXHook.sol#L188)
-
----
-
 ## Runtime: one swap
 
 ```
@@ -190,23 +177,11 @@ caller.unlock(data)
 
 ---
 
-## The FX pool
-
-[`OrbitalFXHook`](orbitalHook/src/fx/OrbitalFXHook.sol) is the same engine with an oracle on top. It holds USDC, USDT, EURC and EURe in one book and prices each EUR asset against the dollar with a Chainlink `AggregatorV3` EUR / USD feed.
-
-- **The rate is folded into the scale.** Each EUR asset's value is fixed at the live rate when the pool is deployed, so the Orbital curve itself stays a stable-swap curve around that centre.
-- **The oracle guards every swap.** A trade that would push the pool's marginal price more than **50 bps** from the live Chainlink rate reverts (`FxPriceBeyondBand`), and swaps wait for a fresh rate if the feed is stale or invalid. LP deposits and exits never depend on the oracle.
-- **Wider bands.** The FX ladder runs from 0.5% to 10% around the rate, since the pool's centre is fixed while the market rate drifts.
-
-On Arc testnet the pool reads Chainlink's EUR / USD rate from Ethereum mainnet, relayed round by round into a [`TestnetFxFeed`](orbitalHook/script/mocks/TestnetFxFeed.sol) by [`SyncFxFeed.s.sol`](orbitalHook/script/fx/SyncFxFeed.s.sol). On Arc mainnet it reads Chainlink's Arc feed directly.
-
----
-
 ## Extension: cross-chain settlement
 
 Everything above is the hook. This part is built on top of it and is not required to use the pool.
 
-The hook is deployed on Unichain Sepolia and Arbitrum Sepolia, peered over Hyperlane, each with an [`OrbitalIntentSettler`](orbitalHook/src/crosschain/OrbitalIntentSettler.sol) implementing [ERC-7683](https://eips.ethereum.org/EIPS/eip-7683), the cross-chain intents standard from Uniswap Labs and Across.
+The hook is deployed on Arbitrum Sepolia, Unichain Sepolia and Base Sepolia, peered over Hyperlane, each with an [`OrbitalIntentSettler`](orbitalHook/src/crosschain/OrbitalIntentSettler.sol) implementing [ERC-7683](https://eips.ethereum.org/EIPS/eip-7683), the cross-chain intents standard from Uniswap Labs and Across.
 
 ```
  user signs an intent            filler pays out                proof settles
@@ -227,33 +202,32 @@ Funds are never stuck: if an order is not settled, the user reclaims the escrow 
 
 ## Deployments
 
-Four live pools on three chains, including **[Circle's Arc](https://docs.arc.io)**, where gas is paid in USDC. Each chain is a separate book with its own reserves; the ERC-7683 settlers move orders between them rather than merging liquidity.
+Three live pools, on Arbitrum Sepolia (primary), Unichain Sepolia and Base Sepolia. Each chain is a separate book with its own reserves; the ERC-7683 settlers move orders between them rather than merging liquidity.
 
 | Chain | Pool | Hook |
 |---|---|---|
-| **Arc Testnet** `5042002` | USDC · USDT · DAI · FRAX | [`0x1D922FB97c92b00706A449ba78EEFc0D3E01aa88`](https://testnet.arcscan.app/address/0x1D922FB97c92b00706A449ba78EEFc0D3E01aa88) |
-| **Arc Testnet** `5042002` | USDC · USDT · EURC · EURe (FX) | [`0xb7343fC8aA0Aaa583E3929B8De70D8e5751d2A88`](https://testnet.arcscan.app/address/0xb7343fC8aA0Aaa583E3929B8De70D8e5751d2A88) |
-| **Unichain Sepolia** `1301` | USDC · USDT · DAI · FRAX | [`0xB9cD5ccF597e49F87C9c73eFABb5410195fE6A88`](https://sepolia.uniscan.xyz/address/0xB9cD5ccF597e49F87C9c73eFABb5410195fE6A88) |
-| Arbitrum Sepolia `421614` | USDC · USDT · DAI · FRAX | [`0x8e7BEf4320f73a39100C42325Fc426CBD1842a88`](https://sepolia.arbiscan.io/address/0x8e7BEf4320f73a39100C42325Fc426CBD1842a88) |
+| **Arbitrum Sepolia** `421614` | USDC · USDT · DAI · FRAX | [`0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88`](https://sepolia.arbiscan.io/address/0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88) |
+| Unichain Sepolia `1301` | USDC · USDT · DAI · FRAX | [`0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88`](https://sepolia.uniscan.xyz/address/0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88) |
+| Base Sepolia `84532` | USDC · USDT · DAI · FRAX | [`0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88`](https://sepolia.basescan.org/address/0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88) |
 
 | Chain | OrbitalIntentSettler |
 |---|---|
-| Arc Testnet (Hyperlane at mainnet) | [`0x71ac1F49f25a5f0Ad44e543fa4BB4e356d8252A0`](https://testnet.arcscan.app/address/0x71ac1F49f25a5f0Ad44e543fa4BB4e356d8252A0) |
-| Unichain Sepolia | [`0x905Ef8cb78aaDc33dC1de0f22471561f7d921E8A`](https://sepolia.uniscan.xyz/address/0x905Ef8cb78aaDc33dC1de0f22471561f7d921E8A) |
-| Arbitrum Sepolia | [`0x050A876F5F4883ea17588077940c1E0dd4867D2B`](https://sepolia.arbiscan.io/address/0x050A876F5F4883ea17588077940c1E0dd4867D2B) |
+| Arbitrum Sepolia | [`0x3104462820D7D721cc7139400016B27cb137D74b`](https://sepolia.arbiscan.io/address/0x3104462820D7D721cc7139400016B27cb137D74b) |
+| Unichain Sepolia | [`0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784`](https://sepolia.uniscan.xyz/address/0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784) |
+| Base Sepolia | [`0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5`](https://sepolia.basescan.org/address/0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5) |
 
-Each pool uses a realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp) and is seeded with $5M of real capital on a seven-tier ladder: six concentrated bands whose depth tapers away from the peg, plus a small full-range backstop. Independent LPs, swaps, fee collection and exits run on top of that. On a $5M stable pool:
+Each pool uses a realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp) and is seeded with $5M of real capital on a seven-tier ladder: six concentrated bands whose depth tapers away from the peg, plus a small full-range backstop. Random retail swap flow runs on top of that: 96 swaps across the three pools so far, about $73.6k of volume, each trade capped at $5,000. On a $5M stable pool:
 
 | Trade | $1k | $10k | $100k | $250k |
 |---|---|---|---|---|
 | All-in cost (1 bp fee included) | 1.07 bps | 1.69 bps | 7.9 bps | 21 bps |
 
-Token addresses, v4 infra (PoolManager, router, V4Quoter), Hyperlane Mailboxes, the FX feed and the peer registry all live in [`orbitalHook/deployments.json`](orbitalHook/deployments.json).
+Token addresses, v4 infra (PoolManager, router, V4Quoter), Hyperlane Mailboxes and the peer registry all live in [`orbitalHook/deployments.json`](orbitalHook/deployments.json).
 
-> **Asset index order differs per chain.** The hook sorts assets ascending by address, and addresses are unrelated across chains, so USDC is index 3 on Unichain, 0 on Arc and 2 on Arbitrum. Always resolve by symbol, never by index.
+> **Asset index order differs per chain.** The hook sorts assets ascending by address, and addresses are unrelated across chains, so USDC is index 3 on Arbitrum, 0 on Unichain and 2 on Base. Always resolve by symbol, never by index.
 
 - Live app: <https://orbital-hook.vercel.app/>
-- Subgraphs: [orbital-arc](https://api.studio.thegraph.com/query/107768/orbital-arc/v0.2.0) · [orbital-unichain](https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.2.0) · [orbital-arbitrum](https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.2.0)
+- Subgraphs: [orbital-arbitrum](https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.3.0) · [orbital-unichain](https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.3.0) · [orbital-base](https://api.studio.thegraph.com/query/107768/orbital-base/v0.3.0)
 
 ---
 
@@ -264,26 +238,18 @@ UHI/
 ├── orbitalHook/            Solidity
 │   ├── src/OrbitalHook.sol         the v4 hook and Orbital engine
 │   ├── src/libraries/              SphereMath, TorusMath, TickLib, QuadraticSolver
-│   ├── src/fx/                     OrbitalFXHook + Chainlink AggregatorV3 interface
 │   ├── src/crosschain/             ERC-7683 settler + Hyperlane interfaces
 │   ├── script/                     deploy and simulation scripts
 │   │   ├── lib/TierLadder.sol          the liquidity ladder every deploy seeds
-│   │   ├── DeployArc.s.sol             Arc: v4 core, hook and pools
-│   │   ├── DeployArcFX.s.sol           the FX pool
-│   │   ├── fx/SyncFxFeed.s.sol         EUR / USD mirror sync
-│   │   └── mocks/                      testnet helpers: EUR / USD feed relay, mailbox
+│   │   └── ReshapeLiquidity.s.sol      move a live pool onto the ladder in place
 │   ├── FEEDBACK.md                 Uniswap v4 developer feedback
 │   └── deployments.json            machine-readable address registry
-├── subgraph/               The Graph: one manifest, three networks
+├── subgraph/               The Graph: one manifest, two networks
 │   ├── schema.graphql              Pool, Asset, Tick, Swap, TickCross, PoolSnapshot
 │   ├── src/mapping.ts              reproduces the engine's own crossing condition
 │   └── networks.json               per-chain address + start block
-├── orbital-mcp/            MCP server exposing the subgraph to AI environments
-│   ├── src/analysis.ts             risk model: progress x share of radius
-│   └── SKILL.md                    agent-facing usage guide
 └── frontend/               Next.js app: swap, pools, positions, transactions
     ├── lib/crosschain.ts           pool registry, from deployments.json
-    ├── lib/fx.ts                   FX pool registry and oracle helpers
     └── lib/subgraph.ts             activity and volume, RPC scanning as fallback
 ```
 
@@ -374,7 +340,7 @@ Manage everything in one place. Each tick you hold is its own ERC-6909 share tha
 
 ## Testing
 
-**228 tests across 18 suites.** The ones that carry the weight:
+**179 tests across 14 suites.** The ones that carry the weight:
 
 | Suite | What it proves |
 |---|---|
@@ -382,22 +348,20 @@ Manage everything in one place. Each tick you hold is its own ERC-6909 share tha
 | `MixedDecimalsLifecycle.t.sol` | Deterministic add → swap → collect → partial burn → full burn on a 6dp book, so every operation is asserted to *succeed*, not merely to not break. Also asserts a fee-on-transfer token is refused at the deposit boundary. |
 | `OrbitalHook.t.sol` | 61 tests over the hook surface: constructor guards, hook permissions, LP entry, swaps, tick crossings, boundary behaviour, pause and ownership. |
 | `VirtualLiquidity.t.sol` · `SolverRobustness.t.sol` | Concentrated deposits and withdrawals, depth per unit of capital, and swaps up to the edge of the book without breaking the solver. |
-| `fx/` | The FX hook: oracle band and staleness guards, a solvency invariant with priced assets, a live-feed fork test, and the testnet feed mirror. |
 | Math libraries | `SphereMath`, `TorusMath`, `TickLib`, `QuadraticSolver`, including fuzzed solver residual and stability bounds. |
 
 The cross-chain extension adds `OrbitalIntentSettler.t.sol` and `CrosschainFork.t.sol`, the latter running live forks of two testnets at once against real Hyperlane Mailboxes, with a forged-proof test asserting escrow does not move for a wrong `(domain, sender)`.
 
 ```bash
-cd orbitalHook && forge test          # 228 tests
+cd orbitalHook && forge test          # 179 tests
 ```
 
 ---
 
 ## Indexing and monitoring
 
-The three deployments are indexed by [`subgraph/`](subgraph) and read by
-[`orbital-mcp/`](orbital-mcp), an MCP server that answers risk questions about the
-pools from Claude, Cursor or any MCP client.
+Both deployments are indexed by [`subgraph/`](subgraph), which the app reads for
+its activity feed and 24h volume.
 
 The point is not a dashboard. `TickCrossed` only fires *after* a depeg bound is hit,
 so as a warning it arrives too late. Every handler therefore also reads live `slot0`
@@ -408,8 +372,8 @@ alphaNorm = ((sumX·WAD/√N) − kBound)·WAD / rInt      kNorm = k·WAD / r
 ```
 
 storing how much slack each tick has left. That turns the feed into a leading
-indicator: the MCP server can say which tick will cross first and how much of the
-book leaves with it, before it happens.
+indicator: it shows which tick will cross first and how much of the book leaves
+with it, before it happens.
 
 ---
 
@@ -419,7 +383,7 @@ book leaves with it, before it happens.
 git clone --recurse-submodules <repo>
 
 cd orbitalHook
-forge test                       # 228 tests
+forge test                       # 179 tests
 
 cd ../frontend
 cp .env.example .env.local       # optional: dedicated RPC URLs

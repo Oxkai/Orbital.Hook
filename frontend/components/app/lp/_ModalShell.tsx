@@ -1,7 +1,8 @@
 "use client";
 
 import { color } from "@/constants";
-import { explorerTxUrl } from "@/lib/wagmi";
+import { useChainId } from "wagmi";
+import { explorerTx } from "@/lib/crosschain";
 
 export const M = { fontFamily: "var(--font-mono)" as const };
 export const SEGMENTS = 24;
@@ -22,6 +23,8 @@ export function ModalShell({
   children: React.ReactNode;
 }) {
   const filled = success ? SEGMENTS : Math.floor(SEGMENTS * 0.35);
+  // The tx was just signed by the connected wallet, so it lives on that chain.
+  const chainId = useChainId();
 
   return (
     <>
@@ -80,7 +83,7 @@ export function ModalShell({
         {/* footer */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px" }}>
           {hash ? (
-            <a href={explorerTxUrl(hash)} target="_blank" rel="noreferrer"
+            <a href={explorerTx(chainId, hash)} target="_blank" rel="noreferrer"
               style={{ ...M, fontSize: "10px", letterSpacing: "0.04em", color: color.textMuted, textDecoration: "none", display: "flex", alignItems: "center", gap: 5 }}>
               <span>TX</span>
               <span>{hash.slice(0, 12)}…{hash.slice(-6)}</span>

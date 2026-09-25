@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const alt = "Orbital: N-asset stablecoin AMM on Circle's Arc";
+export const alt = "Orbital: N-asset stablecoin AMM on Arbitrum";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -62,7 +62,7 @@ export default function OpengraphImage() {
             paddingTop: 24,
           }}
         >
-          <div>CIRCLE ARC TESTNET · CHAIN ID 5042002</div>
+          <div>ARBITRUM SEPOLIA · CHAIN ID 421614</div>
           <div>228 TESTS</div>
         </div>
       </div>

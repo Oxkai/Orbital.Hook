@@ -1,14 +1,14 @@
 import { type Address, type Hex, encodeAbiParameters, parseAbiParameters } from "viem";
-import { FX_POOL, fxAssetsByIndex } from "@/lib/fx";
 
 // ─── Cross-chain deployments ─────────────────────────────────────────────────
-// One OrbitalHook + one OrbitalIntentSettler per chain. The two settlers are
-// registered as Hyperlane peers of each other, which is what lets the origin
+// One OrbitalHook + one OrbitalIntentSettler per chain. Every settler is
+// registered as a Hyperlane peer of the others, which is what lets the origin
 // chain verify that a fill really happened on the destination.
 //
 // NOTE ON ASSET ORDER: the hook sorts its assets ascending by address, and
-// addresses are unrelated across chains. USDC is index 3 on Base Sepolia and
-// index 1 on Arbitrum Sepolia. Always resolve by symbol, never by index.
+// addresses are unrelated across chains. USDC is index 3 on Arbitrum Sepolia,
+// 0 on Unichain Sepolia and 2 on Base Sepolia. Always resolve by symbol, never
+// by index.
 
 export interface CrossChainAsset {
   symbol: string;
@@ -34,10 +34,9 @@ export interface CrossChainDeployment {
   /// Whether `hyperlaneMailbox` is REAL Hyperlane transport.
   ///
   /// A deployed settler is not sufficient for a routable cross-chain order: the
-  /// mailbox behind it also has to actually relay. Arc testnet has no Hyperlane
-  /// deployment at all, so its settler sits behind a local shim that emits
-  /// events and delivers nothing. Defaults to true; only set false where the
-  /// mailbox is stubbed, and `supportsCrossChain` will then exclude the chain.
+  /// mailbox behind it also has to actually relay. Defaults to true; set false
+  /// where the mailbox is stubbed, and `supportsCrossChain` will then exclude
+  /// the chain.
   mailboxRelays?: boolean;
   /// Shown in the UI wherever a chain is excluded from cross-chain routing.
   crossChainNote?: string;
@@ -46,87 +45,79 @@ export interface CrossChainDeployment {
   assets: Record<string, CrossChainAsset>;
 }
 
-export const UNICHAIN_SEPOLIA_ID = 1301;
 export const ARBITRUM_SEPOLIA_ID = 421614;
-export const ARC_TESTNET_ID = 5042002;
+export const UNICHAIN_SEPOLIA_ID = 1301;
+export const BASE_SEPOLIA_ID = 84532;
 
 export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
   // Generated from orbitalHook/deployments.json - keep the two in step.
-  [UNICHAIN_SEPOLIA_ID]: {
-    chainId: UNICHAIN_SEPOLIA_ID,
-    name: "Unichain Sepolia",
-    short: "Unichain",
-    explorer: "https://sepolia.uniscan.xyz",
-    orbitalHook: "0xB9cD5ccF597e49F87C9c73eFABb5410195fE6A88",
-    poolManager: "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
-    swapRouter: "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540",
-    quoter: "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472",
-    intentSettler: "0x905Ef8cb78aaDc33dC1de0f22471561f7d921E8A",
-    hyperlaneMailbox: "0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD",
-    hyperlaneDomain: 1301,
-    deployBlock: 62428261n,
-    assets: {
-      FRAX:  { symbol: "FRAX", address: "0x530f64feE1F4DCBd2A7c725156f53DAa8f8191Db", decimals: 18, index: 0 },
-      USDT:  { symbol: "USDT", address: "0x5F134Ec4C77A71a6a7B008e951762bf26e763B6D", decimals: 6 , index: 1 },
-      DAI:   { symbol: "DAI", address: "0x8FE0995C389dF28f2aB910599Ff41E2F992d113f", decimals: 18, index: 2 },
-      USDC:  { symbol: "USDC", address: "0xa2d96B6101231ea3DDBc056819834293e0c5849B", decimals: 6 , index: 3 },
-    },
-  },
   [ARBITRUM_SEPOLIA_ID]: {
     chainId: ARBITRUM_SEPOLIA_ID,
     name: "Arbitrum Sepolia",
     short: "Arbitrum",
     explorer: "https://sepolia.arbiscan.io",
-    orbitalHook: "0x8e7BEf4320f73a39100C42325Fc426CBD1842a88",
+    orbitalHook: "0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88",
     poolManager: "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     swapRouter: "0xcD8D7e10A7aA794C389d56A07d85d63E28780220",
     quoter: "0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE",
-    intentSettler: "0x050A876F5F4883ea17588077940c1E0dd4867D2B",
+    intentSettler: "0x3104462820D7D721cc7139400016B27cb137D74b",
     hyperlaneMailbox: "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8",
     hyperlaneDomain: 421614,
-    deployBlock: 308368410n,
+    deployBlock: 312599603n,
     assets: {
-      FRAX:  { symbol: "FRAX", address: "0x20b4287b2214bC45be698a8112D8041564E560Fc", decimals: 18, index: 0 },
-      DAI:   { symbol: "DAI", address: "0x7f9510069Bc2c9b0Caa2b67dA83993c023f37403", decimals: 18, index: 1 },
-      USDC:  { symbol: "USDC", address: "0x9F1D4cA186fa3fb9ED4BBA5b1E199808d73Fe14f", decimals: 6 , index: 2 },
-      USDT:  { symbol: "USDT", address: "0xF5D81CbFb68DAF9AbBc8A4056E04CC09B88E9002", decimals: 6 , index: 3 },
+      FRAX:  { symbol: "FRAX", address: "0x0B44Ab88312EEAa545D9e27EE5Ea8DaD90a6bF9E", decimals: 18, index: 0 },
+      DAI:   { symbol: "DAI", address: "0xB563e0914e80c7D8d726F3fAb12ac2dD8e315cF2", decimals: 18, index: 1 },
+      USDT:  { symbol: "USDT", address: "0xC6c82FD06055346886F50A5a3B028dE9e8ad1e87", decimals: 6 , index: 2 },
+      USDC:  { symbol: "USDC", address: "0xe22D8b0FfC1b3e94ecD8bb92724f8cC4eeba8f17", decimals: 6 , index: 3 },
     },
   },
-  // Circle's Arc. Same hook, same four stables, same $24M seed as the others,
-  // but SAME-CHAIN ONLY: see `mailboxRelays`. Arc testnet has neither a
-  // canonical Uniswap v4 nor a Hyperlane deployment, so the PoolManager, router
-  // and quoter here were deployed by `script/DeployArc.s.sol` and the settler
-  // sits behind a local shim. Arc MAINNET has both canonically and is the path
-  // to real cross-chain; see `_arc` in orbitalHook/deployments.json.
-  [ARC_TESTNET_ID]: {
-    chainId: ARC_TESTNET_ID,
-    name: "Arc Testnet",
-    short: "Arc",
-    explorer: "https://testnet.arcscan.app",
-    orbitalHook: "0x1D922FB97c92b00706A449ba78EEFc0D3E01aa88",
-    poolManager: "0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7",
-    swapRouter: "0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E",
-    quoter: "0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90",
-    intentSettler: "0x71ac1F49f25a5f0Ad44e543fa4BB4e356d8252A0",
-    hyperlaneMailbox: "0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb",
-    hyperlaneDomain: ARC_TESTNET_ID,
-    mailboxRelays: false,
-    crossChainNote: "Arc testnet has no Hyperlane deployment; same-chain swaps only",
-    deployBlock: 61854987n,
+  [UNICHAIN_SEPOLIA_ID]: {
+    chainId: UNICHAIN_SEPOLIA_ID,
+    name: "Unichain Sepolia",
+    short: "Unichain",
+    explorer: "https://sepolia.uniscan.xyz",
+    orbitalHook: "0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88",
+    poolManager: "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
+    swapRouter: "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540",
+    quoter: "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472",
+    intentSettler: "0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784",
+    hyperlaneMailbox: "0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD",
+    hyperlaneDomain: 1301,
+    deployBlock: 63492025n,
     assets: {
-      USDC:  { symbol: "USDC", address: "0x18033E198A2b0af2AfA75aFcc520f42179955a68", decimals: 6 , index: 0 },
-      FRAX:  { symbol: "FRAX", address: "0x5A2EB33e6Ec0c8bbE9c18ED09428e4E7B5A86265", decimals: 18, index: 1 },
-      USDT:  { symbol: "USDT", address: "0x7d1c2f283811A0aa7D538e3C859DA8BB45330e35", decimals: 6 , index: 2 },
-      DAI:   { symbol: "DAI", address: "0xdA585869c1b63F20Cb54226cd99B006d90BAD784", decimals: 18, index: 3 },
+      USDC:  { symbol: "USDC", address: "0x08662d330e03D0C624D4b00F7594fc297005957B", decimals: 6 , index: 0 },
+      FRAX:  { symbol: "FRAX", address: "0x1A478E8Ad09D650f17df0288254bd24220Ff6b57", decimals: 18, index: 1 },
+      DAI:   { symbol: "DAI", address: "0x7EB345af1f38Ee7a2C7E5bE984596e33014bDc81", decimals: 18, index: 2 },
+      USDT:  { symbol: "USDT", address: "0x8C3E9929b523D658A92cb61286ba00A1A15635F7", decimals: 6 , index: 3 },
+    },
+  },
+  [BASE_SEPOLIA_ID]: {
+    chainId: BASE_SEPOLIA_ID,
+    name: "Base Sepolia",
+    short: "Base",
+    explorer: "https://sepolia.basescan.org",
+    orbitalHook: "0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88",
+    poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    swapRouter: "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
+    quoter: "0xDeCedb2746DE9c0793BcEBa7E2eDA044d9Cd4891",
+    intentSettler: "0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5",
+    hyperlaneMailbox: "0x6966b0E55883d49BFB24539356a2f8A673E02039",
+    hyperlaneDomain: 84532,
+    deployBlock: 47288148n,
+    assets: {
+      DAI:   { symbol: "DAI", address: "0xAFA96c26306a0b62B3D214633545168025e4EA88", decimals: 18, index: 0 },
+      USDT:  { symbol: "USDT", address: "0xDDd085b86580F0fBEeC0B9d883f70b08262D0dd0", decimals: 6 , index: 1 },
+      USDC:  { symbol: "USDC", address: "0xF1978c187491C31AbA44Cc702E1B964851560b14", decimals: 6 , index: 2 },
+      FRAX:  { symbol: "FRAX", address: "0xFC152FEEdB91B3253CD01BcDFA6Fa01C82887893", decimals: 18, index: 3 },
     },
   },
 };
 
 /// The chain the single-chain pages (pools, positions, transactions) default to,
-/// and the swap widget's opening pair. Unichain Sepolia is the canonical home of
-/// this hook; the other two carry the same deployment for cross-chain routes.
+/// and the swap widget's opening pair. Arbitrum Sepolia is the home of this
+/// hook; the other two carry the same deployment for cross-chain routes.
 /// One constant to move if that changes.
-export const PRIMARY_CHAIN_ID = UNICHAIN_SEPOLIA_ID;
+export const PRIMARY_CHAIN_ID = ARBITRUM_SEPOLIA_ID;
 
 /// Chain the swap widget opens on.
 ///
@@ -136,16 +127,12 @@ export const PRIMARY_CHAIN_ID = UNICHAIN_SEPOLIA_ID;
 /// list would have changed which pool the app opens on. These are different
 /// decisions, so they get different constants.
 ///
-/// Arc is a valid default precisely because it is same-chain only: both sides
-/// of the opening pair live on it, so the widget never opens on a route that
-/// cannot settle.
-export const DEFAULT_SWAP_CHAIN_ID = ARC_TESTNET_ID;
+/// The opening pair is same-chain, so the widget never opens on a route that
+/// depends on a cross-chain settlement.
+export const DEFAULT_SWAP_CHAIN_ID = ARBITRUM_SEPOLIA_ID;
 
 /// Display order in the token dropdown, primary chain first.
-// Base Sepolia was retired on 2026-09-07 with the tick-merge fix: its
-// deployment still runs the old contract, so leaving it listed would have shown
-// stale, defective ticks alongside three corrected ones.
-export const CHAIN_IDS = [UNICHAIN_SEPOLIA_ID, ARBITRUM_SEPOLIA_ID, ARC_TESTNET_ID] as const;
+export const CHAIN_IDS = [ARBITRUM_SEPOLIA_ID, UNICHAIN_SEPOLIA_ID, BASE_SEPOLIA_ID] as const;
 
 /// Every chain carries the same four stables, so a same-chain route always exists.
 export const ROUTABLE_SYMBOLS = ["USDC", "USDT", "DAI", "FRAX"] as const;
@@ -161,10 +148,8 @@ export function assetOn(chainId: number, symbol: string): CrossChainAsset | unde
 /// A chain can originate or receive a cross-chain order only if it has a settler
 /// AND that settler's mailbox actually relays.
 ///
-/// Both halves matter. Arc has a deployed, fully functional settler, but behind
-/// a shim mailbox that delivers nothing, so an order opened there could never be
-/// proven and would sit until it hit the refund window. Gating on the settler
-/// alone would surface Arc routes in the UI that are guaranteed to strand funds.
+/// Both halves matter: an order opened behind a mailbox that does not relay
+/// could never be proven and would wait out the refund window.
 export function supportsCrossChain(chainId: number): boolean {
   const d = DEPLOYMENTS[chainId];
   return !!d?.intentSettler && d.mailboxRelays !== false;
@@ -389,8 +374,6 @@ export const TOKEN_DISPLAY: Record<string, { symbol: string; name: string; color
     USDT: "#26A17B",
     DAI: "#F4B731",
     FRAX: "#BFBFBF",
-    EURC: "#6E56CF",
-    EURe: "#EA6A1F",
   };
   const out: Record<string, { symbol: string; name: string; color: string; decimals: number; chainId: number }> = {};
   for (const chainId of CHAIN_IDS) {
@@ -406,29 +389,12 @@ export const TOKEN_DISPLAY: Record<string, { symbol: string; name: string; color
       };
     }
   }
-  // FX pool tokens are distinct contracts from the stable pools' (its USDC is
-  // not the stable pool's USDC), so they get their own address-keyed entries.
-  if (FX_POOL) {
-    for (const a of FX_POOL.assets) {
-      out[a.address.toLowerCase()] = {
-        symbol: a.symbol,
-        name: a.name,
-        color: COLORS[a.symbol] ?? "#888",
-        decimals: a.decimals,
-        chainId: FX_POOL.chainId,
-      };
-    }
-  }
   return out;
 })();
 
 // ─── Pools ───────────────────────────────────────────────────────────────────
-// Orbital has two pool TYPES on one engine: `stable` (OrbitalHook, pegged
-// assets at parity) and `fx` (OrbitalFXHook, different currencies priced by
-// AggregatorV3 feeds). Every page that lists, reads or scans pools goes
-// through `ALL_POOLS`, so a pool of either type behaves the same everywhere.
-
-export type PoolType = "stable" | "fx";
+// Every page that lists, reads or scans pools goes through `ALL_POOLS`, so a
+// new pool only has to be registered once.
 
 export interface PoolEntry {
   chainId: number;
@@ -436,44 +402,24 @@ export interface PoolEntry {
   /// Chain display names.
   name: string;
   short: string;
-  type: PoolType;
   /// Block the hook was deployed at: event scanners start here.
   deployBlock: bigint;
   /// Assets in the hook's OWN index order, the order its events use. Carried
-  /// per POOL, not per chain: one chain can host a stable and an FX pool, and
-  /// their index orders are unrelated.
+  /// per POOL, not per chain: two pools on one chain have unrelated orders.
   assets: CrossChainAsset[];
 }
 
-export const POOL_TYPE_LABEL: Record<PoolType, string> = { stable: "Stable", fx: "FX" };
+/// Every deployed Orbital pool, one per chain.
+export const ALL_POOLS: PoolEntry[] = CHAIN_IDS.map((chainId) => ({
+  chainId,
+  address: DEPLOYMENTS[chainId].orbitalHook,
+  name: DEPLOYMENTS[chainId].name,
+  short: DEPLOYMENTS[chainId].short,
+  deployBlock: DEPLOYMENTS[chainId].deployBlock,
+  assets: assetsByIndex(chainId),
+}));
 
-/// Every deployed Orbital pool: the stable pool on each chain, then FX pools.
-export const ALL_POOLS: PoolEntry[] = [
-  ...CHAIN_IDS.map((chainId) => ({
-    chainId,
-    address: DEPLOYMENTS[chainId].orbitalHook,
-    name: DEPLOYMENTS[chainId].name,
-    short: DEPLOYMENTS[chainId].short,
-    type: "stable" as const,
-    deployBlock: DEPLOYMENTS[chainId].deployBlock,
-    assets: assetsByIndex(chainId),
-  })),
-  ...(FX_POOL
-    ? [
-        {
-          chainId: FX_POOL.chainId,
-          address: FX_POOL.hook,
-          name: DEPLOYMENTS[FX_POOL.chainId]?.name ?? String(FX_POOL.chainId),
-          short: DEPLOYMENTS[FX_POOL.chainId]?.short ?? String(FX_POOL.chainId),
-          type: "fx" as const,
-          deployBlock: FX_POOL.deployBlock,
-          assets: fxAssetsByIndex(FX_POOL).map(({ symbol, address, decimals, index }) => ({ symbol, address, decimals, index })),
-        },
-      ]
-    : []),
-];
-
-/// The pool behind an address, of either type.
+/// The pool behind an address.
 ///
 /// Pool routes are keyed by address alone (`/app/pool/[address]`), so anything
 /// resolving one back to its deployment has to go through here. Hook addresses
@@ -487,8 +433,8 @@ export function poolByAddress(address: string): PoolEntry | undefined {
 /// Which chain a given Orbital pool address lives on.
 ///
 /// Reading a pool without its chain silently falls back to the primary chain,
-/// which means querying a Unichain RPC for an Arc address and rendering an
-/// empty pool. Unknown addresses fall back to the primary chain.
+/// which means querying one chain's RPC for another chain's address and
+/// rendering an empty pool. Unknown addresses fall back to the primary chain.
 export function chainIdForPool(address: string): number {
   return poolByAddress(address)?.chainId ?? PRIMARY_CHAIN_ID;
 }
@@ -500,13 +446,11 @@ export function chainIdForPool(address: string): number {
 /// different index in each.
 export interface PoolSlot {
   pool: Address;
-  type: PoolType;
   index: number;
 }
 
 /// One row per token CONTRACT on a chain. A token can sit in several pools on
-/// its chain (Arc's USDC and USDT are in both the stable and the FX pool); the
-/// pair being swapped decides which pool trades it.
+/// its chain; the pair being swapped decides which pool trades it.
 export interface TokenRow {
   symbol: string;
   address: Address;
@@ -538,7 +482,7 @@ export const ALL_TOKENS: TokenRow[] = (() => {
         };
         byContract.set(id, row);
       }
-      row.pools.push({ pool: p.address, type: p.type, index: a.index });
+      row.pools.push({ pool: p.address, index: a.index });
     }
   }
   const rows = [...byContract.values()];
@@ -569,17 +513,10 @@ export function tokenByKey(key: string): TokenRow | undefined {
   return ALL_TOKENS.find((t) => t.key === key);
 }
 
-/// Whether the token trades in a stable pool, the only pools cross-chain
-/// orders settle through.
-export function inStablePool(t: TokenRow): boolean {
-  return t.pools.some((s) => s.type === "stable");
-}
-
 /// A same-chain swap venue: one pool holding both tokens, with each token's
 /// index in that pool.
 export interface Venue {
   pool: Address;
-  type: PoolType;
   indexIn: number;
   indexOut: number;
 }
@@ -590,25 +527,19 @@ export function venuesFor(a: TokenRow, b: TokenRow): Venue[] {
   if (a.chainId !== b.chainId) return [];
   return a.pools.flatMap((sa) => {
     const sb = b.pools.find((s) => s.pool.toLowerCase() === sa.pool.toLowerCase());
-    return sb ? [{ pool: sa.pool, type: sa.type, indexIn: sa.index, indexOut: sb.index }] : [];
+    return sb ? [{ pool: sa.pool, indexIn: sa.index, indexOut: sb.index }] : [];
   });
 }
 
 /// Why `a -> b` cannot be routed, with a one-line explanation, or undefined if
-/// it can. Same-chain, some pool must hold both tokens; cross-chain orders
-/// settle through the stable pools, so both tokens must trade in one.
+/// it can. Same-chain, some pool must hold both tokens; cross-chain, both
+/// chains need a settler.
 export function tokenRouteBlocked(a: TokenRow, b: TokenRow): { reason: string; detail: string } | undefined {
   if (a.chainId === b.chainId) {
     if (venuesFor(a, b).length > 0) return undefined;
     return {
       reason: `No pool holds ${a.symbol} and ${b.symbol}`,
       detail: `${a.symbol} and ${b.symbol} trade in different pools on ${a.chainShort}. Swap through a token both pools hold, such as USDC.`,
-    };
-  }
-  if (!inStablePool(a) || !inStablePool(b)) {
-    return {
-      reason: "FX tokens trade on their own chain",
-      detail: "Cross-chain orders settle through stable pools. FX currencies trade within their chain's FX pool.",
     };
   }
   const reason = routeBlockedReason(a.chainId, b.chainId);

@@ -3,7 +3,7 @@
 import { useReadContracts } from "wagmi";
 import { type Address, zeroAddress } from "viem";
 import { HOOK_LP_ABI, POOL_ABI } from "@/lib/contracts";
-import { ALL_POOLS, type PoolType } from "@/lib/crosschain";
+import { ALL_POOLS } from "@/lib/crosschain";
 
 export type OnChainPosition = {
   /// ERC-6909 share id, which is the tick index. Unique only WITHIN a pool:
@@ -11,7 +11,6 @@ export type OnChainPosition = {
   tokenId: bigint;
   poolAddress: Address;
   chainId: number;
-  poolType: PoolType;
   tickIndex: number;
   kWad: bigint;
   rWad: bigint; // current ERC-6909 share balance
@@ -73,7 +72,6 @@ export function usePositions(account: Address | undefined) {
         tokenId: BigInt(s.tick),
         poolAddress: s.pool.address,
         chainId: s.pool.chainId,
-        poolType: s.pool.type,
         tickIndex: s.tick,
         kWad: tick?.[0] ?? 0n,
         rWad: bal,

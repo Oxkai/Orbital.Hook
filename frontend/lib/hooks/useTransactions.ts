@@ -5,8 +5,8 @@ import { useConfig } from "wagmi";
 import { getPublicClient } from "wagmi/actions";
 import { parseAbiItem, type Address, type AbiEvent } from "viem";
 import { POOL_ABI } from "@/lib/contracts";
-import { ALL_POOLS, type PoolEntry, type PoolType } from "@/lib/crosschain";
-import { fetchActivityAll, hasSubgraph, type SubgraphTx, type TokenAmount } from "@/lib/subgraph";
+import { ALL_POOLS, DEPLOYMENTS, type PoolEntry } from "@/lib/crosschain";
+import { fetchActivityAll, subgraphIndexes, type SubgraphTx, type TokenAmount } from "@/lib/subgraph";
 
 // Wide ranges work on a dedicated RPC (NEXT_PUBLIC_RPC_URL → Alchemy). The
 // public node caps eth_getLogs at 100 blocks; Alchemy handles 10k comfortably,
@@ -47,11 +47,9 @@ export interface TxRecord {
   /// and it is the same whether the row came from the subgraph or from RPC.
   eventId: string;
   hash: `0x${string}`;
-  /// Which chain and which pool the row came from. One chain can host both a
-  /// stable and an FX pool, so the chain alone does not identify the source.
+  /// Which chain and which pool the row came from.
   chainId: number;
   pool: Address;
-  poolType: PoolType;
   blockNumber: bigint;
   timestamp: number; // unix seconds
   actor: Address;
@@ -67,7 +65,7 @@ const COLLECT = parseAbiItem("event Collect(address indexed owner, uint256 index
 ///
 /// Keyed by `chainId:block`, NOT by block number alone. Every chain starts at
 /// block 1, so a bare-number cache collides constantly once more than one chain
-/// is scanned: Arc block 60,634,293 and an Arbitrum block of the same height
+/// is scanned: Unichain block 62,428,261 and an Arbitrum block of the same height
 /// would share an entry and stamp each other's rows with the wrong time.
 const tsCache = new Map<string, number>();
 
@@ -89,7 +87,7 @@ interface Source {
   key: string; // lowercased pool address
   pool: PoolEntry;
   client: Client;
-  /// Served by the subgraph rather than RPC. Only stable pools are indexed.
+  /// Served by the subgraph rather than RPC.
   subgraph: boolean;
 }
 
@@ -101,7 +99,7 @@ const openPools = (cursors: Record<string, bigint | null>): ReadonlySet<string> 
 
 /// Newest first. Ordering is by TIMESTAMP, never by block number: heights are
 /// per-chain and not comparable, so sorting merged rows by block would
-/// interleave a 300M-block Arbitrum row against a 60M-block Arc row as though
+/// interleave a 300M-block Arbitrum row against a 62M-block Unichain row as though
 /// one preceded the other.
 const byNewest = (a: { timestamp: number }, b: { timestamp: number }) => b.timestamp - a.timestamp;
 
@@ -111,10 +109,11 @@ function mergeRows(existing: TxRecord[], incoming: TxRecord[]): TxRecord[] {
   return [...existing, ...incoming.filter((t) => !seen.has(rowKey(t)))].sort(byNewest);
 }
 
-/// Map a subgraph row onto the shared record shape. The subgraph indexes each
-/// chain's stable pool, so that is the pool the row belongs to.
+/// Map a subgraph row onto the shared record shape. Each chain's subgraph
+/// indexes that chain's registered hook, so that is the pool the row belongs to.
 function fromSubgraph(t: SubgraphTx): TxRecord | undefined {
-  const pool = ALL_POOLS.find((p) => p.chainId === t.chainId && p.type === "stable");
+  const hook = DEPLOYMENTS[t.chainId]?.orbitalHook.toLowerCase();
+  const pool = ALL_POOLS.find((p) => p.chainId === t.chainId && p.address.toLowerCase() === hook);
   if (!pool) return undefined;
   return {
     type: t.type,
@@ -122,7 +121,6 @@ function fromSubgraph(t: SubgraphTx): TxRecord | undefined {
     hash: t.hash,
     chainId: t.chainId,
     pool: pool.address,
-    poolType: pool.type,
     blockNumber: t.blockNumber,
     timestamp: t.timestamp,
     actor: t.actor,
@@ -136,8 +134,6 @@ function fromSubgraph(t: SubgraphTx): TxRecord | undefined {
 
 /// Each pool's per-asset scale (raw units -> WAD value units), read from the
 /// hook once per session: immutable, and the only exact way to value a swap.
-/// A stable asset's is just its decimals, but an FX pool folds its oracle
-/// centre into each priced asset's scale, so EURC is worth more than a USDC.
 /// A failed read is not cached, so the next page retries it.
 const scaleCache = new Map<string, readonly bigint[]>();
 
@@ -189,7 +185,6 @@ async function fetchChunk(src: Source, from: bigint, to: bigint): Promise<RawTx[
     hash: log.transactionHash,
     chainId: pool.chainId,
     pool: pool.address,
-    poolType: pool.type,
     blockNumber: log.blockNumber,
   });
   const out: RawTx[] = [];
@@ -294,7 +289,7 @@ export function useTransactions() {
       ALL_POOLS.flatMap((pool) => {
         const client = getPublicClient(config, { chainId: pool.chainId }) as Client | undefined;
         if (!client || pool.assets.length === 0) return [];
-        return [{ key: pool.address.toLowerCase(), pool, client, subgraph: pool.type === "stable" && hasSubgraph(pool.chainId) }];
+        return [{ key: pool.address.toLowerCase(), pool, client, subgraph: subgraphIndexes(pool.chainId, pool.address) }];
       }),
     [config]
   );
