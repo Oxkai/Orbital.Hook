@@ -34,7 +34,7 @@ const TITLE = "Orbital - Multitoken stablecoin AMM on Arbitrum";
 // ~154x is the Orbital paper's capital-efficiency figure at N=5; keep it in step
 // with the README.
 const DESCRIPTION =
-  "One pool, N stablecoins. A Uniswap v4 hook that prices a whole basket of dollars on the Orbital sphere, with ~154x the capital efficiency of a full-range pool and automatic depeg isolation. Live on Arbitrum Sepolia, Unichain Sepolia and Base Sepolia.";
+  "One pool, N stablecoins. A Uniswap v4 hook that trades USDC, USDT, DAI and FRAX out of one shared book on the Orbital sphere, with ~154x the capital efficiency of a full-range pool and automatic depeg isolation. Live on Arbitrum, Unichain and Base Sepolia, linked by ERC-7683 cross-chain swaps.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -44,6 +44,7 @@ export const metadata: Metadata = {
   keywords: [
     "Orbital", "Uniswap v4 hook", "stablecoin AMM", "concentrated liquidity",
     "Arbitrum", "Unichain", "Base", "DeFi", "N-asset AMM", "depeg isolation", "Paradigm Orbital",
+    "ERC-7683", "cross-chain swaps", "Hyperlane",
   ],
   // `images` and `icons` are intentionally omitted: app/opengraph-image.tsx,
   // app/icon.svg and app/apple-icon.tsx are picked up by Next's file

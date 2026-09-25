@@ -63,7 +63,7 @@ export default function OpengraphImage() {
           }}
         >
           <div>ARBITRUM SEPOLIA · CHAIN ID 421614</div>
-          <div>228 TESTS</div>
+          <div>179 TESTS</div>
         </div>
       </div>
     ),
