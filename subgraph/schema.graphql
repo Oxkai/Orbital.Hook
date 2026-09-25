@@ -73,7 +73,7 @@ type Pool @entity(immutable: false) {
 One asset in a pool's basket, at the index the hook assigned it.
 
 The hook sorts assets ascending by address, and addresses are unrelated across
-chains, so USDC is index 2 on Arc and index 0 on Unichain. Events carry the
+chains, so USDC is index 3 on Unichain and index 2 on Arbitrum. Events carry the
 INDEX, never the symbol, so anything decoding a Swap must resolve through here
 for the chain it came from or it will name the wrong token.
 """

@@ -1,7 +1,7 @@
 specVersion: 1.0.0
 description: "Orbital Hook: a Uniswap v4 hook that replaces constant-product
   with the Orbital sphere/torus curve so N stablecoins trade out of one shared
-  reserve book. Indexed across four chains, including Circle's Arc."
+  reserve book. Indexed on Arbitrum Sepolia, Unichain Sepolia and Base Sepolia."
 repository: https://github.com/Oxkai/Orbital.Hook
 schema:
   file: ./schema.graphql
@@ -11,8 +11,8 @@ dataSources:
     network: arbitrum-sepolia
     source:
       abi: OrbitalHook
-      address: "0x8e7BEf4320f73a39100C42325Fc426CBD1842a88"
-      startBlock: 308368410
+      address: "0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88"
+      startBlock: 312599603
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9

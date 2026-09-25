@@ -39,7 +39,6 @@ function chainIdForNetwork(net: string): i32 {
   if (net == "unichain-testnet") return 1301;
   if (net == "base-sepolia") return 84532;
   if (net == "arbitrum-sepolia") return 421614;
-  if (net == "arc-testnet") return 5042002;
   return 0;
 }
 
