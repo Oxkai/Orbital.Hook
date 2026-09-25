@@ -284,8 +284,8 @@ contract SimulateMultiLPLiveScript is Script {
 
     /// @dev Swap `amountIn` raw of asset i for j. The swap is first quoted
     ///      through the V4Quoter, which runs it against the real hook and
-    ///      reverts if the hook refuses it (an FX pool's oracle band, or a
-    ///      trade larger than the pool can fill). Then the reverse trade is
+    ///      reverts if the hook refuses it (a trade larger than the pool can
+    ///      fill). Then the reverse trade is
     ///      taken instead, as an arbitrageur would, and if that is refused too
     ///      the swap is skipped. Quotes run outside the broadcast block, so
     ///      nothing refused is ever sent.

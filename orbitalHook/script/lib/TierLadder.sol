@@ -19,24 +19,15 @@ import {SphereMath} from "../../src/libraries/SphereMath.sol";
 ///         little, wide ones more. The profile is then scaled so the whole
 ///         ladder deposits `capitalPerAsset` of every asset.
 ///
-///           STABLE  bands 0.999 0.997 0.995 0.99 0.98 0.95   + full range
-///                   depth 100   90    80    60   40   20     + 1
-///           FX      bands 0.995 0.99  0.98  0.97 0.95 0.90   + full range
-///                   depth 100   90    75    60   40   20     + 1
+///           bands 0.999 0.997 0.995 0.99 0.98 0.95   + full range
+///           depth 100   90    80    60   40   20     + 1
 ///
 ///         Cumulative depth falls ~20x from the peg to the outer band, the
 ///         shape of a real stable pool, instead of ~3000x. The full-range tier
 ///         is kept small (a full-range position has no virtual part, so each
 ///         dollar in it buys the least depth); its boundary is reached only by
 ///         draining an asset, so large trades still fill rather than revert.
-///         FX bands are wider: an FX pool's centre is fixed at deploy while the
-///         rate drifts, and narrow bands would exit within days.
 library TierLadder {
-    enum Profile {
-        STABLE,
-        FX
-    }
-
     uint256 internal constant TIERS = 7;
 
     /// @dev Default real capital per asset (engine WAD value units): ~$5M TVL
@@ -47,40 +38,38 @@ library TierLadder {
     uint256 private constant PROBE_R = 1_000_000 ether;
 
     /// @dev Band bound of tier `t`, WAD; 0 is full range.
-    function bound(Profile p, uint256 t) internal pure returns (uint256) {
-        if (p == Profile.STABLE) return [uint256(0.999e18), 0.997e18, 0.995e18, 0.99e18, 0.98e18, 0.95e18, 0][t];
-        return [uint256(0.995e18), 0.99e18, 0.98e18, 0.97e18, 0.95e18, 0.9e18, 0][t];
+    function bound(uint256 t) internal pure returns (uint256) {
+        return [uint256(0.999e18), 0.997e18, 0.995e18, 0.99e18, 0.98e18, 0.95e18, 0][t];
     }
 
     /// @dev Relative depth (radius) tier `t` adds.
-    function weight(Profile p, uint256 t) internal pure returns (uint256) {
-        if (p == Profile.STABLE) return [uint256(100), 90, 80, 60, 40, 20, 1][t];
-        return [uint256(100), 90, 75, 60, 40, 20, 1][t];
+    function weight(uint256 t) internal pure returns (uint256) {
+        return [uint256(100), 90, 80, 60, 40, 20, 1][t];
     }
 
     /// @notice Radius of every tier such that the whole ladder deposits
     ///         `capitalPerAsset` of each asset into a balanced pool.
-    function radii(Profile p, uint8 n, uint256 capitalPerAsset) internal pure returns (uint256[TIERS] memory r) {
+    function radii(uint8 n, uint256 capitalPerAsset) internal pure returns (uint256[TIERS] memory r) {
         // Real deposit per unit of weight, then the radius per unit of weight.
         uint256 perWeight;
-        for (uint256 t = 0; t < TIERS; ++t) perWeight += weight(p, t) * _realPerRadius(bound(p, t), n);
+        for (uint256 t = 0; t < TIERS; ++t) perWeight += weight(t) * _realPerRadius(bound(t), n);
         uint256 radiusPerWeight = capitalPerAsset * 1e18 / perWeight;
-        for (uint256 t = 0; t < TIERS; ++t) r[t] = weight(p, t) * radiusPerWeight;
+        for (uint256 t = 0; t < TIERS; ++t) r[t] = weight(t) * radiusPerWeight;
     }
 
     /// @notice Seed every tier into `hook`. The caller must have approved the
     ///         hook for each asset and hold enough of each.
     /// @return ticks_ The tick index of each seeded tier.
-    function seed(OrbitalHook hook, uint8 n, Profile p, uint256 capitalPerAsset)
+    function seed(OrbitalHook hook, uint8 n, uint256 capitalPerAsset)
         internal
         returns (uint256[TIERS] memory ticks_)
     {
         uint256[] memory maxA = new uint256[](n);
         for (uint256 i = 0; i < n; ++i) maxA[i] = type(uint256).max;
 
-        uint256[TIERS] memory r = radii(p, n, capitalPerAsset);
+        uint256[TIERS] memory r = radii(n, capitalPerAsset);
         for (uint256 t = 0; t < TIERS; ++t) {
-            uint256 b = bound(p, t);
+            uint256 b = bound(t);
             uint256[] memory amounts;
             (ticks_[t], amounts) = hook.addLiquidity(plane(r[t], n, b), r[t], maxA);
             console2.log("  seeded tick", ticks_[t], "r:", r[t]);

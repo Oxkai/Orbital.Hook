@@ -4,8 +4,6 @@ A Uniswap v4 hook implementing the Orbital N-asset stableswap from [Paradigm (20
 
 The hook ([`src/OrbitalHook.sol`](src/OrbitalHook.sol)) holds the abstract Orbital state (the sphere reserve vector, the LP ticks, the fees) and replaces Uniswap's swap curve inside `beforeSwap`. Token custody stays in v4's `PoolManager`, the hook only holds matching ERC-6909 claim tokens. Each of the $\tfrac{N(N-1)}{2}$ pairs among the registered assets is a separate v4 pool, all pointing at this one hook and sharing one engine state.
 
-[`src/fx/OrbitalFXHook.sol`](src/fx/OrbitalFXHook.sol) extends it into an FX pool: the same engine, with each non-dollar asset priced by a Chainlink `AggregatorV3` feed.
-
 For the project overview and the frontend, see the [root README](../README.md).
 
 ---
@@ -45,7 +43,7 @@ The narrower the band, the larger its virtual part and the more depth each real 
 
 ## Status
 
-v1, working end-to-end (228 tests) and live on Unichain Sepolia, Arbitrum Sepolia and Arc testnet, including an FX pool on Arc. Testnet release, not yet audited.
+v1, working end-to-end (179 tests) and live on Arbitrum Sepolia, Unichain Sepolia and Base Sepolia. Testnet release, not yet audited.
 
 **Engine**
 - [x] Asset registry, N tokens per pool, sorted, unique, immutable
@@ -53,7 +51,6 @@ v1, working end-to-end (228 tests) and live on Unichain Sepolia, Arbitrum Sepoli
 - [x] `beforeSwap` full segmenting solver (within-tick + tick crossings), safeguarded against overshoot
 - [x] Concentrated liquidity: virtual reserves below each band's floor
 - [x] Per-tick fee growth + per-position checkpoints (v3-style)
-- [x] FX pool: Chainlink-priced assets, 50 bps oracle band, stale-feed protection
 
 **Liquidity**
 - [x] `addLiquidity`, `unlock` → settle N tokens → mint ERC-6909
@@ -83,7 +80,7 @@ v1, working end-to-end (228 tests) and live on Unichain Sepolia, Arbitrum Sepoli
 
 ```bash
 forge build
-forge test          # 228 tests across 18 suites
+forge test          # 179 tests across 14 suites
 ```
 
 | Suite | What it proves |
@@ -93,7 +90,6 @@ forge test          # 228 tests across 18 suites
 | `OrbitalHook.t.sol` | 61 tests over the hook surface: constructor guards, permissions, LP entry, swaps, tick crossings, boundary behaviour, pause, ownership. |
 | `VirtualLiquidity.t.sol` | Deposits equal share over capital efficiency, full range has no virtual part, the same capital concentrated is far deeper, burns return the deposit, partial burns keep the band. |
 | `SolverRobustness.t.sol` | Large swaps up to the edge of the book: the solver converges, and a trade that would empty the book reverts cleanly. |
-| `fx/` | `OrbitalFXHook.t.sol` (oracle band, staleness, pricing), `FXSolvency.invariant.t.sol`, a live-feed fork test, and `TestnetFxFeed.t.sol`. |
 | `SphereMath` · `TorusMath` · `TickLib` · `QuadraticSolver` | Library units, including fuzzed solver residual and stability bounds. |
 | `Benchmark.t.sol` | Slippage against depth, swap size and N. Not assertions, a console study. |
 
@@ -106,9 +102,6 @@ forge test          # 228 tests across 18 suites
 ```
 src/
 ├── OrbitalHook.sol          one contract: storage + v4 hook + LP entry + engine
-├── fx/
-│   ├── OrbitalFXHook.sol    OrbitalHook + Chainlink-priced assets and swap guards
-│   └── IAggregatorV3.sol    Chainlink's feed interface
 ├── libraries/               the Orbital math
 │   ├── FullMath.sol         512-bit mulDiv, full-precision intermediate products
 │   ├── SphereMath.sol       sphere invariant, radius, equal-price point
@@ -127,7 +120,6 @@ test/
 ├── MixedDecimalsLifecycle.t.sol   6dp lifecycle + fee-on-transfer rejection
 ├── VirtualLiquidity.t.sol         concentrated deposits, depth, withdrawals
 ├── SolverRobustness.t.sol         swaps to the edge of the book
-├── fx/                            FX hook, FX solvency invariant, feed mirror
 ├── OrbitalIntentSettler.t.sol     ERC-7683 flow and proof authentication
 ├── CrosschainFork.t.sol           live Base + Arbitrum forks, forged-proof test
 ├── SphereMath.t.sol · TickLib.t.sol · TorusMath.t.sol
@@ -137,14 +129,11 @@ test/
 script/
 ├── lib/TierLadder.sol       the liquidity ladder every deploy seeds
 ├── DeployTestnet.s.sol      tokens → CREATE2-mined hook → 6 pools → ladder seed → settler
-├── DeployArc.s.sol          same on Arc, deploying the v4 core it lacks
-├── DeployArcFX.s.sol        the FX pool: EUR tokens, feed or mirror, hook, seed
 ├── ReshapeLiquidity.s.sol   move a live pool onto the current ladder in place
-├── fx/SyncFxFeed.s.sol      copy Chainlink EUR / USD onto the Arc testnet mirror
 ├── DeployCrosschain.s.sol   settler only, against an existing hook
 ├── DeployQuoter.s.sol       V4Quoter where no canonical one exists
 ├── SimulateMultiLPLive.s.sol  seeded LPs, mixed swap sizes and exits on a LIVE pool
-├── SeedActivity.s.sol       swap waves + a mid-run re-seed
+├── SimulateSwaps.s.sol      seeded retail swap flow on a LIVE pool, dollar-capped per trade
 ├── Lifecycle.s.sol          full LP lifecycle, asserts tick-slot recycling
 ├── CrosschainDemo.s.sol     open → fill → Hyperlane proof → settle
 └── Simulate.s.sol · SimulateMultiLP.s.sol   local anvil equivalents
@@ -216,46 +205,36 @@ Optional, and not required to use the pool. [`src/crosschain/OrbitalIntentSettle
 ## Deploy
 
 ```bash
-export HYPERLANE_MAILBOX=0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD   # for the settler
-export V4_ROUTER=0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540         # Unichain has no canonical one
+export HYPERLANE_MAILBOX=0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8   # this chain's Mailbox, for the settler
+export V4_ROUTER=0xcD8D7e10A7aA794C389d56A07d85d63E28780220         # optional; required on Unichain
 
 forge script script/DeployTestnet.s.sol \
-  --rpc-url unichain_sepolia --broadcast --slow \
+  --rpc-url arbitrum_sepolia --broadcast --slow \
   --private-key $PRIVATE_KEY
 ```
 
-`DeployTestnet.s.sol` is chain-agnostic: it resolves the PoolManager and router by `chainId`, deploys four mock stables with a **realistic decimal mix** (USDC/USDT 6dp, DAI/FRAX 18dp), CREATE2-mines the hook address, initializes the 6 pair pools, seeds the liquidity ladder, and deploys the settler. `DeployArc.s.sol` does the same on Arc and `DeployArcFX.s.sol` deploys the FX pool.
+`DeployTestnet.s.sol` is chain-agnostic: it resolves the PoolManager and router by `chainId`, deploys four mock stables with a **realistic decimal mix** (USDC/USDT 6dp, DAI/FRAX 18dp), CREATE2-mines the hook address, initializes the 6 pair pools, seeds the liquidity ladder, and deploys the settler.
+
+Once every chain is deployed, register each settler with the others (the owner calls `setPeer(chainId, hyperlaneDomain, bytes32(settler))` once per remote chain):
+
+```bash
+cast send <settler> "setPeer(uint256,uint32,bytes32)" <remoteChainId> <remoteDomain> <remoteSettlerAsBytes32> \
+  --rpc-url <rpc> --private-key $PRIVATE_KEY
+```
 
 ### The liquidity ladder
 
 Every deploy seeds [`TierLadder`](script/lib/TierLadder.sol): **$5M of real capital** (1.25M of each asset) over six concentrated bands plus a small full-range backstop. Each tier is given a share of the **depth**, tapering away from the peg, and the capital follows from it, so depth falls off gradually rather than piling into one band at $1.
 
-| Profile | Band bounds | Depth weights |
-|---|---|---|
-| Stable | 0.999 · 0.997 · 0.995 · 0.99 · 0.98 · 0.95 · full range | 100 · 90 · 80 · 60 · 40 · 20 · 1 |
-| FX | 0.995 · 0.99 · 0.98 · 0.97 · 0.95 · 0.90 · full range | 100 · 90 · 75 · 60 · 40 · 20 · 1 |
-
-FX bands are wider because an FX pool's centre is fixed at deploy while the rate drifts. The full-range tier's boundary is reached only by draining an asset, so large trades still fill rather than revert. To move an existing pool onto the ladder without redeploying:
-
-```bash
-HOOK=<hook> PROFILE=STABLE forge script script/ReshapeLiquidity.s.sol \
-  --rpc-url <rpc> --broadcast --slow --private-key $PRIVATE_KEY
-```
-
-### FX pool
-
-`DeployArcFX.s.sol` deploys EURC and EURe (6dp), reuses the Arc stable pool's USDC and USDT, and wires each EUR asset to an EUR / USD `AggregatorV3` feed. Swap guards, all in [`OrbitalFXHook`](src/fx/OrbitalFXHook.sol):
-
-| Guard | Behaviour |
+| Band bounds | Depth weights |
 |---|---|
-| `FxPriceBeyondBand` | A trade may not move the marginal price more than `maxDeviationBps` (50) from the feed |
-| `StalePrice` | Swaps pause when the feed is older than `maxPriceAge` (25h on a direct feed, 30h on the mirror) |
-| `InvalidOraclePrice` | Swaps pause on a non-positive answer |
+| 0.999 · 0.997 · 0.995 · 0.99 · 0.98 · 0.95 · full range | 100 · 90 · 80 · 60 · 40 · 20 · 1 |
 
-LP deposits and exits never read the oracle. On Arc testnet the pool reads Chainlink EUR / USD through a [`TestnetFxFeed`](script/mocks/TestnetFxFeed.sol) mirror of Chainlink EUR / USD on Ethereum mainnet; keep it fresh with:
+The full-range tier's boundary is reached only by draining an asset, so large trades still fill rather than revert. To move an existing pool onto the ladder without redeploying:
 
 ```bash
-forge script script/fx/SyncFxFeed.s.sol --rpc-url arc_testnet --broadcast --private-key $PRIVATE_KEY
+HOOK=<hook> forge script script/ReshapeLiquidity.s.sol \
+  --rpc-url <rpc> --broadcast --slow --private-key $PRIVATE_KEY
 ```
 
 ---
@@ -264,7 +243,7 @@ forge script script/fx/SyncFxFeed.s.sol --rpc-url arc_testnet --broadcast --priv
 
 A tick's band is encoded in `kNorm = k·WAD/r`, not in `k` alone: `_detectCrossing` tests `kNorm` against `alphaNorm`, and `kFromDepegPrice` returns a `k` proportional to `r`. Folding a new mint into an existing tick would add radius without the matching `k` and move the band away from the price the LP chose. So every mint gets its own tick ([`_findOrCreateTick`](src/OrbitalHook.sol)), with `k` and `r` from the same `kFromDepegPrice` call, and `kNorm` is exact by construction. Burned tick slots are recycled.
 
-The [subgraph](../subgraph) and [`orbital-mcp`](../orbital-mcp) watch `kNorm` against `alphaNorm` for every tick, so any band that could never be reached is flagged on its first read.
+The [subgraph](../subgraph) watches `kNorm` against `alphaNorm` for every tick, so any band that could never be reached is flagged on its first read.
 
 **Trade-offs.** `MAX_TICKS` (128) bounds concurrent LP positions, and more than `MAX_CROSSINGS` (20) ticks sharing one `kNorm` cannot clear in a single swap: it reverts with `TooManyCrossings` and rolls back, and a router splits the trade. Both are pinned by tests:
 
@@ -294,10 +273,8 @@ Exact contracts and lines, for verification.
 | Permit2 LP entry | [`src/OrbitalHook.sol:797`](src/OrbitalHook.sol#L797) |
 | Safeguarded Newton solver within a tick configuration | [`src/libraries/TorusMath.sol:258`](src/libraries/TorusMath.sol#L258) |
 | Crossing-point solver | [`src/libraries/QuadraticSolver.sol`](src/libraries/QuadraticSolver.sol) |
-| FX swap guard (oracle band, staleness) | [`src/fx/OrbitalFXHook.sol:188`](src/fx/OrbitalFXHook.sol#L188) |
 | Tick boundary maths (`kFromDepegPrice`, interior/boundary flips) | [`src/libraries/TickLib.sol`](src/libraries/TickLib.sol) |
 | Hook address mining + pool registration | [`script/DeployTestnet.s.sol`](script/DeployTestnet.s.sol) |
-| Arc deploy (v4 core deployed with the hook) | [`script/DeployArc.s.sol`](script/DeployArc.s.sol) |
 
 Developer feedback on the Uniswap stack, as required by the track: [`FEEDBACK.md`](FEEDBACK.md).
 
@@ -307,62 +284,50 @@ Developer feedback on the Uniswap stack, as required by the track: [`FEEDBACK.md
 
 Every address, per chain, is in [`deployments.json`](deployments.json). Owner of every hook: `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39`. Each hook's address is CREATE2-mined so its low bits encode its permission flags.
 
+### Arbitrum Sepolia `421614` (primary)
+
+| Contract | Address |
+|---|---|
+| OrbitalHook | [`0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88`](https://sepolia.arbiscan.io/address/0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88) |
+| PoolManager (v4, canonical) | `0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317` |
+| V4Quoter | `0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE` |
+| V4Router | `0xcD8D7e10A7aA794C389d56A07d85d63E28780220` |
+| OrbitalIntentSettler | `0x3104462820D7D721cc7139400016B27cb137D74b` |
+| USDC (mock, 6dp) | `0xe22D8b0FfC1b3e94ecD8bb92724f8cC4eeba8f17` |
+| USDT (mock, 6dp) | `0xC6c82FD06055346886F50A5a3B028dE9e8ad1e87` |
+| DAI (mock, 18dp) | `0xB563e0914e80c7D8d726F3fAb12ac2dD8e315cF2` |
+| FRAX (mock, 18dp) | `0x0B44Ab88312EEAa545D9e27EE5Ea8DaD90a6bF9E` |
+
 ### Unichain Sepolia `1301`
 
 Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the official `PoolManager` and `V4Quoter`.
 
 | Contract | Address |
 |---|---|
-| OrbitalHook | [`0xB9cD5ccF597e49F87C9c73eFABb5410195fE6A88`](https://sepolia.uniscan.xyz/address/0xB9cD5ccF597e49F87C9c73eFABb5410195fE6A88) |
+| OrbitalHook | [`0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88`](https://sepolia.uniscan.xyz/address/0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88) |
 | PoolManager (v4, canonical) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
 | V4Quoter (canonical) | `0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472` |
 | V4Router | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
-| OrbitalIntentSettler | `0x905Ef8cb78aaDc33dC1de0f22471561f7d921E8A` |
-| USDC (mock, 6dp) | `0xa2d96B6101231ea3DDBc056819834293e0c5849B` |
-| USDT (mock, 6dp) | `0x5F134Ec4C77A71a6a7B008e951762bf26e763B6D` |
-| DAI (mock, 18dp) | `0x8FE0995C389dF28f2aB910599Ff41E2F992d113f` |
-| FRAX (mock, 18dp) | `0x530f64feE1F4DCBd2A7c725156f53DAa8f8191Db` |
+| OrbitalIntentSettler | `0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784` |
 
-### Arbitrum Sepolia `421614`
+### Base Sepolia `84532`
 
 | Contract | Address |
 |---|---|
-| OrbitalHook | [`0x8e7BEf4320f73a39100C42325Fc426CBD1842a88`](https://sepolia.arbiscan.io/address/0x8e7BEf4320f73a39100C42325Fc426CBD1842a88) |
-| PoolManager (v4, canonical) | `0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317` |
-| V4Quoter | `0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE` |
-| V4Router | `0xcD8D7e10A7aA794C389d56A07d85d63E28780220` |
-| OrbitalIntentSettler | `0x050A876F5F4883ea17588077940c1E0dd4867D2B` |
+| OrbitalHook | [`0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88`](https://sepolia.basescan.org/address/0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88) |
+| PoolManager (v4, canonical) | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` |
+| V4Quoter | `0xDeCedb2746DE9c0793BcEBa7E2eDA044d9Cd4891` |
+| V4Router | `0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9` |
+| OrbitalIntentSettler | `0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5` |
 
-### Arc Testnet `5042002`
-
-The engine also runs on **[Circle's Arc](https://docs.arc.io) testnet**, where gas is paid in USDC. A stablecoin AMM on a stablecoin-native L1 is the same idea from both ends.
-
-| Contract | Address |
-|---|---|
-| OrbitalHook (stable pool) | [`0x1D922FB97c92b00706A449ba78EEFc0D3E01aa88`](https://testnet.arcscan.app/address/0x1D922FB97c92b00706A449ba78EEFc0D3E01aa88) |
-| **OrbitalFXHook** (USDC · USDT · EURC · EURe) | [`0xb7343fC8aA0Aaa583E3929B8De70D8e5751d2A88`](https://testnet.arcscan.app/address/0xb7343fC8aA0Aaa583E3929B8De70D8e5751d2A88) |
-| EUR / USD feed (TestnetFxFeed mirror of Chainlink) | `0x8a4a34d41f3234215D20bb7472C9Cf2d71D3BD24` |
-| EURC · EURe (mock, 6dp) | `0x2d59F25e42B396B25a9d4F474Ec1E230CEe02D82` · `0x09972c389552E02747336b87c557127fA0f6A385` |
-| USDC · USDT (mock, 6dp, shared by both pools) | `0x18033E198A2b0af2AfA75aFcc520f42179955a68` · `0x7d1c2f283811A0aa7D538e3C859DA8BB45330e35` |
-| PoolManager (v4, deployed with the hook) | `0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7` |
-| V4Quoter (deployed with the hook) | `0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90` |
-| V4Router (deployed with the hook) | `0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E` |
-| OrbitalIntentSettler | `0x71ac1F49f25a5f0Ad44e543fa4BB4e356d8252A0` |
-| Mailbox (testnet; Hyperlane at mainnet) | `0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb` |
-
-**We brought Uniswap v4 to Arc testnet.** v4 is not deployed there yet, so `DeployArc` deploys the PoolManager, router and quoter alongside the hook. Arc **mainnet** (chain `5042`) has a canonical v4 at `0x8366a39cc670b4001a1121b8f6a443a643e40951`, and the same script plugs into it with no code change.
-
-**Cross-chain on Arc arrives with mainnet.** Hyperlane runs on Arc mainnet, so on testnet the settler is deployed behind [`TestnetMailbox`](script/mocks/TestnetMailbox.sol), which emits dispatch events locally. The settler and its inbound authentication are the same contract as on the other chains; Arc trades same-chain on testnet while cross-chain orders run between Unichain and Arbitrum.
-
-**Chainlink EUR / USD, relayed for testnet.** On testnet the FX pool reads Chainlink's rate relayed from Ethereum mainnet. Arc mainnet has Chainlink EUR / USD at `0xDd5B15443cd733D3966a50a3E48cB7DF9Fb5DE0D`, which `DeployArcFX` uses there by default. Re-running the Arc scripts on mainnet with `V4_POOL_MANAGER` and `HYPERLANE_MAILBOX` set gives a fully canonical deployment with no code changes.
+Token addresses for Unichain and Base are in [`deployments.json`](deployments.json).
 
 ### Live state
 
-Each pool holds its $5M ladder plus independent LP positions, all ticks interior (`kBound = 0`):
+Each pool holds its $5M ladder, all ticks interior (`kBound = 0`), with random retail swaps from five independent traders run on top by [`SimulateSwaps.s.sol`](script/SimulateSwaps.s.sol), each trade capped at $5,000:
 
-| Pool | TVL | Ticks |
-|---|---|---|
-| Unichain | ~$5.70M | 13 |
-| Arc stable | ~$5.25M | 13 |
-| Arc FX | ~$5.79M | 14 |
-| Arbitrum | ~$5.84M | 14 |
+| Pool | TVL | Ticks | Swaps | Volume | Largest swap |
+|---|---|---|---|---|---|
+| Arbitrum | ~$5.00M | 7 | 46 | ~$30.5k | $3,791.62 |
+| Unichain | ~$5.00M | 7 | 25 | ~$14.8k | $1,591.96 |
+| Base | ~$5.00M | 7 | 25 | ~$28.3k | $4,269.29 |

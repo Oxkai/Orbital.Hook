@@ -16,9 +16,8 @@ import {TickLib} from "../src/libraries/TickLib.sol";
 ///         swap wave -> collect -> partial burn -> full burn -> verify the freed
 ///         tick slot is recycled -> add again -> burn.
 ///
-/// @dev Self-describing for the same reason as SeedActivity: it reads the asset
-///      set and decimals off the hook rather than pinning addresses that go stale
-///      on the next redeploy.
+/// @dev Self-describing: it reads the asset set and decimals off the hook rather
+///      than pinning addresses that go stale on the next redeploy.
 ///
 ///      Required env: ORBITAL_HOOK, V4_ROUTER
 contract LifecycleScript is Script {

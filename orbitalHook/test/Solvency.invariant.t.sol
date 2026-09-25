@@ -50,8 +50,7 @@ abstract contract SolvencyInvariantBase is BaseTest {
 
     /// @dev Deploy the hook under test at `flagged`, over the address-sorted
     ///      `regd`. A plain OrbitalHook by default; a profile may deploy a
-    ///      subclass (e.g. the FX hook) so the same handlers and invariants
-    ///      run against it.
+    ///      subclass so the same handlers and invariants run against it.
     function _deployHook(Currency[] memory regd, address flagged) internal virtual {
         deployCodeTo(
             "OrbitalHook.sol:OrbitalHook",

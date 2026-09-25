@@ -1,137 +1,5 @@
 {
-  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: 6M per asset (~$24M TVL per pool); stable profile 25% each at 0.9995 / 0.998 / 0.99 bands + full range. Settlement is by authenticated Hyperlane message. REDEPLOYED 2026-09-13 with virtual liquidity, the safeguarded Newton solver and the last-interior-tick guard. The Arc FX pool (5042002.fx) shares the Arc stable pool's USDC and USDT.",
-  "1301": {
-    "name": "Unichain Sepolia",
-    "short": "Unichain",
-    "rpc": "https://sepolia.unichain.org",
-    "explorer": "https://sepolia.uniscan.xyz",
-    "poolManager": "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
-    "v4Router": "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540",
-    "quoter": "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472",
-    "orbitalHook": "0xB9cD5ccF597e49F87C9c73eFABb5410195fE6A88",
-    "intentSettler": "0x905Ef8cb78aaDc33dC1de0f22471561f7d921E8A",
-    "hyperlaneMailbox": "0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD",
-    "hyperlaneDomain": 1301,
-    "deployBlock": 62428261,
-    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-    "peers": {
-      "421614": "0x050A876F5F4883ea17588077940c1E0dd4867D2B"
-    },
-    "assets": {
-      "FRAX": {
-        "address": "0x530f64feE1F4DCBd2A7c725156f53DAa8f8191Db",
-        "index": 0,
-        "decimals": 18
-      },
-      "USDT": {
-        "address": "0x5F134Ec4C77A71a6a7B008e951762bf26e763B6D",
-        "index": 1,
-        "decimals": 6
-      },
-      "DAI": {
-        "address": "0x8FE0995C389dF28f2aB910599Ff41E2F992d113f",
-        "index": 2,
-        "decimals": 18
-      },
-      "USDC": {
-        "address": "0xa2d96B6101231ea3DDBc056819834293e0c5849B",
-        "index": 3,
-        "decimals": 6
-      }
-    }
-  },
-  "5042002": {
-    "name": "Arc Testnet",
-    "short": "Arc",
-    "rpc": "https://rpc.testnet.arc.io",
-    "explorer": "https://testnet.arcscan.app",
-    "poolManager": "0x9BEACCac4e0358Cc276703dcE7341B9B9fEfd5f7",
-    "v4Router": "0xC30819b8ac12B5d12751b83cFfebD6F0bFa0b53E",
-    "quoter": "0x17684C1C522E7cCD9a38E1Ab5994BB294Bf1ef90",
-    "orbitalHook": "0x1D922FB97c92b00706A449ba78EEFc0D3E01aa88",
-    "intentSettler": "0x71ac1F49f25a5f0Ad44e543fa4BB4e356d8252A0",
-    "hyperlaneMailbox": "0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb",
-    "hyperlaneDomain": 5042002,
-    "deployBlock": 61854987,
-    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-    "peers": {},
-    "_arc": {
-      "gasToken": "USDC",
-      "gasTokenNote": "Native USDC is 18dp; the ERC-20 view of the same asset is 6dp. Never mix raw values. Faucet: https://faucet.circle.com",
-      "poolManagerNote": "SELF-DEPLOYED. Uniswap has no v4 deployment on Arc testnet (verified 2026-09-06: every canonical PoolManager address returns 0 bytes, and Arc is absent from the official v4 deployments list). Arc MAINNET (5042) does have one at 0x8366a39cc670b4001a1121b8f6a443a643e40951.",
-      "mailboxNote": "NOT HYPERLANE. TestnetMailbox shim, see script/mocks/TestnetMailbox.sol. Hyperlane has no Arc testnet entry; the registry carries Arc MAINNET only (domain 5042, mailbox 0x7f50C5776722630a0024fAE05fDe8b47571D7B39). Messages dispatched here are events only and are NEVER relayed, which is why `peers` is empty and Arc is not part of the live 3-chain mesh. The settler's inbound auth checks are real and unmodified; only transport is stubbed.",
-      "mainnetPath": "Arc mainnet opens 2026-09-16 with both canonical v4 and canonical Hyperlane. Re-run script/DeployArc.s.sol with V4_POOL_MANAGER and HYPERLANE_MAILBOX set to get real cross-chain with no code changes."
-    },
-    "assets": {
-      "USDC": {
-        "address": "0x18033E198A2b0af2AfA75aFcc520f42179955a68",
-        "index": 0,
-        "decimals": 6
-      },
-      "FRAX": {
-        "address": "0x5A2EB33e6Ec0c8bbE9c18ED09428e4E7B5A86265",
-        "index": 1,
-        "decimals": 18
-      },
-      "USDT": {
-        "address": "0x7d1c2f283811A0aa7D538e3C859DA8BB45330e35",
-        "index": 2,
-        "decimals": 6
-      },
-      "DAI": {
-        "address": "0xdA585869c1b63F20Cb54226cd99B006d90BAD784",
-        "index": 3,
-        "decimals": 18
-      }
-    },
-    "fx": {
-      "hook": "0xb7343fC8aA0Aaa583E3929B8De70D8e5751d2A88",
-      "deployBlock": 61855148,
-      "fee": 100,
-      "maxPriceAge": 108000,
-      "maxDeviationBps": 50,
-      "eurUsdFeed": "0x8a4a34d41f3234215D20bb7472C9Cf2d71D3BD24",
-      "_feed": {
-        "kind": "TestnetFxFeed",
-        "mirrors": {
-          "chainId": 1,
-          "feed": "0xb49f677943BC038e9857d61E7d053CaA2C1734C1",
-          "pair": "EUR / USD",
-          "provider": "Chainlink"
-        },
-        "note": "Chainlink has no Arc testnet feeds. This mirror copies each round of Chainlink EUR / USD on Ethereum mainnet (script/mocks/TestnetFxFeed.sol, synced by script/fx/SyncFxFeed.s.sol). Arc mainnet (5042) has Chainlink EUR / USD at 0xDd5B15443cd733D3966a50a3E48cB7DF9Fb5DE0D, the DeployArcFX default there.",
-        "maxPriceAgeNote": "30h = Chainlink 24h FX heartbeat + relay lag for the mirror hop. A direct Chainlink feed uses 25h."
-      },
-      "assets": {
-        "EURe": {
-          "address": "0x09972c389552E02747336b87c557127fA0f6A385",
-          "index": 0,
-          "decimals": 6,
-          "feed": "0x8a4a34d41f3234215D20bb7472C9Cf2d71D3BD24"
-        },
-        "USDC": {
-          "address": "0x18033E198A2b0af2AfA75aFcc520f42179955a68",
-          "index": 1,
-          "decimals": 6,
-          "feed": null
-        },
-        "EURC": {
-          "address": "0x2d59F25e42B396B25a9d4F474Ec1E230CEe02D82",
-          "index": 2,
-          "decimals": 6,
-          "feed": "0x8a4a34d41f3234215D20bb7472C9Cf2d71D3BD24"
-        },
-        "USDT": {
-          "address": "0x7d1c2f283811A0aa7D538e3C859DA8BB45330e35",
-          "index": 3,
-          "decimals": 6,
-          "feed": null
-        }
-      },
-      "_tokens": "USDC and USDT are the Arc stable pool's own contracts (shared, one USDC per chain); EURC and EURe are unique to this pool.",
-      "_ladder": "TierLadder FX profile: 25% of capital each at 0.995 / 0.99 / 0.97 bands + full range."
-    }
-  },
+  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: 1.25M per asset (~$5M TVL per pool) over six concentrated bands (0.999 / 0.997 / 0.995 / 0.99 / 0.98 / 0.95) plus a full-range backstop. Settlement is by authenticated Hyperlane message. REDEPLOYED 2026-09-25 on Arbitrum Sepolia (primary), Unichain Sepolia and Base Sepolia; every settler is peered with the other two.",
   "421614": {
     "name": "Arbitrum Sepolia",
     "short": "Arbitrum",
@@ -140,35 +8,118 @@
     "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     "v4Router": "0xcD8D7e10A7aA794C389d56A07d85d63E28780220",
     "quoter": "0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE",
-    "orbitalHook": "0x8e7BEf4320f73a39100C42325Fc426CBD1842a88",
-    "intentSettler": "0x050A876F5F4883ea17588077940c1E0dd4867D2B",
+    "orbitalHook": "0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88",
+    "intentSettler": "0x3104462820D7D721cc7139400016B27cb137D74b",
     "hyperlaneMailbox": "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8",
     "hyperlaneDomain": 421614,
-    "deployBlock": 308368410,
+    "deployBlock": 312599603,
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     "peers": {
-      "1301": "0x905Ef8cb78aaDc33dC1de0f22471561f7d921E8A"
+      "1301": "0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784",
+      "84532": "0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5"
     },
     "assets": {
       "FRAX": {
-        "address": "0x20b4287b2214bC45be698a8112D8041564E560Fc",
+        "address": "0x0B44Ab88312EEAa545D9e27EE5Ea8DaD90a6bF9E",
         "index": 0,
         "decimals": 18
       },
       "DAI": {
-        "address": "0x7f9510069Bc2c9b0Caa2b67dA83993c023f37403",
+        "address": "0xB563e0914e80c7D8d726F3fAb12ac2dD8e315cF2",
         "index": 1,
         "decimals": 18
       },
-      "USDC": {
-        "address": "0x9F1D4cA186fa3fb9ED4BBA5b1E199808d73Fe14f",
+      "USDT": {
+        "address": "0xC6c82FD06055346886F50A5a3B028dE9e8ad1e87",
         "index": 2,
         "decimals": 6
       },
-      "USDT": {
-        "address": "0xF5D81CbFb68DAF9AbBc8A4056E04CC09B88E9002",
+      "USDC": {
+        "address": "0xe22D8b0FfC1b3e94ecD8bb92724f8cC4eeba8f17",
         "index": 3,
         "decimals": 6
+      }
+    }
+  },
+  "1301": {
+    "name": "Unichain Sepolia",
+    "short": "Unichain",
+    "rpc": "https://sepolia.unichain.org",
+    "explorer": "https://sepolia.uniscan.xyz",
+    "poolManager": "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
+    "v4Router": "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540",
+    "quoter": "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472",
+    "orbitalHook": "0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88",
+    "intentSettler": "0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784",
+    "hyperlaneMailbox": "0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD",
+    "hyperlaneDomain": 1301,
+    "deployBlock": 63492025,
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "peers": {
+      "421614": "0x3104462820D7D721cc7139400016B27cb137D74b",
+      "84532": "0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5"
+    },
+    "assets": {
+      "USDC": {
+        "address": "0x08662d330e03D0C624D4b00F7594fc297005957B",
+        "index": 0,
+        "decimals": 6
+      },
+      "FRAX": {
+        "address": "0x1A478E8Ad09D650f17df0288254bd24220Ff6b57",
+        "index": 1,
+        "decimals": 18
+      },
+      "DAI": {
+        "address": "0x7EB345af1f38Ee7a2C7E5bE984596e33014bDc81",
+        "index": 2,
+        "decimals": 18
+      },
+      "USDT": {
+        "address": "0x8C3E9929b523D658A92cb61286ba00A1A15635F7",
+        "index": 3,
+        "decimals": 6
+      }
+    }
+  },
+  "84532": {
+    "name": "Base Sepolia",
+    "short": "Base",
+    "rpc": "https://sepolia.base.org",
+    "explorer": "https://sepolia.basescan.org",
+    "poolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    "v4Router": "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
+    "quoter": "0xDeCedb2746DE9c0793BcEBa7E2eDA044d9Cd4891",
+    "orbitalHook": "0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88",
+    "intentSettler": "0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5",
+    "hyperlaneMailbox": "0x6966b0E55883d49BFB24539356a2f8A673E02039",
+    "hyperlaneDomain": 84532,
+    "deployBlock": 47288148,
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "peers": {
+      "421614": "0x3104462820D7D721cc7139400016B27cb137D74b",
+      "1301": "0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784"
+    },
+    "assets": {
+      "DAI": {
+        "address": "0xAFA96c26306a0b62B3D214633545168025e4EA88",
+        "index": 0,
+        "decimals": 18
+      },
+      "USDT": {
+        "address": "0xDDd085b86580F0fBEeC0B9d883f70b08262D0dd0",
+        "index": 1,
+        "decimals": 6
+      },
+      "USDC": {
+        "address": "0xF1978c187491C31AbA44Cc702E1B964851560b14",
+        "index": 2,
+        "decimals": 6
+      },
+      "FRAX": {
+        "address": "0xFC152FEEdB91B3253CD01BcDFA6Fa01C82887893",
+        "index": 3,
+        "decimals": 18
       }
     }
   }

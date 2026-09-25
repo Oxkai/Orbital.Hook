@@ -22,7 +22,7 @@ import {IMailbox} from "../src/crosschain/IHyperlane.sol";
 /// @notice Chain-agnostic testnet deploy: mock stables -> OrbitalHook -> all pair
 ///         pools -> seeded liquidity -> ERC-7683 settler. Run once per chain.
 ///
-/// @dev Unlike the older Deploy.s.sol this script:
+/// @dev This script:
 ///        - resolves PoolManager/Router from `AddressConstants` by chainId rather
 ///          than hardcoding Unichain Sepolia
 ///        - uses REALISTIC MIXED DECIMALS (USDC/USDT 6, DAI/FRAX 18) so the hook's
@@ -79,7 +79,7 @@ contract DeployTestnetScript is Script {
         for (uint8 i = 0; i < N; ++i) {
             raw[i] = new MockERC20(NAMES[i], SYMBOLS[i], DECIMALS[i]);
             // Mint plenty: seeding takes ~1.5M per asset at these tiers.
-            raw[i].mint(msg.sender, 100_000_000 * (10 ** DECIMALS[i])); // >> the ~6M/asset the seed consumes
+            raw[i].mint(msg.sender, 100_000_000 * (10 ** DECIMALS[i])); // >> the 1.25M/asset the seed consumes
         }
         // Sort ascending by address (the hook constructor requires it).
         for (uint8 i = 0; i < N; ++i) {
@@ -130,7 +130,7 @@ contract DeployTestnetScript is Script {
         for (uint8 i = 0; i < N; ++i) {
             MockERC20(Currency.unwrap(assets[i])).approve(address(hook), type(uint256).max);
         }
-        TierLadder.seed(hook, N, TierLadder.Profile.STABLE, TierLadder.DEFAULT_CAPITAL_PER_ASSET);
+        TierLadder.seed(hook, N, TierLadder.DEFAULT_CAPITAL_PER_ASSET);
     }
 
     function _report(

@@ -96,8 +96,8 @@ contract OrbitalHook is BaseHook, IUnlockCallback, ERC6909, Ownable2Step, Pausab
     /// @dev Per-asset multiplier converting raw token units to WAD. Defaults to
     ///      `10^(18-decimals)`: 1 for 18-decimal tokens, 1e12 for 6-decimal
     ///      (USDC/USDT). A subclass may replace it before the first mint via
-    ///      `_setScale` to price assets in a common numeraire (see
-    ///      `OrbitalFXHook`). Applied only at the token-transfer boundaries; the
+    ///      `_setScale` to price assets in a common numeraire. Applied only at
+    ///      the token-transfer boundaries; the
     ///      engine stays in WAD.
     mapping(uint8 => uint256) private _scale;
 

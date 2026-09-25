@@ -18,8 +18,8 @@ import {IMailbox} from "../src/crosschain/IHyperlane.sol";
 ///        HYPERLANE_MAILBOX  Hyperlane Mailbox on THIS chain
 ///      Optional env:
 ///        V4_ROUTER      override the router; defaults to the canonical one for
-///                       this chainId, which Unichain lacks (deploy via
-///                       DeployPeriphery.s.sol and pass it here)
+///                       this chainId, which Unichain lacks (pass the router
+///                       address from deployments.json)
 ///        ADMIN          owner; defaults to the broadcasting account
 ///
 ///      Example:

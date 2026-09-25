@@ -29,11 +29,10 @@ import {TierLadder} from "./lib/TierLadder.sol";
 ///         the pro-rata share of reserves less the tick's virtual floor, which
 ///         is what the hook pays while every tick is interior.
 ///
-///         Env: HOOK               the pool's hook (OrbitalHook or OrbitalFXHook)
-///              PROFILE            STABLE (default) or FX
+///         Env: HOOK               the pool's hook
 ///              CAPITAL_PER_ASSET  real WAD value per asset, default the ladder's
 ///
-///         forge script script/ReshapeLiquidity.s.sol --rpc-url arc_testnet \
+///         forge script script/ReshapeLiquidity.s.sol --rpc-url unichain_sepolia \
 ///             --broadcast --slow --private-key $PRIVATE_KEY
 contract ReshapeLiquidityScript is Script {
     uint256 internal constant BURN_SLIPPAGE_BPS = 10;
@@ -45,24 +44,22 @@ contract ReshapeLiquidityScript is Script {
 
     function run() external {
         OrbitalHook hook = OrbitalHook(vm.envAddress("HOOK"));
-        TierLadder.Profile profile = _profile(vm.envOr("PROFILE", string("STABLE")));
         uint256 capital = vm.envOr("CAPITAL_PER_ASSET", TierLadder.DEFAULT_CAPITAL_PER_ASSET);
         uint8 n = hook.N();
 
-        _checkReady(hook, profile, n, capital);
+        _checkReady(hook, n, capital);
         Held[] memory old = _held(hook, msg.sender);
         require(old.length > 0, "broadcaster holds no positions in this pool");
 
         console2.log("=========== RESHAPE ===========");
         console2.log("hook:   ", address(hook));
-        console2.log("profile:", profile == TierLadder.Profile.STABLE ? "STABLE" : "FX");
         console2.log("capital per asset (wad):", capital);
         _logPool(hook, n, "before");
 
         vm.startBroadcast();
         _approveAll(hook, n);
         console2.log("--- seeding the new ladder ---");
-        TierLadder.seed(hook, n, profile, capital);
+        TierLadder.seed(hook, n, capital);
         console2.log("--- withdrawing the old positions ---");
         for (uint256 i = 0; i < old.length; ++i) {
             _withdraw(hook, n, old[i]);
@@ -75,13 +72,13 @@ contract ReshapeLiquidityScript is Script {
     // ─────────────────────────────── checks ──────────────────────────────────
 
     /// @dev Stop before broadcasting if a step would revert on-chain.
-    function _checkReady(OrbitalHook hook, TierLadder.Profile profile, uint8 n, uint256 capital) internal view {
+    function _checkReady(OrbitalHook hook, uint8 n, uint256 capital) internal view {
         (,,, uint256 kBound,) = hook.slot0();
         require(kBound == 0, "a tick is on its boundary: rebalance the pool first");
 
         // Tier 0 is the narrowest band; the pool must still be inside it.
-        uint256 r0 = TierLadder.radii(profile, n, capital)[0];
-        uint256 k0 = TierLadder.plane(r0, n, TierLadder.bound(profile, 0));
+        uint256 r0 = TierLadder.radii(n, capital)[0];
+        uint256 k0 = TierLadder.plane(r0, n, TierLadder.bound(0));
         try hook.depositAmounts(k0, r0) returns (uint256[] memory) {}
         catch {
             revert("pool price is outside the ladder's narrowest band: rebalance the pool first");
@@ -143,12 +140,5 @@ contract ReshapeLiquidityScript is Script {
         for (uint8 i = 0; i < n; ++i) {
             console2.log("  real reserve", i, hook.reserves(i) - hook.virtualReserve());
         }
-    }
-
-    function _profile(string memory name) internal pure returns (TierLadder.Profile) {
-        bytes32 h = keccak256(bytes(name));
-        if (h == keccak256("STABLE")) return TierLadder.Profile.STABLE;
-        if (h == keccak256("FX")) return TierLadder.Profile.FX;
-        revert("PROFILE must be STABLE or FX");
     }
 }
