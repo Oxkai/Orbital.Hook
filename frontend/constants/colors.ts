@@ -121,6 +121,7 @@ export const themePalettes: Record<ThemeName, ThemePalette> = {
 
 export function getThemeCssVariables(theme: ThemeName): Record<string, string> {
   const palette = themePalettes[theme];
+  const isDark = theme === "dark";
   return {
     "--color-success": palette.success,
     "--color-error": palette.error,
@@ -137,6 +138,20 @@ export function getThemeCssVariables(theme: ThemeName): Record<string, string> {
     "--color-text-primary": palette.textPrimary,
     "--color-text-secondary": palette.textSecondary,
     "--color-text-muted": palette.textMuted,
+    // Hover / press feedback for controls (see globals.css).
+    //
+    // An ADDITIVE veil, not a brightness filter: `brightness(1.2)` on the
+    // #161616 surface lands on #1a1a1a, a 4/255 change nobody can see, while
+    // the same factor on a light surface blows out. A translucent overlay
+    // moves every control by the same visible amount whatever it starts from.
+    // Dark themes lift toward white; light themes deepen toward black.
+    "--hover-overlay": isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)",
+    "--press-overlay": isDark ? "rgba(255,255,255,0.17)" : "rgba(0,0,0,0.13)",
+    // A filled button whose background IS the text colour (white on dark,
+    // near-black on light) is already at the end of the scale, so it takes the
+    // veil from the other direction.
+    "--hover-overlay-inverse": isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.11)",
+    "--press-overlay-inverse": isDark ? "rgba(0,0,0,0.24)" : "rgba(255,255,255,0.20)",
   };
 }
 

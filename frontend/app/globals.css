@@ -138,6 +138,63 @@ body {
   html {
     @apply font-sans;
   }
+
+  /* ── Interaction feedback ───────────────────────────────────────────
+     Colour only: nothing moves.
+
+     Almost every control here is styled with an inline `style` attribute, so a
+     `hover:bg-*` utility can never win the cascade. The hover state is an
+     additive veil painted with an inset box-shadow instead: it sits above the
+     background and below the text, it is the same visible step on a near-black
+     surface as on a white one, and unlike `filter` it creates no stacking
+     context, so dropdowns and modals inside a control keep working. */
+  :where(a, button, [role="button"], summary, select, input, textarea) {
+    transition-property: color, background-color, border-color, outline-color, opacity, box-shadow,
+      text-decoration-color;
+    transition-duration: 180ms;
+    transition-timing-function: ease-out;
+  }
+
+  /* A `hover:bg-*` utility marks a hoverable surface that is not itself a
+     control, such as a pool or transaction row, so those are picked up too:
+     their surface-2 tint is an 8/255 step that reads as nothing on its own.
+     `inset-0` opts an element out, being the full-bleed anchor stretched over
+     such a row, which would otherwise veil the row twice. */
+  :where(a, button, [role="button"], [class*="hover:bg-"]):not(:disabled):not([aria-disabled="true"]):not(
+      [class*="inset-0"]
+    ) {
+    &:hover {
+      box-shadow: inset 0 0 0 999px var(--hover-overlay);
+    }
+    &:active {
+      box-shadow: inset 0 0 0 999px var(--press-overlay);
+    }
+
+    /* React serialises the style attribute without a space after the colon
+       when server-rendered and with one after a client update: match both. */
+    &:is(
+        [style*="background-color:var(--color-text-primary)"],
+        [style*="background-color: var(--color-text-primary)"]
+      ) {
+      &:hover {
+        box-shadow: inset 0 0 0 999px var(--hover-overlay-inverse);
+      }
+      &:active {
+        box-shadow: inset 0 0 0 999px var(--press-overlay-inverse);
+      }
+    }
+  }
+
+  :where(a, button, [role="button"], summary, select, input, textarea):focus-visible {
+    outline: 1.5px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :where(a, button, [role="button"], summary, select, input, textarea) {
+      transition-duration: 0ms;
+    }
+  }
 }
 /* ── Modern range slider ─────────────────────────────────────────────── */
 .modern-slider {
