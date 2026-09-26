@@ -102,7 +102,7 @@ export function Masthead() {
               { t: ", built as a ", v: "off" },
               { t: "Uniswap v4 hook", v: "on" },
               { t: " and live on ", v: "off" },
-              { t: "Arbitrum, Unichain and Base Sepolia", v: "on" },
+              { t: "Arbitrum, Unichain and Robinhood Chain", v: "on" },
               { t: ".", v: "green" },
             ]}
           />

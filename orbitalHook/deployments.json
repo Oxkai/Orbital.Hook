@@ -1,5 +1,5 @@
 {
-  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: 1.25M per asset (~$5M TVL per pool) over six concentrated bands (0.999 / 0.997 / 0.995 / 0.99 / 0.98 / 0.95) plus a full-range backstop. Settlement is by authenticated Hyperlane message. REDEPLOYED 2026-09-25 on Arbitrum Sepolia (primary), Unichain Sepolia and Base Sepolia; every settler is peered with the other two.",
+  "_comment": "Live Orbital deployments. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's index order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: 1.25M per asset (~$5M TVL per pool) over six concentrated bands (0.999 / 0.997 / 0.995 / 0.99 / 0.98 / 0.95) plus a full-range backstop. Settlement is by authenticated Hyperlane message. REDEPLOYED 2026-09-25 on Arbitrum Sepolia (primary) and Unichain Sepolia, whose settlers are peered with each other; Robinhood Chain testnet added 2026-09-26 as a same-chain-only pool (no Hyperlane there, so no settler). The Base Sepolia deployment is retired: its settler (0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5) is paused.",
   "421614": {
     "name": "Arbitrum Sepolia",
     "short": "Arbitrum",
@@ -15,8 +15,7 @@
     "deployBlock": 312599603,
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     "peers": {
-      "1301": "0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784",
-      "84532": "0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5"
+      "1301": "0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784"
     },
     "assets": {
       "FRAX": {
@@ -56,8 +55,7 @@
     "deployBlock": 63492025,
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     "peers": {
-      "421614": "0x3104462820D7D721cc7139400016B27cb137D74b",
-      "84532": "0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5"
+      "421614": "0x3104462820D7D721cc7139400016B27cb137D74b"
     },
     "assets": {
       "USDC": {
@@ -82,44 +80,37 @@
       }
     }
   },
-  "84532": {
-    "name": "Base Sepolia",
-    "short": "Base",
-    "rpc": "https://sepolia.base.org",
-    "explorer": "https://sepolia.basescan.org",
-    "poolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
-    "v4Router": "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
-    "quoter": "0xDeCedb2746DE9c0793BcEBa7E2eDA044d9Cd4891",
-    "orbitalHook": "0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88",
-    "intentSettler": "0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5",
-    "hyperlaneMailbox": "0x6966b0E55883d49BFB24539356a2f8A673E02039",
-    "hyperlaneDomain": 84532,
-    "deployBlock": 47288148,
+  "46630": {
+    "name": "Robinhood Chain Testnet",
+    "short": "Robinhood",
+    "rpc": "https://rpc.testnet.chain.robinhood.com",
+    "explorer": "https://explorer.testnet.chain.robinhood.com",
+    "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "v4Router": "0x5911Ef6ABd9Cb84BFc78d78383d964c1e7ef12f2",
+    "quoter": "0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94",
+    "orbitalHook": "0x7F063D4852F0BE1Fb39490AcDc3A75ffC398EA88",
+    "deployBlock": 124525672,
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-    "peers": {
-      "421614": "0x3104462820D7D721cc7139400016B27cb137D74b",
-      "1301": "0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784"
-    },
     "assets": {
-      "DAI": {
-        "address": "0xAFA96c26306a0b62B3D214633545168025e4EA88",
-        "index": 0,
-        "decimals": 18
-      },
       "USDT": {
-        "address": "0xDDd085b86580F0fBEeC0B9d883f70b08262D0dd0",
-        "index": 1,
+        "address": "0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb",
+        "index": 0,
         "decimals": 6
       },
-      "USDC": {
-        "address": "0xF1978c187491C31AbA44Cc702E1B964851560b14",
-        "index": 2,
-        "decimals": 6
+      "DAI": {
+        "address": "0x602E7B42515d3E93A04e176C09a24eaF9F617c88",
+        "index": 1,
+        "decimals": 18
       },
       "FRAX": {
-        "address": "0xFC152FEEdB91B3253CD01BcDFA6Fa01C82887893",
-        "index": 3,
+        "address": "0xe574C92e61579B3B77F5491a0C02C57157C915C1",
+        "index": 2,
         "decimals": 18
+      },
+      "USDC": {
+        "address": "0xf17496625e0d602FF36e133C3B4CD1f5c0D3678a",
+        "index": 3,
+        "decimals": 6
       }
     }
   }

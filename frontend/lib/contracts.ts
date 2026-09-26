@@ -35,8 +35,8 @@ export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as A
 // HOOK_LP_ABI; there is no separate PositionManager.
 export const POOL_ADDRESS    = HOOK_ADDRESS;
 /// The pool. Orbital is one N-asset book shared by many LPs via ticks; the
-/// Arbitrum, Unichain and Base deployments are the same pool with a settler at
-/// each end for cross-chain orders, not separate pools. `ALL_POOLS` in the registry has every
+/// Arbitrum, Unichain and Robinhood deployments are the same pool design, not
+/// one shared pool. `ALL_POOLS` in the registry has every
 /// deployment for anything that genuinely needs to enumerate them.
 export const POOL_ADDRESSES  = [HOOK_ADDRESS] as readonly Address[];
 export const ROUTER_ADDRESS  = SWAP_ROUTER;

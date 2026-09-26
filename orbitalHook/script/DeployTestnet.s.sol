@@ -29,10 +29,15 @@ import {IMailbox} from "../src/crosschain/IHyperlane.sol";
 ///          `_scale` conversion path is exercised, not bypassed
 ///        - seeds the shared `TierLadder`: six concentrated bands whose depth
 ///          tapers away from the peg, plus a small full-range backstop
-///        - also deploys the intent settler, so one run per chain is enough
+///        - also deploys the intent settler when the chain has a Hyperlane
+///          Mailbox, so one run per chain is enough
 ///
-///      Required env: HYPERLANE_MAILBOX
-///      Optional env: V4_ROUTER (override; needed where no canonical router exists)
+///      Optional env: HYPERLANE_MAILBOX (unset = no settler; the chain is
+///                                       same-chain only)
+///                    V4_POOL_MANAGER   (override; needed on chains hookmate
+///                                       does not know, e.g. Robinhood testnet)
+///                    V4_ROUTER         (override; needed where no canonical
+///                                       router exists)
 ///
 ///      forge script script/DeployTestnet.s.sol --rpc-url base_sepolia \
 ///          --broadcast --private-key $PRIVATE_KEY
@@ -47,9 +52,10 @@ contract DeployTestnetScript is Script {
 
 
     function run() external {
-        address mailbox = vm.envAddress("HYPERLANE_MAILBOX");
+        address mailbox = vm.envOr("HYPERLANE_MAILBOX", address(0));
 
-        address pm = AddressConstants.getPoolManagerAddress(block.chainid);
+        address pm = vm.envOr("V4_POOL_MANAGER", address(0));
+        if (pm == address(0)) pm = AddressConstants.getPoolManagerAddress(block.chainid);
         address rt = vm.envOr("V4_ROUTER", address(0));
         if (rt == address(0)) rt = AddressConstants.getV4SwapRouterAddress(block.chainid);
         address permit2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
@@ -57,6 +63,7 @@ contract DeployTestnetScript is Script {
         require(pm.code.length > 0, "no PoolManager on this chain");
         require(rt.code.length > 0, "no V4Router on this chain");
         require(permit2.code.length > 0, "no Permit2 on this chain");
+        require(mailbox == address(0) || mailbox.code.length > 0, "no Mailbox at HYPERLANE_MAILBOX");
 
         vm.startBroadcast();
 
@@ -64,8 +71,11 @@ contract DeployTestnetScript is Script {
         OrbitalHook hook = _deployHook(IPoolManager(pm), IAllowanceTransfer(permit2), assets, msg.sender);
         _initPools(IPoolManager(pm), hook, assets);
         _seed(hook, assets);
-        OrbitalIntentSettler settler =
-            new OrbitalIntentSettler(address(hook), IUniswapV4Router04(payable(rt)), IMailbox(mailbox), msg.sender);
+        OrbitalIntentSettler settler;
+        if (mailbox != address(0)) {
+            settler =
+                new OrbitalIntentSettler(address(hook), IUniswapV4Router04(payable(rt)), IMailbox(mailbox), msg.sender);
+        }
 
         vm.stopBroadcast();
 
@@ -148,9 +158,13 @@ contract DeployTestnetScript is Script {
         console2.log("PoolManager:   ", pm);
         console2.log("V4Router:      ", rt);
         console2.log("OrbitalHook:   ", address(hook));
-        console2.log("IntentSettler: ", address(settler));
-        console2.log("mailbox:       ", mailbox);
-        console2.log("localDomain:   ", settler.localDomain());
+        if (address(settler) != address(0)) {
+            console2.log("IntentSettler: ", address(settler));
+            console2.log("mailbox:       ", mailbox);
+            console2.log("localDomain:   ", settler.localDomain());
+        } else {
+            console2.log("IntentSettler:  none (no HYPERLANE_MAILBOX; same-chain only)");
+        }
         console2.log("rInt:          ", rInt);
         // sumX is the engine's (virtual) total; the tokens held are that less
         // the virtual floor on every asset.

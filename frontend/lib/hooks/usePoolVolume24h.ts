@@ -21,6 +21,7 @@ const SCALE_OF_ABI = [
  *  Arbitrum takes 100k; the others are held to the 10k default). */
 const LOG_RANGE: Record<number, bigint> = {
   421614: 100_000n,
+  46630: 100_000n,
 };
 const DEFAULT_LOG_RANGE = 10_000n;
 

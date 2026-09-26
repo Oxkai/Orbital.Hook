@@ -43,7 +43,7 @@ The narrower the band, the larger its virtual part and the more depth each real 
 
 ## Status
 
-v1, working end-to-end (179 tests) and live on Arbitrum Sepolia, Unichain Sepolia and Base Sepolia. Testnet release, not yet audited.
+v1, working end-to-end (179 tests) and live on Arbitrum Sepolia, Unichain Sepolia and Robinhood Chain testnet. Testnet release, not yet audited.
 
 **Engine**
 - [x] Asset registry, N tokens per pool, sorted, unique, immutable
@@ -215,6 +215,8 @@ forge script script/DeployTestnet.s.sol \
 
 `DeployTestnet.s.sol` is chain-agnostic: it resolves the PoolManager and router by `chainId`, deploys four mock stables with a **realistic decimal mix** (USDC/USDT 6dp, DAI/FRAX 18dp), CREATE2-mines the hook address, initializes the 6 pair pools, seeds the liquidity ladder, and deploys the settler.
 
+`HYPERLANE_MAILBOX` is optional: leave it unset on a chain without Hyperlane (Robinhood Chain testnet) and the script skips the settler, so the pool is same-chain only. Where hookmate has no entry for the chain, pass `V4_POOL_MANAGER` as well.
+
 Once every chain is deployed, register each settler with the others (the owner calls `setPeer(chainId, hyperlaneDomain, bytes32(settler))` once per remote chain):
 
 ```bash
@@ -310,17 +312,18 @@ Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the offic
 | V4Router | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
 | OrbitalIntentSettler | `0x0d20A58a3Ac0D017DFB093dBF3Bd3D843E285784` |
 
-### Base Sepolia `84532`
+### Robinhood Chain testnet `46630`
+
+Uniswap v4 and the V4Router are already deployed here, so the hook plugs into them. There is no Hyperlane on this testnet, so no settler: the pool is same-chain only.
 
 | Contract | Address |
 |---|---|
-| OrbitalHook | [`0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88`](https://sepolia.basescan.org/address/0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88) |
-| PoolManager (v4, canonical) | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` |
-| V4Quoter | `0xDeCedb2746DE9c0793BcEBa7E2eDA044d9Cd4891` |
-| V4Router | `0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9` |
-| OrbitalIntentSettler | `0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5` |
+| OrbitalHook | [`0x7F063D4852F0BE1Fb39490AcDc3A75ffC398EA88`](https://explorer.testnet.chain.robinhood.com/address/0x7F063D4852F0BE1Fb39490AcDc3A75ffC398EA88) |
+| PoolManager (v4, canonical) | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
+| V4Quoter (canonical) | `0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94` |
+| V4Router | `0x5911Ef6ABd9Cb84BFc78d78383d964c1e7ef12f2` |
 
-Token addresses for Unichain and Base are in [`deployments.json`](deployments.json).
+Token addresses for Unichain and Robinhood are in [`deployments.json`](deployments.json). An earlier Base Sepolia deployment is retired; its settler is paused.
 
 ### Live state
 
@@ -330,4 +333,4 @@ Each pool holds its $5M ladder, all ticks interior (`kBound = 0`), with random r
 |---|---|---|---|---|---|
 | Arbitrum | ~$5.00M | 7 | 46 | ~$30.5k | $3,791.62 |
 | Unichain | ~$5.00M | 7 | 25 | ~$14.8k | $1,591.96 |
-| Base | ~$5.00M | 7 | 25 | ~$28.3k | $4,269.29 |
+| Robinhood | ~$5.00M | 7 | 25 | ~$28.1k | $4,923.45 |

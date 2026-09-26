@@ -10,11 +10,5 @@
       "address": "0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88",
       "startBlock": 63492025
     }
-  },
-  "base-sepolia": {
-    "OrbitalHook": {
-      "address": "0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88",
-      "startBlock": 47288148
-    }
   }
 }

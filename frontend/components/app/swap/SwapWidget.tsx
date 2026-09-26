@@ -642,8 +642,8 @@ export function SwapWidget() {
   }, [quoteDep, quoteInAddr, isPureBridge, isCrossChain, tokenIn, tokenOut]);
 
   // The cross-chain leg is denominated in the DESTINATION chain's copy of the
-  // input token, whose decimals can differ from the origin's (Unichain is all
-  // 18-decimal, Base/Arbitrum are mixed), so the amount is re-scaled.
+  // input token, whose decimals can differ from the origin's copy, so the
+  // amount is re-scaled.
   const quoteAmtInRaw = useMemo(() => {
     if (!isCrossChain) return amtInRaw;
     const destIn = assetOn(tokenOut.chainId, tokenIn.symbol);

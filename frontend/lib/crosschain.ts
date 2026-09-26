@@ -1,14 +1,15 @@
 import { type Address, type Hex, encodeAbiParameters, parseAbiParameters } from "viem";
 
 // ─── Cross-chain deployments ─────────────────────────────────────────────────
-// One OrbitalHook + one OrbitalIntentSettler per chain. Every settler is
-// registered as a Hyperlane peer of the others, which is what lets the origin
-// chain verify that a fill really happened on the destination.
+// One OrbitalHook per chain, plus an OrbitalIntentSettler wherever Hyperlane
+// runs. The settlers are registered as Hyperlane peers of each other, which is
+// what lets the origin chain verify that a fill really happened on the
+// destination. Robinhood Chain testnet has no Hyperlane, so no settler.
 //
 // NOTE ON ASSET ORDER: the hook sorts its assets ascending by address, and
 // addresses are unrelated across chains. USDC is index 3 on Arbitrum Sepolia,
-// 0 on Unichain Sepolia and 2 on Base Sepolia. Always resolve by symbol, never
-// by index.
+// 0 on Unichain Sepolia and 3 on Robinhood testnet. Always resolve by symbol,
+// never by index.
 
 export interface CrossChainAsset {
   symbol: string;
@@ -47,7 +48,7 @@ export interface CrossChainDeployment {
 
 export const ARBITRUM_SEPOLIA_ID = 421614;
 export const UNICHAIN_SEPOLIA_ID = 1301;
-export const BASE_SEPOLIA_ID = 84532;
+export const ROBINHOOD_TESTNET_ID = 46630;
 
 export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
   // Generated from orbitalHook/deployments.json - keep the two in step.
@@ -91,24 +92,23 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
       USDT:  { symbol: "USDT", address: "0x8C3E9929b523D658A92cb61286ba00A1A15635F7", decimals: 6 , index: 3 },
     },
   },
-  [BASE_SEPOLIA_ID]: {
-    chainId: BASE_SEPOLIA_ID,
-    name: "Base Sepolia",
-    short: "Base",
-    explorer: "https://sepolia.basescan.org",
-    orbitalHook: "0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88",
-    poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
-    swapRouter: "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
-    quoter: "0xDeCedb2746DE9c0793BcEBa7E2eDA044d9Cd4891",
-    intentSettler: "0x30BA254a542879d8d89ae1BB7e36cfb59D342cb5",
-    hyperlaneMailbox: "0x6966b0E55883d49BFB24539356a2f8A673E02039",
-    hyperlaneDomain: 84532,
-    deployBlock: 47288148n,
+  [ROBINHOOD_TESTNET_ID]: {
+    chainId: ROBINHOOD_TESTNET_ID,
+    name: "Robinhood Chain Testnet",
+    short: "Robinhood",
+    explorer: "https://explorer.testnet.chain.robinhood.com",
+    orbitalHook: "0x7F063D4852F0BE1Fb39490AcDc3A75ffC398EA88",
+    poolManager: "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    swapRouter: "0x5911Ef6ABd9Cb84BFc78d78383d964c1e7ef12f2",
+    quoter: "0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94",
+    // No Hyperlane on Robinhood testnet, so no settler: same-chain only.
+    crossChainNote: "Robinhood Chain testnet has no Hyperlane route, so it is same-chain only",
+    deployBlock: 124525672n,
     assets: {
-      DAI:   { symbol: "DAI", address: "0xAFA96c26306a0b62B3D214633545168025e4EA88", decimals: 18, index: 0 },
-      USDT:  { symbol: "USDT", address: "0xDDd085b86580F0fBEeC0B9d883f70b08262D0dd0", decimals: 6 , index: 1 },
-      USDC:  { symbol: "USDC", address: "0xF1978c187491C31AbA44Cc702E1B964851560b14", decimals: 6 , index: 2 },
-      FRAX:  { symbol: "FRAX", address: "0xFC152FEEdB91B3253CD01BcDFA6Fa01C82887893", decimals: 18, index: 3 },
+      USDT:  { symbol: "USDT", address: "0x2896bc4b03610816eee4758c7a2e87a2724E2Dcb", decimals: 6 , index: 0 },
+      DAI:   { symbol: "DAI", address: "0x602E7B42515d3E93A04e176C09a24eaF9F617c88", decimals: 18, index: 1 },
+      FRAX:  { symbol: "FRAX", address: "0xe574C92e61579B3B77F5491a0C02C57157C915C1", decimals: 18, index: 2 },
+      USDC:  { symbol: "USDC", address: "0xf17496625e0d602FF36e133C3B4CD1f5c0D3678a", decimals: 6 , index: 3 },
     },
   },
 };
@@ -132,7 +132,7 @@ export const PRIMARY_CHAIN_ID = ARBITRUM_SEPOLIA_ID;
 export const DEFAULT_SWAP_CHAIN_ID = ARBITRUM_SEPOLIA_ID;
 
 /// Display order in the token dropdown, primary chain first.
-export const CHAIN_IDS = [ARBITRUM_SEPOLIA_ID, UNICHAIN_SEPOLIA_ID, BASE_SEPOLIA_ID] as const;
+export const CHAIN_IDS = [ARBITRUM_SEPOLIA_ID, UNICHAIN_SEPOLIA_ID, ROBINHOOD_TESTNET_ID] as const;
 
 /// Every chain carries the same four stables, so a same-chain route always exists.
 export const ROUTABLE_SYMBOLS = ["USDC", "USDT", "DAI", "FRAX"] as const;
@@ -161,8 +161,8 @@ export function routeBlockedReason(originChainId: number, destChainId: number): 
   const a = DEPLOYMENTS[originChainId];
   const b = DEPLOYMENTS[destChainId];
   if (!a || !b) return "Unknown chain";
-  if (!a.intentSettler) return `No settler on ${a.short}`;
-  if (!b.intentSettler) return `No settler on ${b.short}`;
+  if (!a.intentSettler) return a.crossChainNote ?? `No settler on ${a.short}`;
+  if (!b.intentSettler) return b.crossChainNote ?? `No settler on ${b.short}`;
   if (a.mailboxRelays === false) return a.crossChainNote ?? `No message relay on ${a.short}`;
   if (b.mailboxRelays === false) return b.crossChainNote ?? `No message relay on ${b.short}`;
   return undefined;

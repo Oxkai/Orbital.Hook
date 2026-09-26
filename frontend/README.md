@@ -1,6 +1,6 @@
 # Orbital · Frontend
 
-The web app for **Orbital**, an N-asset stableswap built as a **Uniswap v4 hook**. Swap, provide liquidity and inspect the live pools on **Arbitrum Sepolia** (primary), **Unichain Sepolia** and **Base Sepolia**.
+The web app for **Orbital**, an N-asset stableswap built as a **Uniswap v4 hook**. Swap, provide liquidity and inspect the live pools on **Arbitrum Sepolia** (primary), **Unichain Sepolia** and **Robinhood Chain testnet**.
 
 **Live → https://orbital-hook.vercel.app/**
 
@@ -10,7 +10,7 @@ Contracts live in [`../orbitalHook`](../orbitalHook). The pools the app talks to
 
 | Page | What it does |
 |---|---|
-| **Swap** | Quotes every pool that holds both tokens and routes to the best one; a token on another chain turns the widget into an ERC-7683 cross-chain order between any two of Arbitrum, Unichain and Base. |
+| **Swap** | Quotes every pool that holds both tokens and routes to the best one; a token on another chain turns the widget into an ERC-7683 cross-chain order between Arbitrum and Unichain (Robinhood Chain testnet has no Hyperlane, so it is same-chain only). |
 | **Pools** | One row per pool: assets, network, address, 24h volume and TVL. |
 | **Pool detail** | Reserves, liquidity depth by price, key metrics and transaction history. |
 | **Add liquidity** | Pick a depeg band and an amount; the hook's own `depositAmounts` quote sizes the position exactly. |
@@ -48,7 +48,7 @@ All optional. Without them the app uses public endpoints.
 | Var | Purpose |
 |---|---|
 | `NEXT_PUBLIC_RPC_URL` | Unichain Sepolia RPC. Defaults to `https://sepolia.unichain.org`. |
-| `NEXT_PUBLIC_SUBGRAPH_ARBITRUM` · `_UNICHAIN` · `_BASE` | Override the Subgraph Studio endpoints in [`lib/subgraph.ts`](lib/subgraph.ts). |
+| `NEXT_PUBLIC_SUBGRAPH_ARBITRUM` · `_UNICHAIN` | Override the Subgraph Studio endpoints in [`lib/subgraph.ts`](lib/subgraph.ts). |
 
 ## Where the data comes from
 

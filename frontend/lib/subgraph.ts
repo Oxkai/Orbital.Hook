@@ -38,12 +38,6 @@ const ENDPOINTS: Record<number, { url?: string; hook: string } | undefined> = {
       "https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.3.0",
     hook: "0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88",
   },
-  84532: {
-    url:
-      process.env.NEXT_PUBLIC_SUBGRAPH_BASE ??
-      "https://api.studio.thegraph.com/query/107768/orbital-base/v0.3.0",
-    hook: "0xe63d5c2F15284BD6DDcFa0BD31C16c1B8F986a88",
-  },
 };
 
 /** The chain's subgraph URL, if it indexes the chain's live hook. */

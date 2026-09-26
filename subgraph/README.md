@@ -1,14 +1,13 @@
 # Orbital Subgraph
 
-Indexes the [Orbital Hook](../orbitalHook) on **Arbitrum Sepolia**, **Unichain Sepolia** and **Base Sepolia**.
+Indexes the [Orbital Hook](../orbitalHook) on **Arbitrum Sepolia** and **Unichain Sepolia**. Robinhood Chain testnet has no subgraph support on The Graph (Substreams/Firehose only), so the app reads its activity straight from the chain.
 
 | Network | graph-cli name | chainId | Hook | Subgraph |
 |---|---|---|---|---|
 | Arbitrum Sepolia | `arbitrum-sepolia` | 421614 | `0xdEE6773E…6CaA88` | `v0.3.0` |
 | Unichain Sepolia | `unichain-testnet` | 1301 | `0x2ad0767A…F76a88` | `v0.3.0` |
-| Base Sepolia | `base-sepolia` | 84532 | `0xe63d5c2F…986a88` | `v0.3.0` |
 
-All three are supported by The Graph, with `subgraphs`, `firehose` and `substreams`.
+Both are supported by The Graph, with `subgraphs`, `firehose` and `substreams`.
 Each indexes that chain's Orbital pool, and the frontend reads its activity feed
 and 24h volume from them.
 
@@ -44,7 +43,7 @@ isolation says nothing.
 ```bash
 npm install
 npm run codegen
-npm run build:arbitrum     # or :unichain, :base
+npm run build:arbitrum     # or :unichain
 ```
 
 `subgraph.yaml` carries a placeholder network and address. The real values come
@@ -62,7 +61,6 @@ npx graph auth <DEPLOY_KEY>      # or pass --deploy-key to each deploy
 
 npx graph deploy orbital-arbitrum  --network arbitrum-sepolia  --version-label v0.3.0
 npx graph deploy orbital-unichain  --network unichain-testnet  --version-label v0.3.0
-npx graph deploy orbital-base      --network base-sepolia      --version-label v0.3.0
 ```
 
 ---
@@ -154,8 +152,8 @@ slippage. This is the number the design exists to shrink.
 ## Notes for querying
 
 **Asset indices are per chain.** The hook sorts its basket ascending by address,
-and addresses are unrelated across chains, so USDC is index 3 on Arbitrum,
-0 on Unichain and 2 on Base. Events carry the **index**, never the symbol. Always resolve through
+and addresses are unrelated across chains, so USDC is index 3 on Arbitrum
+and 0 on Unichain. Events carry the **index**, never the symbol. Always resolve through
 `Asset` for the chain the event came from — indexing a cross-chain symbol table
 by a per-chain index silently returns the wrong token.
 
