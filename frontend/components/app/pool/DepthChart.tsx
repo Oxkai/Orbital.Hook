@@ -132,7 +132,7 @@ export function DepthChart({ ticks, n, rInt, kBound, sumX }: Props) {
               axisLine={{ stroke: color.border, strokeWidth: 0.75 }}
               tickLine={false}
               label={{
-                value: "depeg price →",
+                value: "← wider bands        depeg price        tighter, at the peg →",
                 position: "insideBottom",
                 offset: -12,
                 style: { fontFamily: FONT, fontSize: 9, fill: color.textMuted, letterSpacing: "0.04em" },
@@ -158,8 +158,8 @@ export function DepthChart({ ticks, n, rInt, kBound, sumX }: Props) {
                 fontSize: 11,
                 color: color.textSecondary,
               }}
-              formatter={(val) => [fmtR(Number(val)), "Liquidity"]}
-              labelFormatter={(v) => `Price: $${Number(v).toFixed(3)}`}
+              formatter={(val) => [fmtR(Number(val)), "Depth active here"]}
+              labelFormatter={(v) => `Holds above $${Number(v).toFixed(4)}`}
               cursor={{ stroke: color.borderSubtle, strokeWidth: 1 }}
             />
 

@@ -41,16 +41,16 @@ export const robinhoodTestnet = defineChain({
 // Explorer links are per chain: use `explorerTx` / `explorerAddress` from
 // `lib/crosschain`, which read each deployment's own explorer.
 
-// Arbitrum Sepolia is the primary deployment; Unichain Sepolia and Robinhood
-// Chain testnet carry the same hook. Arbitrum and Unichain each also have an
-// OrbitalIntentSettler, peered over Hyperlane; Robinhood testnet has no
-// Hyperlane, so it is same-chain only.
+// Robinhood Chain testnet is the primary deployment; Arbitrum Sepolia and
+// Unichain Sepolia carry the same hook. Those two each also have an
+// OrbitalIntentSettler, peered over Hyperlane; Robinhood has no Hyperlane, so
+// it is same-chain only.
 export { arbitrumSepolia };
 
 export function createWagmiConfig(): Config {
   const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL;
   return createConfig({
-    chains: [arbitrumSepolia, unichainSepolia, robinhoodTestnet],
+    chains: [robinhoodTestnet, arbitrumSepolia, unichainSepolia],
     connectors: [injected(), coinbaseWallet({ appName: "Orbital" })],
     transports: {
       [unichainSepolia.id]: RPC_URL

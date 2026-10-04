@@ -10,8 +10,9 @@ import { fmtUSD } from "@/lib/mock/data";
 import { usePool } from "@/lib/hooks/usePool";
 import { useDepositQuote } from "@/lib/hooks/useDepositQuote";
 import { useTokenBalances, useTokenAllowances } from "@/lib/hooks/useTokenBalances";
-import { ERC20_ABI, HOOK_LP_ABI } from "@/lib/contracts";
+import { ERC20_ABI, HOOK_LP_ABI, lpDeadline } from "@/lib/contracts";
 import { chainIdForPool } from "@/lib/crosschain";
+import { DEFAULT_BAND, FULL_RANGE_BAND, bandDepegPrice, bandLabel, isFullRange } from "@/lib/bands";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,13 +55,11 @@ function kNormFromDepegPrice(n: number, p: number): number {
   return sqrtN - (p + n - 1) / sqrtDenom;
 }
 
-// Compute the practical slider price bounds from pool n:
-// pMax → tightest useful tick (high capital efficiency, depeg triggers early)
-// pMin → widest useful tick (low efficiency, only triggers on large depeg)
-// Price range for the slider: 0.80 (wide/safe) → 0.9999 (tight/efficient)
-// This covers the full meaningful range of depeg thresholds for any n.
-const SLIDER_PMIN = 0.80;
-const SLIDER_PMAX = 0.9999;
+// The slider steps through the hook's band menu (lib/bands.ts), widest on the
+// left (full range) to tightest on the right ($0.9999). Positions sit on the
+// menu's own spacing, which is finest near the peg where it matters.
+const sliderPosOf  = (band: number) => FULL_RANGE_BAND - band;
+const bandAtSlider = (pos: number) => FULL_RANGE_BAND - pos;
 
 function capitalEfficiency(n: number, kNorm: number): number {
   const sqrtN = Math.sqrt(n);
@@ -143,45 +142,50 @@ function StepBar({ step }: { step: 1 | 2 | 3 }) {
 
 // ─── Step 1: set range ───────────────────────────────────────────────────────
 
-/// User-facing wording for the range control: the tick's depeg bound `p`,
-/// read as a dollar price.
-function rangeCopy(p: number) {
-  const usd = `$${p.toFixed(4)}`;
+/// User-facing wording for the range control: the band's depeg bound, read as
+/// a dollar price.
+function rangeCopy(band: number) {
+  const label = bandLabel(band);
+  const full  = isFullRange(band);
   return {
     intro: "Choose a depeg price threshold. Tighter ranges earn more fees but pause sooner.",
-    blocked: "A boundary tick is active. Deposits resume when all assets return to peg.",
     label: "Depeg Price Threshold",
-    value: usd,
-    valueNote: "Tick pauses when any asset depegs below this price",
-    sliderMin: `$${SLIDER_PMIN} · wider · safer`,
-    sliderMax: `more efficient · tighter · $${SLIDER_PMAX}`,
+    value: label,
+    valueNote: full
+      ? "Stays active however far an asset depegs"
+      : "Pauses when any asset depegs below this price",
+    sliderMin: "full range · wider · safer",
+    sliderMax: `more efficient · tighter · ${bandLabel(0)}`,
     barMin: "$0",
-    barMark: usd,
+    barMark: label,
     barMax: "$1.00",
-    legendPaused: `paused below ${usd}`,
-    legendEarning: `earning fees ${usd} → $1.00`,
+    legendPaused: full ? "never paused" : `paused below ${label}`,
+    legendEarning: full ? "earning fees at every price" : `earning fees ${label} → $1.00`,
   };
 }
 
 function Step1({
-  depegPrice, setDepegPrice,
-  onContinue, kBound, n,
+  band, setBand,
+  onContinue, bandError, checking, n,
 }: {
-  depegPrice: number;
-  setDepegPrice: (p: number) => void;
+  band: number;
+  setBand: (b: number) => void;
   onContinue: () => void;
-  kBound: number;
+  /** Why the pool would refuse a deposit into this band right now, if it would. */
+  bandError?: string;
+  checking: boolean;
   n: number;
 }) {
   const [explainerOpen, setExplainerOpen] = useState(false);
-  const blocked  = kBound > 0;
-  const copy     = rangeCopy(depegPrice);
+  const blocked    = !!bandError;
+  const copy       = rangeCopy(band);
+  const depegPrice = bandDepegPrice(band);
 
   const kNorm    = kNormFromDepegPrice(n, depegPrice);
   const effMult  = capitalEfficiency(n, kNorm);
   const kNormMin = Math.sqrt(n) - 1;
   const kNormMax = (n - 1) / Math.sqrt(n);
-  const sliderPct = ((depegPrice - SLIDER_PMIN) / (SLIDER_PMAX - SLIDER_PMIN)) * 100;
+  const sliderPct = (sliderPosOf(band) / FULL_RANGE_BAND) * 100;
 
   return (
     <div className="flex flex-col gap-7">
@@ -203,10 +207,10 @@ function Step1({
           <Info size={14} color={color.warning} weight="regular" style={{ marginTop: 1, flexShrink: 0 }} />
           <div>
             <div style={{ ...body("caption", color.warning), fontWeight: 500, letterSpacing: "0.02em", marginBottom: 3 }}>
-              Deposits paused
+              This band is closed right now
             </div>
             <p style={{ ...body("caption", color.warning), opacity: 0.8 }}>
-              {copy.blocked}
+              {bandError}
             </p>
           </div>
         </div>
@@ -265,13 +269,10 @@ function Step1({
               <input
                 type="range"
                 min={0}
-                max={100}
-                step={0.01}
-                value={sliderPct}
-                onChange={e => {
-                  const pct = parseFloat(e.target.value);
-                  setDepegPrice(SLIDER_PMIN + (pct / 100) * (SLIDER_PMAX - SLIDER_PMIN));
-                }}
+                max={FULL_RANGE_BAND}
+                step={1}
+                value={sliderPosOf(band)}
+                onChange={e => setBand(bandAtSlider(parseInt(e.target.value, 10)))}
                 className="modern-slider"
                 style={{
                   ["--slider-pct" as string]: `${sliderPct}%`,
@@ -371,7 +372,7 @@ function Step1({
       >
         <Info size={14} color={color.accent} weight="regular" style={{ marginTop: 1, flexShrink: 0 }} />
         <p style={{ ...body("p3", color.textSecondary), lineHeight: 1.6 }}>
-          At <strong style={{ color: color.textPrimary, fontWeight: 500 }}>${depegPrice.toFixed(4)}</strong> threshold
+          At <strong style={{ color: color.textPrimary, fontWeight: 500 }}>{bandLabel(band)}</strong>{isFullRange(band) ? "" : " threshold"}
           you get <strong style={{ color: color.accent, fontWeight: 500 }}>{effMult.toFixed(1)}× capital efficiency</strong> vs a full-range position.
           Tighter ticks earn more fees but pause sooner during a depeg event.
         </p>
@@ -401,8 +402,8 @@ function Step1({
       </div>
 
       <button
-        disabled={blocked}
-        onClick={() => !blocked && onContinue()}
+        disabled={blocked || checking}
+        onClick={() => !blocked && !checking && onContinue()}
         className="w-full flex items-center justify-center h-12 hover:opacity-90 transition-opacity"
         style={{
           backgroundColor: blocked ? color.surface2 : color.textPrimary,
@@ -414,7 +415,7 @@ function Step1({
           cursor: blocked ? "not-allowed" : "pointer",
         }}
       >
-        {blocked ? "Deposits paused" : "Continue →"}
+        {blocked ? "Band closed" : checking ? "Checking band…" : "Continue →"}
       </button>
     </div>
   );
@@ -434,8 +435,8 @@ function depositSplits(tokens: { symbol: string; address: string; color: string 
   }));
 }
 
-function Step2({ depegPrice, n, tokens, split, quoteError, quoting, balances, usdAmount, setUsdAmount, onBack, onContinue }: {
-  depegPrice: number;
+function Step2({ band, n, tokens, split, quoteError, quoting, balances, usdAmount, setUsdAmount, onBack, onContinue }: {
+  band: number;
   n: number;
   tokens: { symbol: string; address: string; color: string }[];
   /** Quoted deposit per asset, USD. */
@@ -473,8 +474,8 @@ function Step2({ depegPrice, n, tokens, split, quoteError, quoting, balances, us
         style={{ backgroundColor: color.surface1, cursor: "pointer" }}
       >
         <div className="flex items-center gap-2.5">
-          <span style={{ ...LBL, color: color.textMuted }}>New Tick</span>
-          <span style={body("p3", color.textPrimary)}>${depegPrice.toFixed(4)}</span>
+          <span style={{ ...LBL, color: color.textMuted }}>Band</span>
+          <span style={body("p3", color.textPrimary)}>{bandLabel(band)}</span>
         </div>
         <span className="flex items-center gap-1.5" style={body("caption", color.textMuted)}>
           <ArrowLeft size={11} weight="regular" /> Change
@@ -611,8 +612,8 @@ function Step2({ depegPrice, n, tokens, split, quoteError, quoting, balances, us
 
 // ─── Step 3: review + submit ─────────────────────────────────────────────────
 
-function Step3({ depegPrice, n, tokens, split, amountsRaw, amount, allowances, fee, slippage, onBack, onApprove, onMint, isTxPending, approveIdx, walletConnected }: {
-  depegPrice: number;
+function Step3({ band, n, tokens, split, amountsRaw, amount, allowances, fee, slippage, onBack, onApprove, onMint, isTxPending, approveIdx, walletConnected }: {
+  band: number;
   n: number;
   tokens: { symbol: string; address: string; color: string }[];
   /** Quoted deposit per asset, USD. */
@@ -635,7 +636,7 @@ function Step3({ depegPrice, n, tokens, split, amountsRaw, amount, allowances, f
   const needsApproval = tokens.findIndex((_, i) => (allowances[i] ?? 0n) < (amountsRaw[i] ?? 0n));
   const allApproved   = needsApproval === -1;
 
-  const kNorm = kNormFromDepegPrice(n, depegPrice);
+  const kNorm = kNormFromDepegPrice(n, bandDepegPrice(band));
   const eff   = capitalEfficiency(n, kNorm);
 
   return (
@@ -703,7 +704,7 @@ function Step3({ depegPrice, n, tokens, split, amountsRaw, amount, allowances, f
         <div className="flex flex-col gap-px mt-3">
           {([
             { label: "Type",               value: "New tick",                        accent: false },
-            { label: "Depeg threshold",    value: `$${depegPrice.toFixed(4)}`,       accent: false },
+            { label: "Depeg threshold",    value: bandLabel(band),       accent: false },
             { label: "Capital efficiency", value: `${eff.toFixed(1)}×`,              accent: true  },
             { label: "Fee tier",           value: `${(fee / 10000).toFixed(2)}%`,    accent: false },
             { label: "Slippage",           value: `${slippage.toFixed(1)}%`,         accent: false },
@@ -780,8 +781,8 @@ function Step3({ depegPrice, n, tokens, split, amountsRaw, amount, allowances, f
 
 // ─── Success ──────────────────────────────────────────────────────────────────
 
-function SuccessState({ depegPrice, amount, tokens, split, n }: {
-  depegPrice: number;
+function SuccessState({ band, amount, tokens, split, n }: {
+  band: number;
   amount: number;
   tokens: { symbol: string; address: string; color: string }[];
   split: number[];
@@ -818,7 +819,7 @@ function SuccessState({ depegPrice, amount, tokens, split, n }: {
           Position created
         </h2>
         <p style={body("p2", color.textMuted)}>
-          {fmtUSD(amount)} deposited · new tick @ ${depegPrice.toFixed(4)}
+          {fmtUSD(amount)} deposited · band {bandLabel(band)}
         </p>
       </div>
 
@@ -881,7 +882,7 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
   const poolAddress = poolAddr as Address;
 
   const [step,        setStep]       = useState<1 | 2 | 3 | 4>(1);
-  const [depegPrice,  setDepegPrice] = useState(0.95);
+  const [band,        setBand]       = useState(DEFAULT_BAND);
   const [usdAmount,   setUsdAmount]  = useState("");
   const [approveIdx,  setApproveIdx] = useState(-1);
   const [slippage,    setSlippage]   = useState(0.5);
@@ -907,20 +908,19 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
   }, [mintConfirmed]);
 
   const tokens   = pool?.tokens   ?? [];
-  const kBound   = pool?.kBound   ?? 0;
   const fee      = pool?.fee      ?? 0;
   const n        = tokens.length || 4;
   const amount   = parseFloat(usdAmount) || 0;
 
-  const clampedDepeg = Math.min(SLIDER_PMAX, Math.max(SLIDER_PMIN, depegPrice));
 
   // The contract prices the deposit: the radius that deposits exactly the
   // entered value at this band, and each token's share of it. A concentrated
   // band's reserves below its floor are virtual, so its deposit is far less
   // than its radius suggests; nothing here re-derives that geometry.
-  const kNormWad = BigInt(Math.round(kNormFromDepegPrice(n, clampedDepeg) * 1e18));
+  // Probed from step 1 on, so a band the pool would refuse (already exited,
+  // or pinned) is flagged before the amount is entered.
   const valueWad = amount > 0 ? BigInt(Math.round(amount * 1e6)) * 10n ** 12n : 0n;
-  const quote    = useDepositQuote(poolAddress, poolChainId, tokens.length, kNormWad, valueWad, step >= 2 && amount > 0);
+  const quote    = useDepositQuote(poolAddress, poolChainId, tokens.length, band, valueWad, !!pool);
   const split    = quote.amountsWad.map((a) => Number(a) / 1e18);
 
   function handleApprove(idx: number) {
@@ -945,7 +945,7 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
         address: poolAddress,
         abi: HOOK_LP_ABI,
         functionName: "addLiquidity",
-        args: [quote.kWad, quote.rWad, maxAmounts],
+        args: [BigInt(band), quote.rWad, maxAmounts, lpDeadline()],
         chainId: poolChainId,
       },
       { onSuccess: (hash) => setMintHash(hash) }
@@ -955,7 +955,7 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
   if (step === 4) {
     return (
       <div className="flex-1 overflow-y-auto" style={{ backgroundColor: color.bg }}>
-        <SuccessState depegPrice={clampedDepeg} amount={amount} tokens={tokens} split={split} n={n} />
+        <SuccessState band={band} amount={amount} tokens={tokens} split={split} n={n} />
       </div>
     );
   }
@@ -985,13 +985,13 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
       <div className="max-w-xl w-full mx-auto py-2">
         {step === 1 && (
           <Step1
-            depegPrice={clampedDepeg} setDepegPrice={setDepegPrice}
-            onContinue={() => setStep(2)} kBound={kBound} n={n}
+            band={band} setBand={setBand}
+            onContinue={() => setStep(2)} bandError={quote.error} checking={quote.loading} n={n}
           />
         )}
         {step === 2 && (
           <Step2
-            depegPrice={clampedDepeg} n={n}
+            band={band} n={n}
             tokens={tokens} split={split} quoteError={quote.error} quoting={quote.loading} balances={balances}
             usdAmount={usdAmount} setUsdAmount={setUsdAmount}
             onBack={() => setStep(1)} onContinue={() => setStep(3)}
@@ -999,7 +999,7 @@ export default function AddLiquidityPage({ params }: { params: Promise<{ address
         )}
         {step === 3 && (
           <Step3
-            depegPrice={clampedDepeg} n={n}
+            band={band} n={n}
             tokens={tokens} split={split} amountsRaw={quote.amountsRaw} amount={amount} allowances={allowances}
             fee={fee} slippage={slippage}
             onBack={() => setStep(2)}

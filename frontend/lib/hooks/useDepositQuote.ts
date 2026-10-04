@@ -7,14 +7,12 @@ import { type Address } from "viem";
 import { POOL_ABI } from "@/lib/contracts";
 import { explainPoolError } from "@/lib/poolErrors";
 
-const WAD = 10n ** 18n;
 /** Radius the hook is asked to price; deposits scale linearly from it. */
 const PROBE_R = 10n ** 24n;
 
 export interface DepositQuote {
-  /** Radius and plane to mint so the deposit is worth the requested value. */
+  /** Radius to mint so the deposit is worth the requested value. */
   rWad: bigint;
-  kWad: bigint;
   /** Per-asset deposit in the engine's WAD value units. */
   amountsWad: bigint[];
   /** Per-asset deposit in each token's raw units, rounded up as the hook pulls. */
@@ -24,31 +22,31 @@ export interface DepositQuote {
   loading: boolean;
 }
 
-/** Quote a deposit worth `valueWad` (engine value units: USD) into a new
- *  position whose band is `kNormWad` (plane constant per unit radius, WAD).
+/** Quote a deposit worth `valueWad` (engine value units: USD) into `band`
+ *  (an index into the hook's band menu, see `lib/bands.ts`).
  *
- *  The hook is the single source of truth: `depositAmounts(k, r)` returns the
- *  exact real deposit (the position's share of the pool less its virtual
+ *  The hook is the single source of truth: `depositAmounts(band, r)` returns
+ *  the exact real deposit (the position's share of the pool less its virtual
  *  part), and since that is linear in r, one probe gives the radius that
  *  deposits exactly the requested value. It also reverts where the mint would
- *  (the pool has already left the band, or a tick is on its boundary), which
- *  surfaces here as `error`. */
+ *  (the pool has already left the band, or the band is pinned), which
+ *  surfaces here as `error`. With `valueWad` 0 it still reports that. */
 export function useDepositQuote(
   pool: Address,
   chainId: number,
   n: number,
-  kNormWad: bigint,
+  band: number,
   valueWad: bigint,
   enabled: boolean,
 ): DepositQuote {
-  const active = enabled && kNormWad > 0n && n > 0;
+  const active = enabled && n > 0;
 
   const probe = useReadContract({
     address: pool,
     chainId,
     abi: POOL_ABI,
     functionName: "depositAmounts",
-    args: [(PROBE_R * kNormWad) / WAD, PROBE_R],
+    args: [BigInt(band), PROBE_R],
     query: { enabled: active },
   });
   const scales = useReadContracts({
@@ -65,7 +63,6 @@ export function useDepositQuote(
   const sizing = sizeDeposit(
     probe.data as readonly bigint[] | undefined,
     scales.data?.map((r) => r.result as bigint | undefined) ?? [],
-    kNormWad,
     valueWad,
   );
   return {
@@ -81,9 +78,9 @@ const REFUSED = "This position can't be opened right now.";
  *  amount is only known on submit). */
 export async function fetchDepositQuote(
   config: Config,
-  args: { pool: Address; chainId: number; n: number; kNormWad: bigint; valueWad: bigint },
+  args: { pool: Address; chainId: number; n: number; band: number; valueWad: bigint },
 ): Promise<DepositQuote> {
-  const { pool, chainId, n, kNormWad, valueWad } = args;
+  const { pool, chainId, n, band, valueWad } = args;
   try {
     const [perProbe, scales] = await Promise.all([
       readContract(config, {
@@ -91,7 +88,7 @@ export async function fetchDepositQuote(
         chainId,
         abi: POOL_ABI,
         functionName: "depositAmounts",
-        args: [(PROBE_R * kNormWad) / WAD, PROBE_R],
+        args: [BigInt(band), PROBE_R],
       }),
       readContracts(config, {
         contracts: Array.from({ length: n }, (_, i) => ({
@@ -103,9 +100,9 @@ export async function fetchDepositQuote(
         })),
       }),
     ]);
-    return { ...sizeDeposit(perProbe, scales.map((r) => r.result as bigint | undefined), kNormWad, valueWad), loading: false };
+    return { ...sizeDeposit(perProbe, scales.map((r) => r.result as bigint | undefined), valueWad), loading: false };
   } catch (e) {
-    return { rWad: 0n, kWad: 0n, amountsWad: [], amountsRaw: [], error: explainPoolError(e) ?? REFUSED, loading: false };
+    return { rWad: 0n, amountsWad: [], amountsRaw: [], error: explainPoolError(e) ?? REFUSED, loading: false };
   }
 }
 
@@ -114,16 +111,14 @@ export async function fetchDepositQuote(
 function sizeDeposit(
   perProbe: readonly bigint[] | undefined,
   scales: readonly (bigint | undefined)[],
-  kNormWad: bigint,
   valueWad: bigint,
 ) {
   const total = perProbe?.reduce((a, b) => a + b, 0n) ?? 0n;
   const rWad = total > 0n ? (PROBE_R * valueWad) / total : 0n;
-  const kWad = (rWad * kNormWad) / WAD;
   const amountsWad = perProbe ? perProbe.map((a) => (a * rWad) / PROBE_R) : [];
   const amountsRaw = amountsWad.map((a, i) => {
     const s = scales[i];
     return s && s > 0n ? (a + s - 1n) / s : 0n;
   });
-  return { rWad, kWad, amountsWad, amountsRaw };
+  return { rWad, amountsWad, amountsRaw };
 }

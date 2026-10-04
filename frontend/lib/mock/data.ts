@@ -9,12 +9,12 @@ export type Token = {
 };
 
 export type Tick = {
+  /** Index on the hook's band menu (lib/bands.ts); also the position id. */
+  band:              number;
   kWad:              bigint;
   r:                 number;   // WAD / 1e18
   isInterior:        boolean;
-  feeGrowthInside?:  bigint;
-  liquidityGross?:   bigint;
-  // display compat (not computed: kept at 0 when from chain)
+  /** The band's depeg threshold (0 for full range). */
   depegPrice:        number;
   capitalEfficiency: number;
 };

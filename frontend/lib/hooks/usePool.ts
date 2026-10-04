@@ -4,6 +4,7 @@ import { useReadContracts } from "wagmi";
 import { type Address } from "viem";
 import { POOL_ABI, TOKEN_META } from "@/lib/contracts";
 import { PRIMARY_CHAIN_ID } from "@/lib/crosschain";
+import { bandDepegPrice } from "@/lib/bands";
 import { type Pool } from "@/lib/mock/data";
 import { usePoolVolume24h } from "@/lib/hooks/usePoolVolume24h";
 
@@ -58,7 +59,7 @@ export function usePool(
     (step2.data?.[n + i]?.result as bigint | undefined) ?? 0n
   );
   const ticksRaw = Array.from({ length: numTicks }, (_, i) => {
-    const r = step2.data?.[2 * n + i]?.result as readonly [bigint, bigint, boolean, bigint, bigint] | undefined;
+    const r = step2.data?.[2 * n + i]?.result as readonly [bigint, bigint, boolean] | undefined;
     return r;
   });
 
@@ -77,16 +78,22 @@ export function usePool(
   const reserves = reservesBig.map(b => Number(b > virtualReserve ? b - virtualReserve : 0n) / WAD);
   const tvl      = reserves.reduce((a, b) => a + b, 0);
 
-  const ticks = ticksRaw.map(t => ({
-    kWad:             t?.[0] ?? 0n,
-    r:                Number(t?.[1] ?? 0n) / WAD,
-    isInterior:       t?.[2] ?? true,
-    feeGrowthInside:  t?.[3] ?? 0n,
-    liquidityGross:   t?.[4] ?? 0n,
-    // compat fields expected by existing components
-    depegPrice:       0,
-    capitalEfficiency:0,
-  }));
+  // One tick per band on the menu; only bands holding liquidity are ticks of
+  // this pool. An empty band reads as not interior, and counting it would show
+  // a healthy pool as paused.
+  const ticks = ticksRaw.flatMap((t, band) => {
+    const r = t?.[1] ?? 0n;
+    if (r === 0n) return [];
+    return [{
+      band,
+      kWad:             t?.[0] ?? 0n,
+      r:                Number(r) / WAD,
+      isInterior:       t?.[2] ?? true,
+      depegPrice:       bandDepegPrice(band),
+      // compat field expected by existing components
+      capitalEfficiency:0,
+    }];
+  });
 
   const kBound = Number(slot0?.[3] ?? 0n);
   const rInt   = Number(slot0?.[2] ?? 0n) / WAD;

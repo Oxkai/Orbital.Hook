@@ -117,8 +117,6 @@ export const POOL_ABI = [
       { name: "k",               type: "uint256" },
       { name: "r",               type: "uint256" },
       { name: "isInterior",      type: "bool"    },
-      { name: "feeGrowthInside", type: "uint256" },
-      { name: "liquidityGross",  type: "uint128" },
     ],
     stateMutability: "view",
   },
@@ -128,14 +126,17 @@ export const POOL_ABI = [
   // are `reserves(i) − virtualReserve()`.
   { type: "function", name: "virtualReserve", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "tickVirtual", inputs: [{ name: "", type: "uint256" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
-  // Exact per-asset deposit (WAD) a mint of (k, r) takes right now.
+  // Exact per-asset deposit (WAD) a mint of radius r into `band` takes right now.
   {
     type: "function", name: "depositAmounts",
-    inputs: [{ name: "kWad", type: "uint256" }, { name: "rWad", type: "uint256" }],
+    inputs: [{ name: "band", type: "uint256" }, { name: "rWad", type: "uint256" }],
     outputs: [{ name: "amounts", type: "uint256[]" }],
     stateMutability: "view",
   },
   { type: "function", name: "scaleOf", inputs: [{ name: "i", type: "uint8" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
+  // The fixed band menu. Each band's depeg price is fixed at deploy and
+  // mirrored in lib/bands.ts; the chain exposes the plane constant it derives.
+  { type: "function", name: "bandKNorm", inputs: [{ name: "", type: "uint256" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
 ] as const;
 
 export const ERC20_ABI = [
@@ -183,16 +184,25 @@ export const QUOTER_ABI = [
   },
 ] as const;
 
+/** Deadline for an LP call submitted now. The hook refuses the call once it
+ *  has passed, so a transaction stuck in the mempool cannot execute later
+ *  against a pool that has moved. */
+export function lpDeadline(seconds = 600): bigint {
+  return BigInt(Math.floor(Date.now() / 1000) + seconds);
+}
+
 // OrbitalHook LP surface: ERC-6909 share balance + direct LP entry points.
-// Positions live as soulbound ERC-6909 shares (tokenId = tickIdx) on the hook.
+// Positions live as soulbound ERC-6909 shares on the hook; the token id is the
+// band, so every deposit an owner makes into one band is one position.
 export const HOOK_LP_ABI = [
   { type: "function", name: "balanceOf", inputs: [{ name: "owner", type: "address" }, { name: "id", type: "uint256" }], outputs: [{ type: "uint256" }], stateMutability: "view" },
   {
     type: "function", name: "addLiquidity",
     inputs: [
-      { name: "kWad", type: "uint256" },
+      { name: "band", type: "uint256" },
       { name: "rWad", type: "uint256" },
       { name: "maxAmounts", type: "uint256[]" },
+      { name: "deadline", type: "uint256" },
     ],
     outputs: [{ name: "tickIdx", type: "uint256" }, { name: "amounts", type: "uint256[]" }],
     stateMutability: "nonpayable",
@@ -200,17 +210,32 @@ export const HOOK_LP_ABI = [
   {
     type: "function", name: "removeLiquidity",
     inputs: [
-      { name: "tickIdx", type: "uint256" },
+      { name: "band", type: "uint256" },
       { name: "rWad", type: "uint256" },
       { name: "minAmounts", type: "uint256[]" },
+      { name: "deadline", type: "uint256" },
     ],
     outputs: [{ name: "amounts", type: "uint256[]" }],
     stateMutability: "nonpayable",
   },
   {
     type: "function", name: "collect",
-    inputs: [{ name: "tickIdx", type: "uint256" }],
+    inputs: [{ name: "band", type: "uint256" }],
     outputs: [{ name: "fees", type: "uint256[]" }],
+    stateMutability: "nonpayable",
+  },
+  // Payouts the hook held back because the token could not be transferred at
+  // the time (issuer pause or freeze), raw token units; `claimOwed` pays them.
+  {
+    type: "function", name: "owed",
+    inputs: [{ name: "", type: "address" }, { name: "", type: "uint8" }],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function", name: "claimOwed",
+    inputs: [{ name: "asset", type: "uint8" }],
+    outputs: [{ name: "amount", type: "uint256" }],
     stateMutability: "nonpayable",
   },
   {

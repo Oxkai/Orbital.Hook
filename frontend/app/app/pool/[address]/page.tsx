@@ -23,6 +23,7 @@ import { DepthChart } from "@/components/app/pool/DepthChart";
 import { fmtUSD }   from "@/lib/mock/data";
 import { type Address } from "viem";
 import { chainIdForPool, explorerAddress } from "@/lib/crosschain";
+import { bandLabel } from "@/lib/bands";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
 import {
   TransactionListHeader,
@@ -376,19 +377,19 @@ function LiquidityTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["
           className="hidden sm:grid items-center px-5 py-2.5"
           style={{
             backgroundColor: color.surface1,
-            gridTemplateColumns: "32px 1fr 160px 110px",
+            gridTemplateColumns: "96px 1fr 160px 110px",
           }}
         >
-          {["#", "Liquidity (r)", "k (WAD)", "Status"].map(h => (
+          {["Band", "Liquidity (r)", "k (WAD)", "Status"].map(h => (
             <span key={h} style={{ ...LBL, color: color.textMuted }}>{h}</span>
           ))}
         </div>
 
-        {pool.ticks.map((tick, i) => {
+        {pool.ticks.map((tick) => {
           const tickColor = tick.isInterior ? color.success : color.warning;
           return (
             <div
-              key={i}
+              key={tick.band}
               className="hover:bg-(--color-surface-2) transition-colors"
               style={{ backgroundColor: color.surface1 }}
             >
@@ -396,11 +397,11 @@ function LiquidityTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["
               <div
                 className="hidden sm:grid items-center px-5"
                 style={{
-                  gridTemplateColumns: "32px 1fr 160px 110px",
+                  gridTemplateColumns: "96px 1fr 160px 110px",
                   minHeight: 56,
                 }}
               >
-                <span style={body("caption", color.textMuted)}>{i}</span>
+                <span style={body("caption", color.textMuted)}>{bandLabel(tick.band)}</span>
                 <div className="flex flex-col gap-1.5 py-3 pr-6">
                   <span style={body("p2", color.textPrimary)}>{fmtUSD(tick.r)}</span>
                   <div style={{ height: 2, backgroundColor: color.surface3, overflow: "hidden" }}>
@@ -424,11 +425,11 @@ function LiquidityTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["
               <div
                 className="sm:hidden grid items-center px-5"
                 style={{
-                  gridTemplateColumns: "28px 1fr auto",
+                  gridTemplateColumns: "84px 1fr auto",
                   minHeight: 50,
                 }}
               >
-                <span style={body("caption", color.textMuted)}>{i}</span>
+                <span style={body("caption", color.textMuted)}>{bandLabel(tick.band)}</span>
                 <div className="flex flex-col gap-1 py-3 pr-3">
                   <span style={body("p3", color.textPrimary)}>{fmtUSD(tick.r)}</span>
                   <div style={{ height: 2, backgroundColor: color.surface3, overflow: "hidden" }}>
@@ -453,7 +454,7 @@ function LiquidityTab({ pool }: { pool: NonNullable<ReturnType<typeof usePool>["
             className="flex items-center justify-center py-16"
             style={{ backgroundColor: color.surface1 }}
           >
-            <span style={body("p3", color.textMuted)}>No ticks found</span>
+            <span style={body("p3", color.textMuted)}>No liquidity yet</span>
           </div>
         )}
       </div>
