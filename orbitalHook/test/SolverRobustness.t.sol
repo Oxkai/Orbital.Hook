@@ -12,6 +12,7 @@ import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
 import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 import {BaseTest} from "./utils/BaseTest.sol";
 
 /// @notice Large and tier-crossing swaps against realistic tick ladders.
@@ -58,7 +59,7 @@ contract SolverRobustnessTest is BaseTest {
     /// @dev The ladder the deploy scripts used before the full-range backstop.
     function _bandLadder() internal {
         _pool(0x5151);
-        _seed([uint256(5_000_000 ether), 4_000_000 ether, 2_000_000 ether, 1_000_000 ether], [uint256(0.97e18), 0.93e18, 0.88e18, 0.80e18]);
+        _seed([uint256(5_000_000 ether), 4_000_000 ether, 2_000_000 ether, 1_000_000 ether], [uint256(0.97e18), 0.94e18, 0.88e18, 0.80e18]);
     }
 
     function test_a_trade_through_several_tiers_settles_and_reverses() public {
@@ -102,7 +103,12 @@ contract SolverRobustnessTest is BaseTest {
         (PoolKey memory k, bool zeroForOne) = _route(a, b);
         try swapRouter.swapExactTokensForTokens(amt, 0, zeroForOne, k, "", address(this), block.timestamp) {}
         catch (bytes memory err) {
-            assertEq(_innerSelector(err), OrbitalHook.SwapExceedsLiquidity.selector, "unexpected swap failure");
+            // The two ways a trade can be too large for the pool.
+            bytes4 sel = _innerSelector(err);
+            assertTrue(
+                sel == OrbitalHook.SwapExceedsLiquidity.selector || sel == OrbitalHook.SwapBeyondZeroPrice.selector,
+                "unexpected swap failure"
+            );
         }
         _assertLive();
     }
@@ -113,13 +119,17 @@ contract SolverRobustnessTest is BaseTest {
 
     /// @notice With the last tier full range (k = kMax), its boundary is only
     ///         reached by draining an asset, so large trades fill at a price
-    ///         that worsens smoothly with size instead of being refused.
+    ///         that worsens smoothly with size instead of being refused — up to
+    ///         the size at which the pool prices the input at zero. Past that
+    ///         the surface still has solutions, but each pays LESS than the
+    ///         trade at the zero-price point would (here output peaks near 28%
+    ///         of the reserve and falls after), so the pool refuses them.
     function test_a_full_range_backstop_fills_large_trades() public {
         _pool(0x5252);
-        _seed([uint256(4_000_000 ether), 3_000_000 ether, 2_000_000 ether, 3_000_000 ether], [uint256(0.97e18), 0.93e18, 0.88e18, 0]);
+        _seed([uint256(4_000_000 ether), 3_000_000 ether, 2_000_000 ether, 3_000_000 ether], [uint256(0.97e18), 0.94e18, 0.88e18, 0]);
 
         uint256 reserve = hook.reserves(0);
-        uint256[5] memory pct = [uint256(1), 5, 12, 20, 35];
+        uint256[5] memory pct = [uint256(1), 5, 12, 20, 27];
         uint256 lastOut;
         uint256 lastRate = type(uint256).max;
         for (uint256 k; k < pct.length; ++k) {
@@ -133,6 +143,9 @@ contract SolverRobustnessTest is BaseTest {
             _assertLive();
             vm.revertToState(snap);
         }
+
+        // Past the peak: refused by name, not filled for less.
+        _expectSwapRevert(0, 1, reserve * 35 / 100, OrbitalHook.SwapBeyondZeroPrice.selector);
     }
 
     // ═════════════════════════════════════════════════════════════
@@ -141,7 +154,7 @@ contract SolverRobustnessTest is BaseTest {
 
     function _pool(uint160 salt) internal {
         address where = address(HOOK_FLAGS ^ (salt << 144));
-        deployCodeTo("OrbitalHook.sol:OrbitalHook", abi.encode(poolManager, permit2, regd, FEE, address(this)), where);
+        deployCodeTo("OrbitalHook.sol:OrbitalHook", abi.encode(poolManager, regd, FEE, address(this)), where);
         hook = OrbitalHook(where);
         for (uint256 i; i < N; ++i) {
             tok[i].mint(address(this), 100_000_000 ether);
@@ -152,13 +165,12 @@ contract SolverRobustnessTest is BaseTest {
         }
     }
 
-    /// @dev `p == 0` seeds a full-range position (k = kMax).
+    /// @dev Each `p[k]` is a depeg price on the band menu; `p == 0` is full range.
     function _seed(uint256[4] memory r, uint256[4] memory p) internal {
         uint256[] memory maxA = new uint256[](N);
         for (uint256 i; i < N; ++i) maxA[i] = type(uint256).max;
         for (uint256 k; k < 4; ++k) {
-            uint256 kk = p[k] == 0 ? TickLib.kMax(r[k], N) : TickLib.kFromDepegPrice(r[k], N, p[k]);
-            hook.addLiquidity(kk, r[k], maxA);
+            hook.addLiquidity(BandLib.bandOf(p[k]), r[k], maxA, block.timestamp);
         }
     }
 

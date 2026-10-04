@@ -10,7 +10,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
-import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 import {BaseTest} from "./utils/BaseTest.sol";
 
 interface IERC6909Balance {
@@ -54,7 +54,7 @@ abstract contract SolvencyInvariantBase is BaseTest {
     function _deployHook(Currency[] memory regd, address flagged) internal virtual {
         deployCodeTo(
             "OrbitalHook.sol:OrbitalHook",
-            abi.encode(poolManager, permit2, regd, uint24(100), address(this)),
+            abi.encode(poolManager, regd, uint24(100), address(this)),
             flagged
         );
     }
@@ -67,11 +67,14 @@ abstract contract SolvencyInvariantBase is BaseTest {
 
     /// @dev Handlers the fuzzer may call. A profile may append its own.
     function _handlerSelectors() internal view virtual returns (bytes4[] memory sel) {
-        sel = new bytes4[](4);
+        sel = new bytes4[](7);
         sel[0] = this.h_add.selector;
         sel[1] = this.h_swap.selector;
         sel[2] = this.h_remove.selector;
         sel[3] = this.h_collect.selector;
+        sel[4] = this.h_freeze.selector;
+        sel[5] = this.h_claimOwed.selector;
+        sel[6] = this.h_swapExactOut.selector;
     }
 
     function setUp() public {
@@ -123,8 +126,7 @@ abstract contract SolvencyInvariantBase is BaseTest {
 
         // Seed a wide base position so swaps have depth from the start.
         uint256 r0 = 1_000_000 ether;
-        uint256 k0 = (TickLib.kMin(r0, N) + TickLib.kMax(r0, N)) / 2;
-        (uint256 tick0,) = hook.addLiquidity(k0, r0, _maxAmounts());
+        (uint256 tick0,) = hook.addLiquidity(BandLib.bandOf(0.95e18), r0, _maxAmounts(), block.timestamp);
         heldTicks.push(tick0);
 
         targetSelector(FuzzSelector({addr: address(this), selectors: _handlerSelectors()}));
@@ -133,10 +135,12 @@ abstract contract SolvencyInvariantBase is BaseTest {
 
     // ── Handlers (reverts are swallowed: invalid random inputs just no-op) ──
 
-    function h_add(uint256 rSeed, uint256 kSeed) public {
+    /// Any band, any size — including during a depeg, where a mint joins the
+    /// interior by the paper's attribution and a pinned band is refused.
+    function h_add(uint256 rSeed, uint256 bandSeed) public {
         uint256 r = bound(rSeed, 1 ether, 100_000 ether);
-        uint256 k = bound(kSeed, TickLib.kMin(r, N), TickLib.kMax(r, N));
-        try hook.addLiquidity(k, r, _maxAmounts()) returns (uint256 tickIdx, uint256[] memory) {
+        uint256 band = bound(bandSeed, 0, BandLib.COUNT - 1);
+        try hook.addLiquidity(band, r, _maxAmounts(), block.timestamp) returns (uint256 tickIdx, uint256[] memory) {
             _track(tickIdx);
         } catch {}
     }
@@ -163,13 +167,60 @@ abstract contract SolvencyInvariantBase is BaseTest {
         ) {} catch {}
     }
 
+    /// The other half of the swap interface: the trader names the output and
+    /// the engine solves for the input. Custody must hold either way round.
+    function h_swapExactOut(uint256 amtSeed, uint256 dirSeed) public {
+        bool zeroForOne = dirSeed % 2 == 0;
+        uint8 outIdx = zeroForOne ? 1 : 0;
+
+        uint256 resRaw = hook.reserves(outIdx) / scales[outIdx];
+        uint256 minRaw = 1 ether / scales[outIdx];
+        if (resRaw < 2 * minRaw) return;
+
+        uint256 amtRaw = bound(amtSeed, minRaw, resRaw / 2);
+        try swapRouter.swapTokensForExactTokens(
+            amtRaw, type(uint256).max, zeroForOne, key01, "", address(this), block.timestamp
+        ) {} catch {}
+    }
+
     function h_remove(uint256 tickSeed, uint256 rSeed) public {
         if (heldTicks.length == 0) return;
         uint256 tick = heldTicks[tickSeed % heldTicks.length];
         uint256 bal = hook.balanceOf(address(this), tick);
         if (bal == 0) return;
         uint256 r = bound(rSeed, 1, bal);
-        try hook.removeLiquidity(tick, r, new uint256[](N)) {} catch {}
+        try hook.removeLiquidity(tick, r, new uint256[](N), block.timestamp) {} catch {}
+    }
+
+    /// The asset currently frozen, plus one (0 = none).
+    uint8 frozenPlusOne;
+
+    /// Freeze one asset the way an issuer pause does — nothing moves in or out
+    /// of anyone's balance — or, if one is frozen, lift it. Withdrawals and fee
+    /// collections then pay the other assets and hold the frozen one as `owed`.
+    function h_freeze(uint256 seed) public {
+        vm.clearMockedCalls();
+        if (frozenPlusOne != 0) {
+            frozenPlusOne = 0;
+            return;
+        }
+        uint8 i = uint8(seed % N);
+        address token = Currency.unwrap(assets[i]);
+        vm.mockCallRevert(token, abi.encodeWithSignature("transfer(address,uint256)"), "PAUSED");
+        vm.mockCallRevert(token, abi.encodeWithSignature("transferFrom(address,address,uint256)"), "PAUSED");
+        frozenPlusOne = i + 1;
+    }
+
+    function h_claimOwed(uint256 seed) public {
+        uint8 i = uint8(seed % N);
+        uint256 before = hook.owed(address(this), i);
+        try hook.claimOwed(i) returns (uint256 paid) {
+            assertEq(paid, before, "claimOwed paid other than what was owed");
+            assertTrue(frozenPlusOne != i + 1, "a frozen asset was paid out");
+        } catch {
+            // Nothing owed, or the asset is still frozen: the claim must stand.
+            assertEq(hook.owed(address(this), i), before, "a failed claim changed what is owed");
+        }
     }
 
     function h_collect(uint256 tickSeed) public {
@@ -197,14 +248,53 @@ abstract contract SolvencyInvariantBase is BaseTest {
     ///         what makes the assertion meaningful for a 6-decimal asset.
     ///
     ///         `reserves` is the engine's VIRTUAL reserve vector; the part the
-    ///         pool actually owes in tokens is `reserves − virtualReserve`.
+    ///         pool actually owes in tokens is `reserves − virtualReserve`. On
+    ///         top of that it owes the payouts it held back for frozen tokens
+    ///         (`totalOwed`, raw).
     function invariant_pool_is_solvent() public view {
         for (uint8 i = 0; i < N; ++i) {
             uint256 id = uint256(uint160(Currency.unwrap(assets[i])));
             uint256 claimRaw = IERC6909Balance(address(poolManager)).balanceOf(address(hook), id);
             uint256 claimWad = claimRaw * scales[i];
-            uint256 owedWad = hook.reserves(i) - hook.virtualReserve() + hook.feesAccrued(i);
+            uint256 owedWad =
+                hook.reserves(i) - hook.virtualReserve() + hook.feesAccrued(i) + hook.totalOwed(i) * scales[i];
             assertGe(claimWad, owedWad, "pool owes more WAD than its raw custody covers");
+        }
+    }
+
+    /// @dev Storage slot of the hook's band bitmaps (`_interiorBands` in the low
+    ///      128 bits, `_pinnedBands` in the high). Read it off the contract with
+    ///
+    ///          forge inspect src/OrbitalHook.sol:OrbitalHook storageLayout
+    ///
+    ///      and update it when the layout moves: the invariant below then reads
+    ///      the wrong word and fails loudly rather than passing vacuously.
+    uint256 constant BAND_BITS_SLOT = 111;
+
+    /// @notice The band bitmaps are the only record of which side of its plane
+    ///         each band is on, so they must match the liquidity exactly: a
+    ///         band is live on exactly one side iff it holds liquidity. A stale
+    ///         bit on an empty band would make crossing detection pick it, or
+    ///         refuse deposits into it forever.
+    function invariant_band_bitmaps_match_liquidity() public view {
+        uint256 word = uint256(vm.load(address(hook), bytes32(BAND_BITS_SLOT)));
+        uint256 interior = word & type(uint128).max;
+        uint256 pinned = word >> 128;
+        assertEq(interior & pinned, 0, "a band is both interior and pinned");
+        uint256 n = hook.numTicks();
+        assertEq((interior | pinned) >> n, 0, "a bit is set past the last band");
+        for (uint256 b = 0; b < n; ++b) {
+            (, uint256 r,) = hook.ticks(b);
+            bool live = ((interior | pinned) >> b) & 1 == 1;
+            assertEq(live, r > 0, "a band's bit does not match its liquidity");
+        }
+    }
+
+    /// @notice Held-back payouts are accounted exactly: the one account that
+    ///         withdraws here is owed the whole of `totalOwed`.
+    function invariant_owed_adds_up() public view {
+        for (uint8 i = 0; i < N; ++i) {
+            assertEq(hook.totalOwed(i), hook.owed(address(this), i), "totalOwed drifted from the per-account sum");
         }
     }
 
@@ -225,7 +315,7 @@ abstract contract SolvencyInvariantBase is BaseTest {
         uint256 sum;
         uint256 n = hook.numTicks();
         for (uint256 t = 0; t < n; ++t) {
-            (, uint256 r,,,) = hook.ticks(t);
+            (, uint256 r,) = hook.ticks(t);
             if (r == 0) assertEq(hook.tickVirtual(t), 0, "a dead tick still carries virtual reserve");
             sum += hook.tickVirtual(t);
         }
@@ -242,8 +332,9 @@ abstract contract SolvencyInvariantBase is BaseTest {
             uint256 id = uint256(uint160(Currency.unwrap(assets[i])));
             uint256 claimRaw = IERC6909Balance(address(poolManager)).balanceOf(address(hook), id);
             uint256 owedWad = hook.reserves(i) - hook.virtualReserve() + hook.feesAccrued(i);
-            // Raw units needed to cover the WAD obligation, rounded up.
-            uint256 neededRaw = (owedWad + scales[i] - 1) / scales[i];
+            // Raw units needed to cover the WAD obligation, rounded up, plus the
+            // held-back payouts, already raw.
+            uint256 neededRaw = (owedWad + scales[i] - 1) / scales[i] + hook.totalOwed(i);
             assertGe(claimRaw, neededRaw, "rounding leaked value out of the pool");
         }
     }

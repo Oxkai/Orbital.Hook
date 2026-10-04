@@ -11,6 +11,7 @@ import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
 import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 import {SphereMath} from "../src/libraries/SphereMath.sol";
 import {BaseTest} from "./utils/BaseTest.sol";
 
@@ -56,7 +57,7 @@ contract VirtualLiquidityTest is BaseTest {
         _pool(0x7101);
         uint256 r = 1_000_000 ether;
         uint256 k = TickLib.kFromDepegPrice(r, N, 0.99e18);
-        (, uint256[] memory amounts) = hook.addLiquidity(k, r, _max());
+        (, uint256[] memory amounts) = hook.addLiquidity(BandLib.bandOf(0.99e18), r, _max(), block.timestamp);
 
         uint256 q = SphereMath.equalPricePoint(r, N);
         uint256 efficiency = TickLib.capitalEfficiency(r, N, k);
@@ -72,7 +73,7 @@ contract VirtualLiquidityTest is BaseTest {
     function test_full_range_has_no_virtual_part() public {
         _pool(0x7102);
         uint256 r = 1_000_000 ether;
-        (, uint256[] memory amounts) = hook.addLiquidity(TickLib.kMax(r, N), r, _max());
+        (, uint256[] memory amounts) = hook.addLiquidity(BandLib.bandOf(0), r, _max(), block.timestamp);
         uint256 q = SphereMath.equalPricePoint(r, N);
         assertLe(hook.virtualReserve(), q / 1e12, "full range carries virtual reserve");
         for (uint256 i; i < N; ++i) assertApproxEqRel(amounts[i], q, 1e-12 ether);
@@ -88,14 +89,14 @@ contract VirtualLiquidityTest is BaseTest {
     function test_the_same_capital_concentrated_is_far_deeper() public {
         // Full range: 1M radius deposits q(1M) per asset.
         _pool(0x7103);
-        hook.addLiquidity(TickLib.kMax(1_000_000 ether, N), 1_000_000 ether, _max());
+        hook.addLiquidity(BandLib.bandOf(0), 1_000_000 ether, _max(), block.timestamp);
         uint256 capital = _capitalPerAsset();
         uint256 slipFull = _slippageBps(capital / 200); // 0.5% of the capital per asset
 
         // Concentrated: a 0.995 band sized to deposit the same capital.
         _pool(0x7104);
         uint256 r = _radiusForCapital(capital, 0.995e18);
-        hook.addLiquidity(TickLib.kFromDepegPrice(r, N, 0.995e18), r, _max());
+        hook.addLiquidity(BandLib.bandOf(0.995e18), r, _max(), block.timestamp);
         assertApproxEqRel(_capitalPerAsset(), capital, 1e-6 ether, "fixture: capital differs");
         uint256 slipBand = _slippageBps(capital / 200);
 
@@ -111,10 +112,9 @@ contract VirtualLiquidityTest is BaseTest {
     function test_mint_then_burn_returns_the_deposit() public {
         _pool(0x7105);
         uint256 r = 500_000 ether;
-        uint256 k = TickLib.kFromDepegPrice(r, N, 0.98e18);
         uint256[4] memory before = _balances();
-        (uint256 t,) = hook.addLiquidity(k, r, _max());
-        hook.removeLiquidity(t, r, new uint256[](N));
+        (uint256 t,) = hook.addLiquidity(BandLib.bandOf(0.98e18), r, _max(), block.timestamp);
+        hook.removeLiquidity(t, r, new uint256[](N), block.timestamp);
         for (uint256 i; i < N; ++i) {
             uint256 afterBal = tok[i].balanceOf(address(this));
             assertLe(afterBal, before[i], "burn paid out more than was deposited");
@@ -129,12 +129,12 @@ contract VirtualLiquidityTest is BaseTest {
     function test_a_partial_burn_keeps_the_band() public {
         _pool(0x7106);
         uint256 r = 800_000 ether;
-        uint256 k = TickLib.kFromDepegPrice(r, N, 0.97e18);
-        (uint256 t,) = hook.addLiquidity(k, r, _max());
+        (uint256 t,) = hook.addLiquidity(BandLib.bandOf(0.97e18), r, _max(), block.timestamp);
+        (uint256 k,,) = hook.ticks(t);
         uint256 kNormBefore = k * WAD / r;
 
-        hook.removeLiquidity(t, r / 2, new uint256[](N));
-        (uint256 kAfter, uint256 rAfter,,,) = hook.ticks(t);
+        hook.removeLiquidity(t, r / 2, new uint256[](N), block.timestamp);
+        (uint256 kAfter, uint256 rAfter,) = hook.ticks(t);
         assertEq(rAfter, r - r / 2);
         assertApproxEqRel(kAfter * WAD / rAfter, kNormBefore, 1e-12 ether, "partial burn moved the band");
         assertApproxEqRel(hook.tickVirtual(t), TickLib.xMin(rAfter, N, kAfter), 1e-8 ether, "virtual not scaled");
@@ -149,18 +149,17 @@ contract VirtualLiquidityTest is BaseTest {
     ///         scarce asset. It is refused.
     function test_a_band_the_pool_has_already_left_cannot_be_minted() public {
         _pool(0x7107);
-        hook.addLiquidity(TickLib.kMax(1_000_000 ether, N), 1_000_000 ether, _max());
+        hook.addLiquidity(BandLib.bandOf(0), 1_000_000 ether, _max(), block.timestamp);
         // 10k of a 500k reserve moves the price ~4%: past a 0.999 band, well
         // inside a 0.9 one.
         _swap(0, 1, 10_000 ether);
 
         uint256 r = 100_000 ether;
-        uint256 k = TickLib.kFromDepegPrice(r, N, 0.999e18);
         vm.expectRevert(OrbitalHook.TickOutsideItsBand.selector);
-        hook.addLiquidity(k, r, _max());
+        hook.addLiquidity(BandLib.bandOf(0.999e18), r, _max(), block.timestamp);
 
         // A band wide enough to contain the current position is accepted.
-        hook.addLiquidity(TickLib.kFromDepegPrice(r, N, 0.9e18), r, _max());
+        hook.addLiquidity(BandLib.bandOf(0.9e18), r, _max(), block.timestamp);
     }
 
     // ═════════════════════════════════════════════════════════════
@@ -169,7 +168,7 @@ contract VirtualLiquidityTest is BaseTest {
 
     function _pool(uint160 salt) internal {
         address where = address(HOOK_FLAGS ^ (salt << 144));
-        deployCodeTo("OrbitalHook.sol:OrbitalHook", abi.encode(poolManager, permit2, regd, FEE, address(this)), where);
+        deployCodeTo("OrbitalHook.sol:OrbitalHook", abi.encode(poolManager, regd, FEE, address(this)), where);
         hook = OrbitalHook(where);
         for (uint256 i; i < N; ++i) tok[i].approve(where, type(uint256).max);
         for (uint8 i; i < N; ++i) {

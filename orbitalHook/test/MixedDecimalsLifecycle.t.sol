@@ -10,7 +10,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
-import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 import {BaseTest} from "./utils/BaseTest.sol";
 
 /// @dev A token that skims a fee on every transfer — the exact shape the hook
@@ -55,6 +55,9 @@ contract FeeOnTransferToken {
 ///         collect paths are provably reachable with a 6-decimal asset rather than
 ///         merely un-falsified.
 contract MixedDecimalsLifecycleTest is BaseTest {
+    /// A mid-width band (0.95) that every lifecycle step here stays inside.
+    uint256 internal constant BAND = 19;
+
     OrbitalHook hook;
     Currency[4] assets;
     uint256[4] scales;
@@ -92,7 +95,7 @@ contract MixedDecimalsLifecycleTest is BaseTest {
         address flagged = address(HOOK_FLAGS ^ (0x6161 << 144));
         deployCodeTo(
             "OrbitalHook.sol:OrbitalHook",
-            abi.encode(poolManager, permit2, regd, uint24(100), address(this)),
+            abi.encode(poolManager, regd, uint24(100), address(this)),
             flagged
         );
         hook = OrbitalHook(flagged);
@@ -118,8 +121,7 @@ contract MixedDecimalsLifecycleTest is BaseTest {
 
         // ── ADD ──
         uint256 r0 = 1_000_000 ether;
-        uint256 k0 = (TickLib.kMin(r0, N) + TickLib.kMax(r0, N)) / 2;
-        (uint256 tick,) = hook.addLiquidity(k0, r0, _max());
+        (uint256 tick,) = hook.addLiquidity(BAND, r0, _max(), block.timestamp);
         assertEq(hook.balanceOf(address(this), tick), r0, "LP shares not minted");
 
         // ── SWAP (raw units on a 6-decimal asset) ──
@@ -145,7 +147,7 @@ contract MixedDecimalsLifecycleTest is BaseTest {
 
         // ── PARTIAL BURN ── (the path the fuzz handlers never reached)
         uint256 half = hook.balanceOf(address(this), tick) / 2;
-        uint256[] memory got = hook.removeLiquidity(tick, half, new uint256[](N));
+        uint256[] memory got = hook.removeLiquidity(tick, half, new uint256[](N), block.timestamp);
         for (uint8 i; i < N; ++i) {
             assertGt(got[i], 0, "partial burn returned zero for an asset");
         }
@@ -153,7 +155,7 @@ contract MixedDecimalsLifecycleTest is BaseTest {
 
         // ── FULL BURN ──
         uint256 rest = hook.balanceOf(address(this), tick);
-        hook.removeLiquidity(tick, rest, new uint256[](N));
+        hook.removeLiquidity(tick, rest, new uint256[](N), block.timestamp);
         assertEq(hook.balanceOf(address(this), tick), 0, "shares remain after full burn");
 
         (,, uint256 rInt,,) = hook.slot0();
@@ -165,12 +167,11 @@ contract MixedDecimalsLifecycleTest is BaseTest {
     ///         rounding is 1e12 WAD wide and therefore actually observable.
     function test_rounding_never_favours_the_withdrawer() public {
         uint256 r0 = 500_000 ether;
-        uint256 k0 = (TickLib.kMin(r0, N) + TickLib.kMax(r0, N)) / 2;
-        (uint256 tick,) = hook.addLiquidity(k0, r0, _max());
+        (uint256 tick,) = hook.addLiquidity(BAND, r0, _max(), block.timestamp);
 
         // Burn an amount deliberately chosen to land between raw units.
         uint256 odd = 12_345_678_901_234_567;
-        uint256[] memory got = hook.removeLiquidity(tick, odd, new uint256[](N));
+        uint256[] memory got = hook.removeLiquidity(tick, odd, new uint256[](N), block.timestamp);
 
         for (uint8 i; i < N; ++i) {
             // What the engine debited, in WAD, converted to raw the way the hook
@@ -196,7 +197,7 @@ contract MixedDecimalsLifecycleTest is BaseTest {
         address flagged = address(HOOK_FLAGS ^ (0x6262 << 144));
         deployCodeTo(
             "OrbitalHook.sol:OrbitalHook",
-            abi.encode(poolManager, permit2, regd, uint24(100), address(this)),
+            abi.encode(poolManager, regd, uint24(100), address(this)),
             flagged
         );
         OrbitalHook fotHook = OrbitalHook(flagged);
@@ -206,7 +207,6 @@ contract MixedDecimalsLifecycleTest is BaseTest {
         plain.approve(flagged, type(uint256).max);
 
         uint256 r0 = 1_000 ether;
-        uint256 k0 = (TickLib.kMin(r0, 2) + TickLib.kMax(r0, 2)) / 2;
         uint256[] memory maxA = new uint256[](2);
         maxA[0] = type(uint256).max;
         maxA[1] = type(uint256).max;
@@ -216,6 +216,6 @@ contract MixedDecimalsLifecycleTest is BaseTest {
         // geometry, so pinning them would make this test brittle to curve changes
         // while proving nothing extra.
         vm.expectPartialRevert(OrbitalHook.TokenTransferShortfall.selector);
-        fotHook.addLiquidity(k0, r0, maxA);
+        fotHook.addLiquidity(BAND, r0, maxA, block.timestamp);
     }
 }

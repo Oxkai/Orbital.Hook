@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
+import {TorusMath} from "../src/libraries/TorusMath.sol";
 import {TickLib}    from "../src/libraries/TickLib.sol";
 import {SphereMath} from "../src/libraries/SphereMath.sol";
 import {FullMath}   from "../src/libraries/FullMath.sol";
@@ -97,11 +98,21 @@ contract TickLibTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // boundaryRadius
+    // Boundary radius s = √(r² − (k − r√n)²)  (paper §4.4–4.5), via TorusMath
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// The minimal tick is the equal price point itself, a zero-radius circle.
+    function test_boundaryRadius_zero_at_kMin() public pure {
+        assertLe(TorusMath.computeS(R, TickLib.kMin(R, 4), 4), 1e9, "s(kMin) must be ~0");
+    }
+
+    /// At kMax, k − r√n = −r/√n, so s = r·√(1 − 1/n) = r·√3/2 for n = 4.
+    function test_boundaryRadius_at_kMax() public pure {
+        uint256 expected = (R * 866025403784438646) / 1e18; // √3/2
+        assertApproxEqRel(TorusMath.computeS(R, TickLib.kMax(R, 4), 4), expected, 1e9, "s(kMax) != r*sqrt(3)/2");
+    }
+
     function test_boundaryRadius_leq_r() public pure {
-        // s = sqrt(r^2 - (r*sqrt(n)-k)^2) <= r for any valid k
         uint256[4] memory ks = [
             TickLib.kMin(R, 4),
             TickLib.kFromDepegPrice(R, 4, 0.99e18),
@@ -109,8 +120,7 @@ contract TickLibTest is Test {
             TickLib.kMax(R, 4)
         ];
         for (uint256 i; i < ks.length; ++i) {
-            uint256 s = TickLib.boundaryRadius(R, ks[i], 4);
-            assertLe(s, R, "boundary radius must not exceed sphere radius");
+            assertLe(TorusMath.computeS(R, ks[i], 4), R, "boundary radius must not exceed sphere radius");
         }
     }
 }

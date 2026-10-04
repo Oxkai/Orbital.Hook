@@ -16,6 +16,7 @@ import {AddressConstants} from "hookmate/constants/AddressConstants.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
 import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 import {OrbitalIntentSettler} from "../src/crosschain/OrbitalIntentSettler.sol";
 import {IMailbox} from "../src/crosschain/IHyperlane.sol";
 import {OnchainCrossChainOrder, ResolvedCrossChainOrder, AddressCast} from "../src/crosschain/IERC7683.sol";
@@ -167,7 +168,7 @@ contract CrosschainForkTest is Test {
         }
         uint256[] memory maxA = new uint256[](N);
         for (uint256 i = 0; i < N; ++i) maxA[i] = type(uint256).max;
-        d.hook.addLiquidity((TickLib.kMin(r, N) + TickLib.kMax(r, N)) / 2, r, maxA);
+        d.hook.addLiquidity(BandLib.bandOf(0.95e18), r, maxA, block.timestamp);
 
         assertGt(mailbox.code.length, 0, "no Hyperlane Mailbox on this chain");
         d.mailbox = mailbox;

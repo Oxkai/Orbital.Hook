@@ -11,6 +11,7 @@ import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
 import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 import {OrbitalIntentSettler} from "../src/crosschain/OrbitalIntentSettler.sol";
 import {IMailbox} from "../src/crosschain/IHyperlane.sol";
 import {OnchainCrossChainOrder, ResolvedCrossChainOrder, AddressCast} from "../src/crosschain/IERC7683.sol";
@@ -64,7 +65,7 @@ contract OrbitalIntentSettlerTest is BaseTest {
 
         address flagged = address(HOOK_FLAGS ^ (0x1234 << 144));
         deployCodeTo(
-            "OrbitalHook.sol:OrbitalHook", abi.encode(poolManager, permit2, regd, uint24(100), address(this)), flagged
+            "OrbitalHook.sol:OrbitalHook", abi.encode(poolManager, regd, uint24(100), address(this)), flagged
         );
         hook = OrbitalHook(flagged);
 
@@ -81,7 +82,7 @@ contract OrbitalIntentSettlerTest is BaseTest {
         uint256 r = 1_000_000 ether;
         uint256[] memory maxA = new uint256[](N);
         for (uint256 i = 0; i < N; ++i) maxA[i] = type(uint256).max;
-        hook.addLiquidity((TickLib.kMin(r, N) + TickLib.kMax(r, N)) / 2, r, maxA);
+        hook.addLiquidity(BandLib.bandOf(0.95e18), r, maxA, block.timestamp);
 
         originMailbox = new MockMailbox(DOMAIN_BASE);
         destMailbox = new MockMailbox(DOMAIN_ARB);
