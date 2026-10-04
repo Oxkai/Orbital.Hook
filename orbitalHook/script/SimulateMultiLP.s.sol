@@ -18,7 +18,7 @@ import {V4PoolManagerDeployer} from "hookmate/artifacts/V4PoolManager.sol";
 import {V4RouterDeployer} from "hookmate/artifacts/V4Router.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
-import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 
 /// @notice Multi-LP lifecycle simulation, interleaved (not sequential phases).
 ///         Three LPs (Alice, Bob, Carol) with different ticks/positions, plus a
@@ -71,9 +71,9 @@ contract SimulateMultiLPScript is Script {
         // ┌──────────────────────────────────────────────────────────┐
         // │ 1. Alice — first mint on empty pool, midpoint tick       │
         // └──────────────────────────────────────────────────────────┘
-        uint256 kMid = (TickLib.kMin(100_000 ether, N) + TickLib.kMax(100_000 ether, N)) / 2;
-        _logHeader("Alice mints 100k at midpoint k");
-        uint256 aliceTick = _mintAs(PK_ALICE, kMid, 100_000 ether);
+        uint256 bandMid = BandLib.bandOf(0.95e18);
+        _logHeader("Alice mints 100k in the 0.95 band");
+        uint256 aliceTick = _mintAs(PK_ALICE, bandMid, 100_000 ether);
         _logEngine();
 
         // ┌──────────────────────────────────────────────────────────┐
@@ -85,12 +85,12 @@ contract SimulateMultiLPScript is Script {
         // ┌──────────────────────────────────────────────────────────┐
         // │ 3. Bob — same k as Alice (imbalanced-pool pro-rata)      │
         // └──────────────────────────────────────────────────────────┘
-        // Every mint gets its own tick, even at an existing k: merging
-        // positions into one tick let a later LP share an earlier LP's fees.
-        _logHeader("Bob mints 100k at the SAME midpoint k (own tick)");
-        uint256 bobTick = _mintAs(PK_BOB, kMid, 100_000 ether);
+        // Same band as Alice, so the same tick: positions share it, each
+        // earning on its own radius from its own entry (a per-position fee
+        // checkpoint), as in Uniswap v3.
+        _logHeader("Bob mints 100k in the SAME band (shares Alice's tick)");
+        uint256 bobTick = _mintAs(PK_BOB, bandMid, 100_000 ether);
         _logEngine();
-        console2.log("  tick count:", hook.numTicks());
 
         // ┌──────────────────────────────────────────────────────────┐
         // │ 4. Medium swap                                           │
@@ -101,11 +101,9 @@ contract SimulateMultiLPScript is Script {
         // ┌──────────────────────────────────────────────────────────┐
         // │ 5. Carol — new tick (different k AND r)                  │
         // └──────────────────────────────────────────────────────────┘
-        uint256 kCarol = TickLib.kMax(50_000 ether, N) - 5_000 ether;
-        _logHeader("Carol mints 50k at her OWN wider tick");
-        uint256 carolTick = _mintAs(PK_CAROL, kCarol, 50_000 ether);
+        _logHeader("Carol mints 50k in the wider 0.75 band");
+        uint256 carolTick = _mintAs(PK_CAROL, BandLib.bandOf(0.75e18), 50_000 ether);
         _logEngine();
-        console2.log("  tick count:", hook.numTicks());
 
         // ┌──────────────────────────────────────────────────────────┐
         // │ 6. Big swap                                              │
@@ -123,9 +121,10 @@ contract SimulateMultiLPScript is Script {
         // ┌──────────────────────────────────────────────────────────┐
         // │ 8. Alice tops up her position                            │
         // └──────────────────────────────────────────────────────────┘
-        // A second position at the same k: its own tick, alongside the first.
-        _logHeader("Alice adds another 100k at the same k");
-        uint256 aliceTick2 = _mintAs(PK_ALICE, kMid, 100_000 ether);
+        // Same band, same owner: the top-up merges into her position. Her fees
+        // so far are banked at the old size first, then she earns on 200k.
+        _logHeader("Alice tops up 100k in the same band (merges)");
+        _mintAs(PK_ALICE, bandMid, 100_000 ether);
         _logEngine();
 
         // ┌──────────────────────────────────────────────────────────┐
@@ -138,9 +137,8 @@ contract SimulateMultiLPScript is Script {
         // ┌──────────────────────────────────────────────────────────┐
         // │ 10. Each LP collects their fees                          │
         // └──────────────────────────────────────────────────────────┘
-        _logHeader("Alice collects (both positions)");
+        _logHeader("Alice collects");
         _collectAs(PK_ALICE, aliceTick);
-        _collectAs(PK_ALICE, aliceTick2);
         _logHeader("Bob collects");
         _collectAs(PK_BOB, bobTick);
         _logHeader("Carol collects");
@@ -150,7 +148,7 @@ contract SimulateMultiLPScript is Script {
         // ┌──────────────────────────────────────────────────────────┐
         // │ 11. Burns — partial and full                             │
         // └──────────────────────────────────────────────────────────┘
-        _logHeader("Alice burns her first position (100k of her 200k)");
+        _logHeader("Alice burns 100k of her 200k");
         _burnAs(PK_ALICE, aliceTick, 100_000 ether);
         _logHeader("Bob burns ALL (100k)");
         _burnAs(PK_BOB, bobTick, 100_000 ether);
@@ -222,10 +220,10 @@ contract SimulateMultiLPScript is Script {
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
                 | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
         );
-        bytes memory ctorArgs = abi.encode(poolManager, permit2, assets, POOL_FEE, DEPLOYER);
+        bytes memory ctorArgs = abi.encode(poolManager, assets, POOL_FEE, DEPLOYER);
         (address expected, bytes32 salt) =
             HookMiner.find(CREATE2_FACTORY, flags, type(OrbitalHook).creationCode, ctorArgs);
-        h = new OrbitalHook{salt: salt}(poolManager, permit2, assets, POOL_FEE, DEPLOYER);
+        h = new OrbitalHook{salt: salt}(poolManager, assets, POOL_FEE, DEPLOYER);
         require(address(h) == expected, "hook addr mismatch");
     }
 
@@ -260,12 +258,12 @@ contract SimulateMultiLPScript is Script {
     // LP actions
     // ─────────────────────────────────────────────────────────────
 
-    function _mintAs(uint256 pk, uint256 kWad, uint256 rWad) internal returns (uint256 tickIdx) {
+    function _mintAs(uint256 pk, uint256 band, uint256 rWad) internal returns (uint256 tickIdx) {
         uint256[] memory maxA = new uint256[](N);
         for (uint256 i = 0; i < N; ++i) maxA[i] = type(uint256).max;
         vm.startBroadcast(pk);
         uint256[] memory amounts;
-        (tickIdx, amounts) = hook.addLiquidity(kWad, rWad, maxA);
+        (tickIdx, amounts) = hook.addLiquidity(band, rWad, maxA, block.timestamp + 1 hours);
         vm.stopBroadcast();
         console2.log("  tickIdx :", tickIdx);
         console2.log("  rWad    :", rWad);
@@ -307,7 +305,7 @@ contract SimulateMultiLPScript is Script {
     function _burnAs(uint256 pk, uint256 tickIdx, uint256 rWad) internal {
         uint256[] memory minA = new uint256[](N);
         vm.startBroadcast(pk);
-        uint256[] memory amts = hook.removeLiquidity(tickIdx, rWad, minA);
+        uint256[] memory amts = hook.removeLiquidity(tickIdx, rWad, minA, block.timestamp + 1 hours);
         vm.stopBroadcast();
         for (uint256 i = 0; i < N; ++i) {
             console2.log(string.concat("  returned[", SYMBOLS[i], "]:"), amts[i]);

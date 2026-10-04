@@ -18,3 +18,5 @@ broadcast/
 
 # Node (in case any tooling lands here later)
 node_modules/
+# Throwaway keys the real-world fork run generates
+script/realworld/.keys

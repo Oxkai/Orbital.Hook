@@ -8,6 +8,7 @@ import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
 import {TierLadder} from "./lib/TierLadder.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 
 /// @notice Move a live pool onto the current `TierLadder` in place: seed the
 ///         new ladder, then withdraw every position the broadcaster held
@@ -78,15 +79,15 @@ contract ReshapeLiquidityScript is Script {
 
         // Tier 0 is the narrowest band; the pool must still be inside it.
         uint256 r0 = TierLadder.radii(n, capital)[0];
-        uint256 k0 = TierLadder.plane(r0, n, TierLadder.bound(0));
-        try hook.depositAmounts(k0, r0) returns (uint256[] memory) {}
+        try hook.depositAmounts(BandLib.bandOf(TierLadder.bound(0)), r0) returns (uint256[] memory) {}
         catch {
             revert("pool price is outside the ladder's narrowest band: rebalance the pool first");
         }
     }
 
     /// @dev Every position `owner` holds, read before the new ladder is seeded
-    ///      (a mint may recycle a dead tick slot, so ticks are listed now).
+    ///      (seeding into a band `owner` already holds merges into that
+    ///      position, so they are listed now).
     function _held(OrbitalHook hook, address owner) internal view returns (Held[] memory held) {
         uint256 count = hook.numTicks();
         Held[] memory all = new Held[](count);
@@ -114,7 +115,7 @@ contract ReshapeLiquidityScript is Script {
     function _withdraw(OrbitalHook hook, uint8 n, Held memory h) internal {
         (,, uint256 rInt,,) = hook.slot0();
         uint256 virtOut = hook.tickVirtual(h.tick);
-        (, uint256 tickR,,,) = hook.ticks(h.tick);
+        (, uint256 tickR,) = hook.ticks(h.tick);
         if (h.r != tickR) virtOut = FullMath.mulDiv(virtOut, h.r, tickR);
 
         uint256[] memory minOut = new uint256[](n);
@@ -123,7 +124,7 @@ contract ReshapeLiquidityScript is Script {
             minOut[i] = expected - expected * BURN_SLIPPAGE_BPS / 10_000;
         }
 
-        uint256[] memory paid = hook.removeLiquidity(h.tick, h.r, minOut);
+        uint256[] memory paid = hook.removeLiquidity(h.tick, h.r, minOut, block.timestamp + 1 hours);
         uint256[] memory fees = hook.collect(h.tick);
         console2.log("  withdrew tick", h.tick, "r:", h.r);
         console2.log("    paid (wad, asset 0):", paid[0], "fees (wad, asset 0):", fees[0]);

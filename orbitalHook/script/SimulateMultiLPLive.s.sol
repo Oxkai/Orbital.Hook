@@ -11,7 +11,7 @@ import {IUniswapV4Router04} from "hookmate/interfaces/router/IUniswapV4Router04.
 import {IV4Quoter} from "@uniswap/v4-periphery/src/interfaces/IV4Quoter.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
-import {TierLadder} from "./lib/TierLadder.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 
 interface IMintable {
     function mint(address to, uint256 amount) external;
@@ -41,9 +41,9 @@ interface IMintable {
 ///         a fraction of the input asset's REAL reserve (tokens held, not the
 ///         virtual reserve the engine quotes on) and mixed like real flow: most
 ///         are retail, up to a tenth of `MAX_SWAP_BPS`, and about three in ten
-///         are large, up to `MAX_SWAP_BPS`. Liquidity actions are skipped, with
-///         a log line, whenever a tick sits on its boundary, since mint and
-///         burn are blocked then.
+///         are large, up to `MAX_SWAP_BPS`. A join is skipped, with a log line,
+///         when its band is pinned right now (the pool has moved past its
+///         plane); exits run whatever the pool's state.
 ///
 ///         BALANCED: before, between and after the swap waves an arbitrage
 ///         pass brings every reserve back to within 0.02% of the mean (selling
@@ -231,11 +231,15 @@ contract SimulateMultiLPLiveScript is Script {
     }
 
     /// @dev Mint and burn are blocked while any tick sits on its boundary.
-    function _liquidityOpen(string memory what) internal view returns (bool) {
-        (,,, uint256 kBound,) = hook.slot0();
-        if (kBound == 0) return true;
-        console2.log(string.concat("  skipped ", what, ": a tick is on its boundary"));
-        return false;
+    /// @dev Whether a mint into the band ending at `depeg` would be accepted
+    ///      now: the hook's own quote reverts exactly where the mint would.
+    function _bandOpen(uint256 depeg, string memory who) internal view returns (bool) {
+        try hook.depositAmounts(BandLib.bandOf(depeg), 1 ether) returns (uint256[] memory) {
+            return true;
+        } catch {
+            console2.log(string.concat("  skipped ", who, "'s join: its band is pinned"));
+            return false;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -252,7 +256,7 @@ contract SimulateMultiLPLiveScript is Script {
         internal
         returns (uint256 tickIdx)
     {
-        if (!_liquidityOpen(string.concat(who, "'s join"))) return type(uint256).max;
+        if (!_bandOpen(depeg, who)) return type(uint256).max;
         uint256 rWad = _radiusFor(capital, depeg);
         address me = vm.addr(pk);
         vm.startBroadcast(pk);
@@ -263,7 +267,7 @@ contract SimulateMultiLPLiveScript is Script {
         }
         uint256[] memory maxA = new uint256[](n);
         for (uint256 i = 0; i < n; ++i) maxA[i] = type(uint256).max;
-        (tickIdx,) = hook.addLiquidity(TierLadder.plane(rWad, n, depeg), rWad, maxA);
+        (tickIdx,) = hook.addLiquidity(BandLib.bandOf(depeg), rWad, maxA, block.timestamp + 1 hours);
         vm.stopBroadcast();
         console2.log(string.concat("  ", who, " joined tick"), tickIdx, "r:", rWad);
         console2.log("    capital per asset (wad):", capital);
@@ -276,7 +280,7 @@ contract SimulateMultiLPLiveScript is Script {
     ///      radius prices every radius.
     function _radiusFor(uint256 capital, uint256 depeg) internal view returns (uint256) {
         uint256 probeR = 1_000_000 ether;
-        uint256[] memory perProbe = hook.depositAmounts(TierLadder.plane(probeR, n, depeg), probeR);
+        uint256[] memory perProbe = hook.depositAmounts(BandLib.bandOf(depeg), probeR);
         uint256 total;
         for (uint8 i = 0; i < n; ++i) total += perProbe[i];
         return probeR * capital * n / total;
@@ -357,9 +361,9 @@ contract SimulateMultiLPLiveScript is Script {
         address me = vm.addr(pk);
         uint256 bal = hook.balanceOf(me, tickIdx);
         uint256 amount = pct >= 100 ? bal : bal * pct / 100;
-        if (amount == 0 || !_liquidityOpen(string.concat(who, "'s exit"))) return;
+        if (amount == 0) return;
         vm.startBroadcast(pk);
-        hook.removeLiquidity(tickIdx, amount, new uint256[](n));
+        hook.removeLiquidity(tickIdx, amount, new uint256[](n), block.timestamp + 1 hours);
         vm.stopBroadcast();
         console2.log(string.concat("  ", who, " burned %, left:"), pct, hook.balanceOf(me, tickIdx));
     }

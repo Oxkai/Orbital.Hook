@@ -10,11 +10,11 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IUniswapV4Router04} from "hookmate/interfaces/router/IUniswapV4Router04.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
-import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 
-/// @notice Full LP lifecycle against a live deployment: add at a fresh tick ->
-///         swap wave -> collect -> partial burn -> full burn -> verify the freed
-///         tick slot is recycled -> add again -> burn.
+/// @notice Full LP lifecycle against a live deployment: add in a band -> swap
+///         wave -> collect -> partial burn -> full burn -> add to the same band
+///         again, which brings its emptied tick back to life -> burn.
 ///
 /// @dev Self-describing: it reads the asset set and decimals off the hook rather
 ///      than pinning addresses that go stale on the next redeploy.
@@ -46,7 +46,6 @@ contract LifecycleScript is Script {
 
         console2.log("==== START ====");
         _logState();
-        uint256 ticksAtStart = hook.numTicks();
 
         console2.log(">>> STEP 1: add at a fresh depeg bound (0.92)");
         uint256 tick1 = _addTier(500_000 ether, 0.92e18);
@@ -74,11 +73,11 @@ contract LifecycleScript is Script {
         _burn(tick1, hook.balanceOf(msg.sender, tick1));
         console2.log("    remaining:", hook.balanceOf(msg.sender, tick1));
 
-        console2.log(">>> STEP 6: add at 0.83 - should recycle the freed slot");
-        uint256 before = hook.numTicks();
-        uint256 tick2 = _addTier(300_000 ether, 0.83e18);
-        console2.log("    numTicks before/after:", before, hook.numTicks());
-        require(hook.numTicks() == before, "free-list should recycle, not grow the array");
+        console2.log(">>> STEP 6: add to the same band again - its emptied tick revives");
+        uint256 tick2 = _addTier(300_000 ether, 0.92e18);
+        (, uint256 revivedR,) = hook.ticks(tick2);
+        console2.log("    tickIdx:", tick2, "tick r:", revivedR);
+        require(tick2 == tick1 && revivedR == 300_000 ether, "the band's tick should come back to life");
 
         console2.log(">>> STEP 7: clean up");
         _burn(tick2, hook.balanceOf(msg.sender, tick2));
@@ -86,7 +85,7 @@ contract LifecycleScript is Script {
         vm.stopBroadcast();
 
         _logState();
-        console2.log("==== END ====  ticks start/end:", ticksAtStart, hook.numTicks());
+        console2.log("==== END ====");
     }
 
     function _swap(uint8 i, uint8 j, uint256 whole) internal {
@@ -107,20 +106,19 @@ contract LifecycleScript is Script {
     }
 
     function _addTier(uint256 rWad, uint256 depegWad) internal returns (uint256 tickIdx) {
-        uint256 k = TickLib.kFromDepegPrice(rWad, n, depegWad);
         uint256[] memory maxA = new uint256[](n);
         for (uint256 i = 0; i < n; ++i) maxA[i] = type(uint256).max;
-        (tickIdx,) = hook.addLiquidity(k, rWad, maxA);
+        (tickIdx,) = hook.addLiquidity(BandLib.bandOf(depegWad), rWad, maxA, block.timestamp + 1 hours);
     }
 
     function _burn(uint256 tickIdx, uint256 rWad) internal {
         if (rWad == 0) return;
-        hook.removeLiquidity(tickIdx, rWad, new uint256[](n));
+        hook.removeLiquidity(tickIdx, rWad, new uint256[](n), block.timestamp + 1 hours);
     }
 
     function _logState() internal view {
         (uint256 sumX,, uint256 rInt, uint256 kBound,) = hook.slot0();
-        console2.log("    numTicks:", hook.numTicks(), "rInt:", rInt);
+        console2.log("    rInt:", rInt);
         console2.log("    sumX(TVL wad):", sumX, "kBound:", kBound);
     }
 }

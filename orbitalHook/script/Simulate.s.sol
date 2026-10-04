@@ -18,7 +18,7 @@ import {V4PoolManagerDeployer} from "hookmate/artifacts/V4PoolManager.sol";
 import {V4RouterDeployer} from "hookmate/artifacts/V4Router.sol";
 
 import {OrbitalHook} from "../src/OrbitalHook.sol";
-import {TickLib} from "../src/libraries/TickLib.sol";
+import {BandLib} from "../src/libraries/BandLib.sol";
 import {SphereMath} from "../src/libraries/SphereMath.sol";
 
 /// @notice End-to-end protocol simulation:
@@ -58,7 +58,7 @@ contract SimulateScript is Script {
         Currency[] memory assets = _deployAndApproveTokens(permit2, swapRouter);
 
         // ---------- 3. Hook ----------
-        OrbitalHook hook = _deployHook(poolManager, permit2, assets);
+        OrbitalHook hook = _deployHook(poolManager, assets);
         console2.log("OrbitalHook:", address(hook));
 
         // Approve hook for direct LP deposits (addLiquidity pulls via transferFrom).
@@ -73,15 +73,16 @@ contract SimulateScript is Script {
         _logEngine(hook);
 
         // ---------- 5. Add Liquidity ----------
-        uint256 kWad = (TickLib.kMin(SEED_R, N_TOKENS) + TickLib.kMax(SEED_R, N_TOKENS)) / 2;
+        // A mid-width band (0.95): wide enough that the demo swaps stay inside it.
+        uint256 band = BandLib.bandOf(0.95e18);
         uint256[] memory maxA = new uint256[](N_TOKENS);
         for (uint256 i = 0; i < N_TOKENS; ++i) maxA[i] = type(uint256).max;
 
-        (uint256 tickIdx, uint256[] memory amounts) = hook.addLiquidity(kWad, SEED_R, maxA);
+        (uint256 tickIdx, uint256[] memory amounts) = hook.addLiquidity(band, SEED_R, maxA, block.timestamp + 1 hours);
         _logHeader("STATE AFTER addLiquidity");
         console2.log("  tickIdx :", tickIdx);
         console2.log("  rWad    :", SEED_R);
-        console2.log("  kWad    :", kWad);
+        console2.log("  band    :", band);
         for (uint256 i = 0; i < N_TOKENS; ++i) {
             console2.log(string.concat("  pulled[", SYMBOLS[i], "]:"), amounts[i]);
         }
@@ -115,7 +116,7 @@ contract SimulateScript is Script {
         // ---------- 8. Remove Liquidity (partial) ----------
         _logHeader("REMOVE LIQUIDITY (half)");
         uint256[] memory minA = new uint256[](N_TOKENS);
-        uint256[] memory returned = hook.removeLiquidity(tickIdx, BURN_R, minA);
+        uint256[] memory returned = hook.removeLiquidity(tickIdx, BURN_R, minA, block.timestamp + 1 hours);
         for (uint256 i = 0; i < N_TOKENS; ++i) {
             console2.log(string.concat("  returned[", SYMBOLS[i], "]:"), returned[i]);
         }
@@ -161,7 +162,7 @@ contract SimulateScript is Script {
         }
     }
 
-    function _deployHook(IPoolManager poolManager, IPermit2 permit2, Currency[] memory assets)
+    function _deployHook(IPoolManager poolManager, Currency[] memory assets)
         internal
         returns (OrbitalHook hook)
     {
@@ -169,10 +170,10 @@ contract SimulateScript is Script {
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
                 | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
         );
-        bytes memory ctorArgs = abi.encode(poolManager, permit2, assets, POOL_FEE, msg.sender);
+        bytes memory ctorArgs = abi.encode(poolManager, assets, POOL_FEE, msg.sender);
         (address expected, bytes32 salt) =
             HookMiner.find(CREATE2_FACTORY, flags, type(OrbitalHook).creationCode, ctorArgs);
-        hook = new OrbitalHook{salt: salt}(poolManager, permit2, assets, POOL_FEE, msg.sender);
+        hook = new OrbitalHook{salt: salt}(poolManager, assets, POOL_FEE, msg.sender);
         require(address(hook) == expected, "hook addr mismatch");
     }
 
