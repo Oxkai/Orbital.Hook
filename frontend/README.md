@@ -14,7 +14,7 @@ Contracts live in [`../orbitalHook`](../orbitalHook). The pools the app talks to
 | **Pools** | One row per pool: assets, network, address, 24h volume and TVL. |
 | **Pool detail** | Reserves, liquidity depth by price, key metrics and transaction history. |
 | **Add liquidity** | Pick a depeg band and an amount; the hook's own `depositAmounts` quote sizes the position exactly. |
-| **Positions** | Every ERC-6909 position across all pools at its real value: increase, decrease, collect fees, withdraw. |
+| **Positions** | Every position across all pools at its real value: increase, decrease, collect fees, withdraw. |
 | **Transactions** | Swaps, deposits, withdrawals and fee claims across all pools, with type filters. |
 
 TVL and position values are the tokens a pool actually holds, excluding the virtual floor concentrated bands quote on.

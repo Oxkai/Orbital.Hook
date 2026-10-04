@@ -15,6 +15,7 @@ other
 proposal/
 
 # Hackathon planning notes, not for the repo
+/DESCRIPTION.md
 /ETHONLINE_2026_TRACKS.md
 /SUBMISSION_CHECKLIST.md
 /checkin.md
