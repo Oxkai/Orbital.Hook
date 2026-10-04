@@ -73,7 +73,7 @@ npx graph deploy orbital-unichain  --network unichain-testnet  --version-label v
 {
   pools {
     network
-    frozen                 # engine-wide: mint and burn are blocked while true
+    frozen                 # every band pinned: no swap or deposit until liquidity returns
     rInt
     virtualReserveWad      # per-asset virtual floor of the concentrated ticks
     interiorTickCount

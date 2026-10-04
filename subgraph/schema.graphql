@@ -36,13 +36,15 @@ type Pool @entity(immutable: false) {
   kBound: BigInt!
   sBound: BigInt!
 
-  "Count of ticks ever created, and how many are currently interior."
+  "Bands holding liquidity (each band on the hook's menu is one tick), and how many are interior."
   tickCount: Int!
   interiorTickCount: Int!
 
   """
-  True when at least one tick sits on its boundary (kBound != 0).
-  While this holds, the engine cannot mint or burn: the whole book is frozen.
+  True when every band holding liquidity sits on its boundary (rInt = 0 with
+  kBound != 0). No swap can run, and no deposit, until liquidity returns; LPs
+  can still withdraw. A single pinned band does NOT freeze the pool: trading,
+  deposits into bands the price has not passed, and withdrawals all continue.
   This is the single most important health flag in the system.
   """
   frozen: Boolean!
@@ -107,8 +109,6 @@ type Tick @entity(immutable: false) {
   k: BigInt!
   r: BigInt!
   isInterior: Boolean!
-  liquidityGross: BigInt!
-  feeGrowthInside: BigInt!
 
   "This tick's normalised plane constant, k*WAD/r. The engine compares THIS to alphaNorm."
   kNorm: BigInt
@@ -212,7 +212,7 @@ type TickCross @entity(immutable: true) {
   nowInterior: Boolean!
   "Interior radius left in the book immediately after the flip."
   rIntAfter: BigInt!
-  "True if this crossing froze the pool (kBound became non-zero)."
+  "True if this crossing froze the pool (it pinned the last interior band)."
   causedFreeze: Boolean!
   blockNumber: BigInt!
   timestamp: BigInt!

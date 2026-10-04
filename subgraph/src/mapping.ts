@@ -141,9 +141,10 @@ function refreshState(pool: Pool, event: ethereum.Event): BigInt | null {
     pool.rInt = s.value.value2;
     pool.kBound = s.value.value3;
     pool.sBound = s.value.value4;
-    // A non-zero kBound means some tick sits on its boundary. While that holds
-    // the engine refuses mint and burn for the WHOLE book, not just that tick.
-    pool.frozen = s.value.value3.notEqual(ZERO);
+    // Frozen only when every band with liquidity is pinned: no interior
+    // radius is left to trade against or to deposit beside. One pinned band
+    // (kBound != 0 alone) leaves swaps, deposits and withdrawals running.
+    pool.frozen = s.value.value2.equals(ZERO) && s.value.value3.notEqual(ZERO);
   }
 
   let v = hook.try_virtualReserve();
@@ -164,9 +165,11 @@ function refreshState(pool: Pool, event: ethereum.Event): BigInt | null {
     asset.save();
   }
 
+  // One tick per band on the hook's menu; `live` counts the ones holding
+  // liquidity.
   let nt = hook.try_numTicks();
   let count = nt.reverted ? 0 : nt.value.toI32();
-  pool.tickCount = count;
+  let live = 0;
 
   // Reproduce the engine's own normalised projection.
   //
@@ -203,6 +206,9 @@ function refreshState(pool: Pool, event: ethereum.Event): BigInt | null {
 
     let id = tickId(pool, idx);
     let tick = Tick.load(id);
+    // A band nobody has deposited into is not a tick of this pool.
+    if (tick == null && t.value.value1.equals(ZERO)) continue;
+    if (t.value.value1.gt(ZERO)) live += 1;
     if (tick == null) {
       // A tick seen by state refresh before its own Mint log was handled.
       tick = new Tick(id);
@@ -219,8 +225,6 @@ function refreshState(pool: Pool, event: ethereum.Event): BigInt | null {
     tick.k = t.value.value0;
     tick.r = t.value.value1;
     tick.isInterior = t.value.value2;
-    tick.feeGrowthInside = t.value.value3;
-    tick.liquidityGross = t.value.value4;
 
     // kNorm = k*WAD/r is the value the engine tests alphaNorm against.
     let kNorm = tick.r.gt(ZERO) ? tick.k.times(WAD).div(tick.r) : null;
@@ -276,6 +280,7 @@ function refreshState(pool: Pool, event: ethereum.Event): BigInt | null {
     tick.save();
   }
 
+  pool.tickCount = live;
   pool.interiorTickCount = interior;
   pool.lastUpdatedBlock = event.block.number;
   pool.lastUpdatedAt = event.block.timestamp;
@@ -376,8 +381,6 @@ export function handleMint(event: MintEvent): void {
     tick.k = event.params.kWad;
     tick.r = event.params.rWad;
     tick.isInterior = true;
-    tick.feeGrowthInside = ZERO;
-    tick.liquidityGross = ZERO;
   }
   // `creator` is set on every Mint so a tick discovered by refreshState before
   // its log arrives does not keep the zero address.
