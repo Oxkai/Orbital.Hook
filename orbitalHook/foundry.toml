@@ -2,7 +2,7 @@
 bytecode_hash = "none"
 evm_version = "cancun"
 ffi = true
-fs_permissions = [{access = "read-write", path = ".forge-snapshots/"}]
+fs_permissions = [{access = "read-write", path = ".forge-snapshots/"}, {access = "read-write", path = "script/realworld/"}]
 libs = ["lib"]
 out = "out"
 solc_version = "0.8.30"

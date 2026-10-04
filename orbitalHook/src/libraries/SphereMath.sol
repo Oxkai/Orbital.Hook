@@ -133,9 +133,20 @@ library SphereMath {
         uint256 rSq = FullMath.mulDiv(r, r, WAD);
 
         // lhs = n·r² − 2r·Σxᵢ + Σxᵢ²  (all WAD-normalised)
+        //
+        // Add before subtracting. The expression is Σ(r − xᵢ)², so it is never
+        // negative as a whole, but `n·r² − 2r·Σxᵢ` on its own is: at the
+        // balanced point Σxᵢ = r(n − √n), which makes that term negative for
+        // every n > 4 and exactly zero at n = 4, where floor rounding can still
+        // push it under. Evaluated left to right the running value underflows
+        // and panics on the most ordinary state a stablecoin pool has — every
+        // asset at peg. Summing the positive terms first keeps the intermediate
+        // in range; the saturation absorbs the few wei of floor rounding the two
+        // products can leave behind.
         uint256 nRSq        = n * rSq;                           // safe for small n
         uint256 twoRSumX    = 2 * FullMath.mulDiv(r, sumX, WAD);
-        uint256 lhs         = nRSq - twoRSumX + sumXSq;
+        uint256 positive    = nRSq + sumXSq;
+        uint256 lhs         = positive > twoRSumX ? positive - twoRSumX : 0;
 
         // |lhs − rhs| · 1e6 < rhs  →  relative drift < 1 ppm
         uint256 drift = lhs > rSq ? lhs - rSq : rSq - lhs;

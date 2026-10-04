@@ -4,64 +4,60 @@ pragma solidity ^0.8.26;
 import {SphereMath} from "./SphereMath.sol";
 
 /// @title  QuadraticSolver
-/// @notice Smallest non-negative root of  2p² + b·p + c·WAD = 0.
-/// @dev    Used by the Orbital tick-crossing swap path: given the per-cross
-///         coefficients (b, c), `p` is the partial-trade amount that lands
-///         the pool exactly on the next tick's plane.
+/// @notice Roots of the tick-crossing quadratic (paper §4.13):
 ///
-///         Algorithm:
-///           1. Closed-form seed from the quadratic formula (or vertex when
-///              the discriminant is negative).
-///           2. Up to 30 Newton refinement steps:
-///                p ← p − f(p)/f'(p),  f(p) = 2p² + b·p + c·WAD,  f'(p) = 4p + b
-///              Exit when |step| < max(p / 1e6, 100) — i.e. ≤ 1 ppm relative
-///              error above p ≈ 1e8, or 100 wei absolute below it.
+///             f(p) = 2p² + b·p + c·WAD = 0
 ///
-///         Pure function, no state — extracted from OrbitalHook so the solver
-///         can be fuzz-tested directly without deploying the full hook.
+///         where `p` is the amount out, in WAD, that lands the pool exactly on
+///         the crossed tick's plane. `p` and `b` are WAD-scaled amounts and `c`
+///         a WAD-normalised square, so every term of `f` is in WAD².
+///
+/// @dev    The roots are computed in closed form, (−b ∓ √disc)/4 with
+///         disc = b² − 8·c·WAD. In integer arithmetic this is already exact to
+///         about a wei: the square root is the exact floor and the only other
+///         rounding is the final division. There is no cancellation to repair —
+///         that is a floating-point concern — so no iterative refinement is
+///         needed, and none is done: a Newton pass could only add the risk of a
+///         runaway step where f′ is near zero.
+///
+///         Inputs must keep `b²` and `8·c·WAD` inside int256. The hook bounds
+///         both through `MAX_RINT`, which caps every reserve and so every
+///         coefficient.
 library QuadraticSolver {
     uint256 internal constant WAD = 1e18;
 
-    /// @notice Smallest non-negative root of 2p² + b·p + c·WAD = 0.
-    /// @dev    Inputs must be bounded so that intermediate products stay within
-    ///         int256. The OrbitalHook caller enforces this via `SwapAmountTooLarge`.
-    function solveSmallestNonNegativeRoot(int256 bCoef, int256 cCoef) internal pure returns (uint256 p) {
-        int256 wad = int256(WAD);
-        int256 disc = bCoef * bCoef - 8 * cCoef * wad;
+    /// @notice The smallest root of f that is at least `lo`.
+    /// @dev    `lo` is what makes the answer a trade rather than just a root:
+    ///         the amount in is `p + D` or `p − D` depending on which way the
+    ///         trade moves Σx, and it cannot be negative. The caller passes 0 or
+    ///         D accordingly, and the first root at or past it is the first
+    ///         point on the trade's path that meets the plane.
+    ///
+    ///         A negative discriminant has no real root. The only way one
+    ///         arises from a crossing that exists is a double root — the path
+    ///         grazing the plane — that the floors in b and c pushed a hair
+    ///         below zero. A double root sits at the vertex −b/4, so that is
+    ///         where it is taken from.
+    /// @return p     The root, WAD-scaled.
+    /// @return found False when f has no real root ≥ `lo`.
+    function smallestRootAtLeast(int256 b, int256 c, uint256 lo) internal pure returns (uint256 p, bool found) {
+        int256 disc = b * b - 8 * c * int256(WAD);
 
-        if (disc >= 0) {
-            uint256 sq = SphereMath.sqrt(uint256(disc));
-            int256 r1 = (-bCoef - int256(sq)) / 4;
-            int256 r2 = (-bCoef + int256(sq)) / 4;
-            if (r1 >= 0 && (r2 < 0 || r1 <= r2)) {
-                p = uint256(r1);
-            } else if (r2 >= 0) {
-                p = uint256(r2);
-            }
-        } else {
-            int256 vertex = -bCoef / 4;
-            p = vertex > 0 ? uint256(vertex) : 0;
+        if (disc < 0) {
+            int256 vertex = -b / 4;
+            if (vertex >= 0 && uint256(vertex) >= lo) return (uint256(vertex), true);
+            return (0, false);
         }
 
-        for (uint256 i = 0; i < 30; ++i) {
-            int256 ip = int256(p);
-            int256 fp = 2 * ip * ip + bCoef * ip + cCoef * wad;
-            int256 dfp = 4 * ip + bCoef;
-            if (dfp == 0) break;
-            int256 step = fp / dfp;
+        int256 sq = int256(SphereMath.sqrt(uint256(disc)));
 
-            // Newton update: p_next = p - f(p)/f'(p). The sign of `step` already
-            // encodes direction, so a positive step decreases p and vice versa.
-            uint256 absStep = step < 0 ? uint256(-step) : uint256(step);
-            if (step > 0) {
-                p = p >= absStep ? p - absStep : 0;
-            } else {
-                p += absStep;
-            }
+        // r1 ≤ r2 because f opens upward; the smaller one qualifying wins.
+        int256 r1 = (-b - sq) / 4;
+        if (r1 >= 0 && uint256(r1) >= lo) return (uint256(r1), true);
 
-            uint256 eps = p / 1_000_000;
-            if (eps < 100) eps = 100;
-            if (absStep < eps) break;
-        }
+        int256 r2 = (-b + sq) / 4;
+        if (r2 >= 0 && uint256(r2) >= lo) return (uint256(r2), true);
+
+        return (0, false);
     }
 }

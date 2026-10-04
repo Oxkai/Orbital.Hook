@@ -144,6 +144,8 @@ contract OrbitalIntentSettler is
     /// @dev Peer lookup by Hyperlane domain, used when AUTHENTICATING an inbound
     ///      proof in `handle`. Kept in lockstep with `peerByChainId` by `setPeer`.
     mapping(uint32 => bytes32) public peerByDomain;
+    /// @dev Which chain a domain belongs to, so no two chains can share one.
+    mapping(uint32 => uint256) public chainIdByDomain;
 
     /// @notice Lower bound on `refundBuffer`. A buffer shorter than this would let
     ///         a user refund out from under a filler whose proof is merely slow,
@@ -187,6 +189,11 @@ contract OrbitalIntentSettler is
     error UnknownPeer(uint32 domain, bytes32 sender);
     error PeerNotConfigured(uint256 chainId);
     error InsufficientGasDeposit(uint256 have, uint256 need);
+    /// @notice The `orderId` a fill claims is not the id of the order data it is
+    ///         paying out: the proof would release an unrelated escrow.
+    error OrderIdMismatch(bytes32 expected, bytes32 given);
+    /// @notice The Hyperlane domain is already the peer domain of another chain.
+    error DomainInUse(uint32 domain, uint256 chainId);
     error RefundBufferTooShort(uint32 given, uint32 min);
     error EthTransferFailed();
 
@@ -220,13 +227,24 @@ contract OrbitalIntentSettler is
     ///         must be registered before any route works, on both deployments.
     function setPeer(uint256 chainId, uint32 domain, bytes32 settler) external onlyOwner {
         if (settler == bytes32(0)) revert ZeroAddress();
+        // A domain authenticates inbound proofs for exactly one chain. Letting a
+        // second chain claim it would silently overwrite `peerByDomain`: proofs
+        // from the first chain would then fail authentication and its orders
+        // could only refund. Re-pointing the SAME chain is allowed.
+        uint256 owner_ = chainIdByDomain[domain];
+        if (owner_ != 0 && owner_ != chainId) revert DomainInUse(domain, owner_);
+
         // Clear any stale domain mapping so re-pointing a chain cannot leave an
         // old domain authorised.
         Peer memory existing = peerByChainId[chainId];
-        if (existing.set && existing.domain != domain) delete peerByDomain[existing.domain];
+        if (existing.set && existing.domain != domain) {
+            delete peerByDomain[existing.domain];
+            delete chainIdByDomain[existing.domain];
+        }
 
         peerByChainId[chainId] = Peer({domain: domain, settler: settler, set: true});
         peerByDomain[domain] = settler;
+        chainIdByDomain[domain] = chainId;
         emit PeerSet(chainId, domain, settler);
     }
 
@@ -260,7 +278,10 @@ contract OrbitalIntentSettler is
         bytes32 orderId = _orderId(msg.sender, nonce, order.fillDeadline, order.orderData);
 
         _escrow(orderId, msg.sender, d, order.fillDeadline);
-        emit Open(orderId, _resolved(orderId, msg.sender, type(uint32).max, order.fillDeadline, d));
+        emit Open(
+            orderId,
+            _resolved(orderId, msg.sender, nonce, type(uint32).max, order.fillDeadline, order.orderData, d)
+        );
     }
 
     /// @inheritdoc IOriginSettler
@@ -283,7 +304,10 @@ contract OrbitalIntentSettler is
 
         bytes32 orderId = _orderId(order.user, order.nonce, order.fillDeadline, order.orderData);
         _escrow(orderId, order.user, d, order.fillDeadline);
-        emit Open(orderId, _resolved(orderId, order.user, order.openDeadline, order.fillDeadline, d));
+        emit Open(
+            orderId,
+            _resolved(orderId, order.user, order.nonce, order.openDeadline, order.fillDeadline, order.orderData, d)
+        );
     }
 
     function _escrow(bytes32 orderId, address user, OrbitalOrderData memory d, uint32 fillDeadline) internal {
@@ -335,7 +359,7 @@ contract OrbitalIntentSettler is
 
     /// @notice Native fee `fill` will draw from the caller's `gasDeposits`.
     function quoteFill(bytes32 orderId, bytes calldata originData) external view returns (uint256) {
-        (uint256 originChainId,,) = abi.decode(originData, (uint256, address, OrbitalOrderData));
+        (uint256 originChainId,,,,) = abi.decode(originData, (uint256, address, uint256, uint32, bytes));
         Peer memory p = peerByChainId[originChainId];
         if (!p.set) revert PeerNotConfigured(originChainId);
         return mailbox.quoteDispatch(p.domain, p.settler, abi.encode(orderId, msg.sender));
@@ -352,14 +376,34 @@ contract OrbitalIntentSettler is
     {
         if (filledBy[orderId] != address(0)) revert AlreadyFilled(orderId);
 
-        (uint256 originChainId,, OrbitalOrderData memory d) =
-            abi.decode(originData, (uint256, address, OrbitalOrderData));
-
-        if (d.destinationChainId != block.chainid) revert WrongChain(block.chainid, d.destinationChainId);
-        if (d.destinationSettler != address(this)) revert WrongSettler(address(this), d.destinationSettler);
+        (uint256 originChainId, address user, uint256 nonce, uint32 fillDeadline, bytes memory orderData) =
+            abi.decode(originData, (uint256, address, uint256, uint32, bytes));
 
         Peer memory p = peerByChainId[originChainId];
         if (!p.set) revert PeerNotConfigured(originChainId);
+
+        // Bind the id to the order being paid out. `orderId` is what the proof
+        // carries and what releases escrow on the origin, while `originData` is
+        // supplied by the filler: with nothing tying them together, anyone who
+        // had seen a victim's (public) order id could pay out a worthless order
+        // of their own construction under that id and have the victim's escrow
+        // released to them. Recomputing the id from the data actually being
+        // filled — against the origin settler THIS chain has registered, not an
+        // address taken from the same untrusted blob — makes the two inseparable.
+        bytes32 expectedId =
+            _orderIdFor(originChainId, p.settler.toAddress(), user, nonce, fillDeadline, keccak256(orderData));
+        if (expectedId != orderId) revert OrderIdMismatch(expectedId, orderId);
+
+        // Past the deadline the user may already be entitled to a refund, so a
+        // fill can no longer be guaranteed the escrow. Refuse it rather than
+        // race the refund. Now checkable at all only because the binding above
+        // puts a trustworthy `fillDeadline` in reach.
+        if (block.timestamp > fillDeadline) revert DeadlinePassed();
+
+        OrbitalOrderData memory d = abi.decode(orderData, (OrbitalOrderData));
+
+        if (d.destinationChainId != block.chainid) revert WrongChain(block.chainid, d.destinationChainId);
+        if (d.destinationSettler != address(this)) revert WrongSettler(address(this), d.destinationSettler);
 
         FillerData memory f = abi.decode(fillerData, (FillerData));
         if (f.inputAmount == 0) revert ZeroAmount();
@@ -490,8 +534,9 @@ contract OrbitalIntentSettler is
         returns (ResolvedCrossChainOrder memory)
     {
         OrbitalOrderData memory d = _decode(order.orderDataType, order.orderData);
-        bytes32 orderId = _orderId(msg.sender, nonces[msg.sender], order.fillDeadline, order.orderData);
-        return _resolved(orderId, msg.sender, type(uint32).max, order.fillDeadline, d);
+        uint256 nonce = nonces[msg.sender];
+        bytes32 orderId = _orderId(msg.sender, nonce, order.fillDeadline, order.orderData);
+        return _resolved(orderId, msg.sender, nonce, type(uint32).max, order.fillDeadline, order.orderData, d);
     }
 
     /// @inheritdoc IOriginSettler
@@ -503,14 +548,20 @@ contract OrbitalIntentSettler is
     {
         OrbitalOrderData memory d = _decode(order.orderDataType, order.orderData);
         bytes32 orderId = _orderId(order.user, order.nonce, order.fillDeadline, order.orderData);
-        return _resolved(orderId, order.user, order.openDeadline, order.fillDeadline, d);
+        return _resolved(orderId, order.user, order.nonce, order.openDeadline, order.fillDeadline, order.orderData, d);
     }
 
+    /// @param nonce     The origin nonce this order was opened under.
+    /// @param orderData The exact `orderData` bytes the order id commits to.
+    /// @dev   `nonce` and `orderData` are carried into `originData` so the
+    ///        destination can recompute the order id; see `fill`.
     function _resolved(
         bytes32 orderId,
         address user,
+        uint256 nonce,
         uint32 openDeadline,
         uint32 fillDeadline,
+        bytes memory orderData,
         OrbitalOrderData memory d
     ) internal view returns (ResolvedCrossChainOrder memory r) {
         Output[] memory maxSpent = new Output[](1);
@@ -533,7 +584,11 @@ contract OrbitalIntentSettler is
         instructions[0] = FillInstruction({
             destinationChainId: d.destinationChainId,
             destinationSettler: d.destinationSettler.toBytes32(),
-            originData: abi.encode(block.chainid, user, d)
+            // Everything the destination needs to recompute `orderId` itself:
+            // the id commits to (originChainId, originSettler, user, nonce,
+            // fillDeadline, keccak(orderData)), and the origin settler is the
+            // peer the destination already has registered for `originChainId`.
+            originData: abi.encode(block.chainid, user, nonce, fillDeadline, orderData)
         });
 
         r = ResolvedCrossChainOrder({
@@ -577,7 +632,27 @@ contract OrbitalIntentSettler is
         view
         returns (bytes32)
     {
-        return keccak256(abi.encode(block.chainid, address(this), user, nonce, fillDeadline, keccak256(orderData)));
+        return _orderIdFor(block.chainid, address(this), user, nonce, fillDeadline, keccak256(orderData));
+    }
+
+    /// @dev The order id as the ORIGIN chain computes it, parameterised by the
+    ///      origin's chain id and settler address rather than reading them from
+    ///      `block.chainid`/`address(this)`.
+    ///
+    ///      The destination has to reach the identical value to check that a
+    ///      fill it is about to prove really belongs to the order whose escrow
+    ///      the proof will release, so both sides MUST derive the id here. A
+    ///      second, separately-maintained copy of this expression is exactly how
+    ///      the two sides would drift apart.
+    function _orderIdFor(
+        uint256 originChainId,
+        address originSettler,
+        address user,
+        uint256 nonce,
+        uint32 fillDeadline,
+        bytes32 orderDataHash
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encode(originChainId, originSettler, user, nonce, fillDeadline, orderDataHash));
     }
 
     function _hashGasless(GaslessCrossChainOrder calldata o) internal view returns (bytes32) {
