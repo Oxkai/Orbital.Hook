@@ -8,7 +8,6 @@ type Pillar = {
   title: string;
   lede: string;
   body: string;
-  note: string;
   metric: { value: string; unit: string; caption: string };
   accent: string;
 };
@@ -20,7 +19,6 @@ const PILLARS: Pillar[] = [
     title: "Low slippage",
     lede: "While the coins hold their peg, trades barely move the price.",
     body: "Every LP packs their liquidity right around the peg, where stablecoins actually trade, so prices stay tight even on large orders, not just small ones.",
-    note: "An ordinary AMM spreads its liquidity thinly across every price. Orbital piles it where stablecoins actually change hands.",
     metric: { value: "< 1", unit: "bps", caption: "price impact at peg, p=0.99" },
     accent: colors.green.hex,
   },
@@ -30,7 +28,6 @@ const PILLARS: Pillar[] = [
     title: "High capital efficiency",
     lede: "A dollar here does the work of about 154 in an ordinary pool.",
     body: "All the liquidity sits in one pool across every asset: none split between separate pairs, and none left idle outside its range.",
-    note: "Compared with a plain pool holding the same reserves over the same peg range.",
     metric: { value: "154", unit: "×", caption: "vs flat sphere, N = 5" },
     accent: colors.purple.hex,
   },
@@ -40,7 +37,6 @@ const PILLARS: Pillar[] = [
     title: "Automatic depeg isolation",
     lede: "If one coin breaks its peg, the rest keep trading normally.",
     body: "The broken coin is walled off automatically. The pool doesn't drain into it, and the healthy coins stay liquid against each other.",
-    note: "No vote, no pause button. The moment a coin's price leaves the tick it's walled off, so LPs stop absorbing it instead of taking the loss an ordinary pool would.",
     metric: { value: "N − 1", unit: "assets", caption: "stay live through a depeg" },
     accent: colors.yellow.hex,
   },
@@ -121,7 +117,7 @@ export function Pillars() {
 
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-y-10 md:gap-x-10 py-20 md:py-12">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-y-10 md:gap-x-10 py-14 md:py-12">
                 <div className="md:col-span-2">
                   <span
                     style={{
@@ -152,7 +148,7 @@ export function Pillars() {
                   </h3>
                 </div>
 
-                <div className="md:col-span-6 md:col-start-7  grid gap-10">
+                <div className="md:col-span-6 md:col-start-7 grid gap-10 content-start">
                   <p
                     style={{
                        fontFamily: typography.h2.family,
@@ -164,18 +160,6 @@ export function Pillars() {
                     }}
                   >
                     {p.lede} {p.body}
-                  </p>
-
-                  <p
-                    style={{
-                      fontFamily: typography.p1.family,
-                      fontSize: "clamp(20px, 1.6vw, 26px)",
-                      lineHeight: "1.45",
-                      color: color.textMuted,
-                      maxWidth: "42ch",
-                    }}
-                  >
-                    {p.note}
                   </p>
 
                   <div

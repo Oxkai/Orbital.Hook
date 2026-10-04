@@ -11,9 +11,7 @@ type Answer = {
   title: string;
   tag: string;
   tex: string;
-  answers: string;
   lede: string;
-  body: string;
   points: string[];
   accent: string;
 };
@@ -25,9 +23,7 @@ const ANSWERS: Answer[] = [
     title: "Spherical",
     tag: "N tokens · one reserve book",
     tex: "\\lVert \\vec{r} - \\vec{x} \\rVert^{2} = r^{2}",
-    answers: "ANSWERS 01 + 02",
     lede: "Reserves ride a sphere, not a hyperbola.",
-    body: "Uniswap prices two tokens on a curve; Orbital prices N tokens on an N-sphere. Every pair in the basket draws on the same reserves, so a USDC/FRAX trade has the same depth as USDC/USDT. One deep book replaces six thin ones, and adding a coin adds a dimension, not a market.",
     points: [
       "At the equal-price point every coin trades exactly 1:1",
       "The curve only bends as the basket drifts off peg",
@@ -41,9 +37,7 @@ const ANSWERS: Answer[] = [
     title: "Bounded",
     tag: "per-LP depeg plane",
     tex: "\\textstyle\\sum_i x_i = k",
-    answers: "ANSWERS 02 + 03",
     lede: "Each LP chooses the depeg they will hold.",
-    body: "A plane cuts the sphere at a chosen bound: say, only while the coin holds above $0.95. Capital packs into that narrow band near peg where dollars actually trade, and a small real deposit behaves like a far larger reserve. Cross the bound and the tick exits to the boundary, so the pool stops absorbing the failure.",
     points: [
       "Virtual reserves, generalised from Uniswap v3 to the N-sphere",
       "Loss is capped at the bound the LP picked, by construction",
@@ -86,31 +80,18 @@ function AnswerCard({ a }: { a: Answer }) {
       </div>
 
       <div className="flex flex-col gap-6 px-6 pt-8 pb-8 flex-1">
-        <div className="flex flex-col gap-2">
-          <span
-            style={{
-              fontFamily: MONO,
-              fontSize: "10px",
-              letterSpacing: "0.12em",
-              color: color.textMuted,
-              textTransform: "uppercase",
-            }}
-          >
-            {a.answers}
-          </span>
-          <h3
-            style={{
-              fontFamily: typography.h1.family,
-              fontSize: "clamp(34px, 4vw, 52px)",
-              lineHeight: "0.98",
-              letterSpacing: "-0.04em",
-              color: color.textPrimary,
-              fontWeight: 400,
-            }}
-          >
-            {a.title}
-          </h3>
-        </div>
+        <h3
+          style={{
+            fontFamily: typography.h1.family,
+            fontSize: "clamp(34px, 4vw, 52px)",
+            lineHeight: "0.98",
+            letterSpacing: "-0.04em",
+            color: color.textPrimary,
+            fontWeight: 400,
+          }}
+        >
+          {a.title}
+        </h3>
 
         <div
           className="px-4 border border-dashed flex items-center justify-center [&_.katex-display]:my-0"
@@ -131,20 +112,7 @@ function AnswerCard({ a }: { a: Answer }) {
           {a.lede}
         </p>
 
-        <p
-          className="flex-1"
-          style={{
-            fontFamily: typography.p2.family,
-            fontSize: typography.p2.size,
-            lineHeight: "22px",
-            letterSpacing: typography.p2.letterSpacing,
-            color: color.textMuted,
-          }}
-        >
-          {a.body}
-        </p>
-
-        <ul className="flex flex-col mt-1">
+        <ul className="flex flex-col mt-auto pt-2">
           {a.points.map((pt, i) => (
             <li
               key={pt}

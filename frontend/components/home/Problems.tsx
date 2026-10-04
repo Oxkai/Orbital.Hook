@@ -2,6 +2,7 @@ import { color, colors, typography } from "@/constants";
 import { SectionLabel } from "./SectionLabel";
 import { Emphasized } from "./Emphasized";
 import { Tex } from "@/components/Tex";
+import { ProblemDiagram, type ProblemDiagramKind } from "./ProblemDiagram";
 
 const MONO = "var(--font-mono)";
 
@@ -11,8 +12,8 @@ type Problem = {
   title: string;
   tag: string;
   tex: string;
+  diagram: ProblemDiagramKind;
   lede: string;
-  body: string;
   points: string[];
   accent: string;
 };
@@ -24,8 +25,8 @@ const PROBLEMS: Problem[] = [
     title: "Fragmented",
     tag: "4 coins → 6 pools",
     tex: "\\tfrac{N(N-1)}{2}\\ \\text{markets}",
+    diagram: "fragmented",
     lede: "One basket, split across six order books.",
-    body: "Pools are built two tokens at a time, so a four-coin basket needs six of them. The same deposits are divided across every combination, each pool ends up shallower than the last, and adding a fifth coin means standing up four more markets.",
     points: [
       "A USDC/FRAX trade cannot touch USDC/USDT depth",
       "Per-pool depth falls as the basket grows",
@@ -39,8 +40,8 @@ const PROBLEMS: Problem[] = [
     title: "Flat",
     tag: "~1–2× a flat curve",
     tex: "x \\cdot y = k",
+    diagram: "flat",
     lede: "Depth spread across prices a dollar never reaches.",
-    body: "Curve holds many stablecoins together, but lays liquidity flatly along the whole curve, most of it parked at prices that never trade. Uniswap v3 concentrates properly, and then caps you at two tokens. Today you pick breadth or depth, never both.",
     points: [
       "Curve: the whole basket, thin at the peg",
       "Uniswap v3: dense at the peg, one pair only",
@@ -54,8 +55,8 @@ const PROBLEMS: Problem[] = [
     title: "Fragile",
     tag: "USDC → $0.88 · Mar 2023",
     tex: "p_i \\to 0 \\;\\Rightarrow\\; \\vec{x} \\to x_i",
+    diagram: "fragile",
     lede: "One broken coin becomes the entire pool.",
-    body: "A flat pool keeps quoting the failing asset near a dollar long after the market has stopped. Arbitrage sells it in and takes the healthy coins out, until LPs hold little else. This is the tail impermanent loss that wrecks flat stable pools.",
     points: [
       "The pool prices the depeg last, not first",
       "LPs absorb the fall with no bound of their own",
@@ -111,11 +112,16 @@ function ProblemCard({ p }: { p: Problem }) {
           {p.title}
         </h3>
 
-        <div
-          className="px-4 border border-dashed flex items-center justify-center [&_.katex-display]:my-0"
-          style={{ borderColor: color.borderSubtle, color: p.accent, fontSize: "19px", height: 60 }}
-        >
-          <Tex block>{p.tex}</Tex>
+        <div className="border border-dashed flex flex-col" style={{ borderColor: color.borderSubtle }}>
+          <div className="px-5 py-6">
+            <ProblemDiagram kind={p.diagram} />
+          </div>
+          <div
+            className="px-4 py-3 border-t border-dashed flex items-center justify-center [&_.katex-display]:my-0"
+            style={{ borderColor: color.borderSubtle, color: p.accent, fontSize: "17px" }}
+          >
+            <Tex block>{p.tex}</Tex>
+          </div>
         </div>
 
         <p
@@ -130,20 +136,7 @@ function ProblemCard({ p }: { p: Problem }) {
           {p.lede}
         </p>
 
-        <p
-          className="flex-1"
-          style={{
-            fontFamily: typography.p2.family,
-            fontSize: typography.p2.size,
-            lineHeight: "22px",
-            letterSpacing: typography.p2.letterSpacing,
-            color: color.textMuted,
-          }}
-        >
-          {p.body}
-        </p>
-
-        <ul className="flex flex-col mt-1">
+        <ul className="flex flex-col mt-auto pt-2">
           {p.points.map((pt, i) => (
             <li
               key={pt}
