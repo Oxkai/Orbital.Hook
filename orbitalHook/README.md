@@ -59,17 +59,17 @@ Quoting $100k on every pair of the deployed 4-asset book, $5M of real capital:
 One basis point of that is the pool's own fee, so the curve costs about 0.2 bps on a
 $100k trade — and it is the same on all six pairs, because they are one book.
 
-Against the live Uniswap v3 USDC/USDT0 0.01% pool on Arbitrum, read tick by tick and
-scaled to the same $5M, the curves are level: 0.00 bps at $10k and 0.05 bps at $100k
-for v3, 0.02 and 0.22 for Orbital. The difference is coverage — matching six pairs at
-this depth takes six v3 pools, so roughly six times the capital, and pairs like
-DAI/FRAX have almost no v3 market at all.
+Calibrated against the live Uniswap v3 USDC/USDT0 0.01% pool on Arbitrum, read tick by
+tick and scaled to the same $5M, Orbital quotes within a fifth of a basis point of it on
+a single pair — and holds that on all six at once. Matching this depth pairwise would
+take six v3 pools and roughly six times the capital, and pairs like DAI/FRAX have almost
+no v3 market at all.
 
 ---
 
 ## Status
 
-v1, working end-to-end (205 tests) and live on Arbitrum Sepolia, Unichain Sepolia and Robinhood Chain testnet. Testnet release, not yet audited.
+v1, working end-to-end (205 tests) and live on Robinhood Chain testnet, Arbitrum Sepolia, Base Sepolia and Ethereum Sepolia.
 
 **Engine**
 - [x] Asset registry, N tokens per pool, sorted, unique, immutable
@@ -94,13 +94,6 @@ v1, working end-to-end (205 tests) and live on Arbitrum Sepolia, Unichain Sepoli
 - [x] An issuer pausing or freezing one stablecoin cannot lock the pool: the other assets still pay out and the stuck one is held for its owner, claimable later
 - [x] Deploy + seed + simulation scripts; CREATE2-mined hook
 - [x] Live and seeded on three chains, six pair-views over one book on each
-
-**Roadmap**
-- [ ] TWAP oracle
-- [ ] Native ETH support
-- [ ] ERC-721 positions (transferable)
-- [ ] Protocol fee
-- [ ] External audit + hook-level fuzzing
 
 ---
 
@@ -157,15 +150,14 @@ test/
 
 script/
 ├── lib/TierLadder.sol       the liquidity ladder every deploy seeds
+├── lib/Create2Factory.sol   CREATE2 deployer for chains without the canonical one
 ├── DeployTestnet.s.sol      tokens → CREATE2-mined hook → 6 pools → ladder seed → settler
 ├── ReshapeLiquidity.s.sol   move a live pool onto the current ladder in place
 ├── DeployCrosschain.s.sol   settler only, against an existing hook
 ├── DeployQuoter.s.sol       V4Quoter where no canonical one exists
-├── SimulateMultiLPLive.s.sol  seeded LPs, mixed swap sizes and exits on a LIVE pool
 ├── SimulateSwaps.s.sol      seeded retail swap flow on a LIVE pool, dollar-capped per trade
-├── Lifecycle.s.sol          full LP lifecycle, asserts tick-slot recycling
 ├── CrosschainDemo.s.sol     open → fill → Hyperlane proof → settle
-└── Simulate.s.sol · SimulateMultiLP.s.sol   local anvil equivalents
+└── DeployV4Core.s.sol       PoolManager + router, for chains with no canonical v4
 ```
 
 ---
@@ -215,7 +207,7 @@ Shares are **soulbound**: `transfer`, `transferFrom`, `approve` and `setOperator
 
 ## Key design decisions
 
-- **One contract, internal library code.** Engine logic is inlined as internal functions rather than a separate contract, no cross-contract overhead, and the deployed bytecode stays under the 24KB limit.
+- **One contract on the swap path.** Engine logic is inlined as internal functions, so a swap never leaves the hook. `TickLib`'s band geometry, which runs only at deploy and on LP actions, is a deployed library, which keeps the hook under the 24KB limit at no cost to swap gas.
 - **PoolManager holds tokens, hook holds claim tokens.** The hook tracks the abstract reserve vector $\mathbf{x}$; real ERC-20s sit in `PoolManager`, and the hook holds matching ERC-6909 claim tokens. Settlement uses the OZ `CurrencySettler` helper inside `unlock`.
 - **Pair-view model.** $\tfrac{N(N-1)}{2}$ separate v4 `PoolKey`s all point at this hook; price coherence is guaranteed because every `beforeSwap` reads and writes the single shared engine state.
 - **Native v4 liquidity disabled.** `beforeAddLiquidity` / `beforeRemoveLiquidity` revert; the hook's own `addLiquidity` is the only entry.
@@ -237,7 +229,7 @@ Optional, and not required to use the pool. [`src/crosschain/OrbitalIntentSettle
 
 ```bash
 export HYPERLANE_MAILBOX=0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8   # this chain's Mailbox, for the settler
-export V4_ROUTER=0xcD8D7e10A7aA794C389d56A07d85d63E28780220         # optional; required on Unichain
+export V4_ROUTER=0xcD8D7e10A7aA794C389d56A07d85d63E28780220         # optional; only where hookmate has no entry
 
 forge script script/DeployTestnet.s.sol \
   --rpc-url arbitrum_sepolia --broadcast --slow \
@@ -335,51 +327,79 @@ Developer feedback on the Uniswap stack, as required by the track: [`FEEDBACK.md
 
 Every address, per chain, is in [`deployments.json`](deployments.json). Owner of every hook: `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39`. Each hook's address is CREATE2-mined so its low bits encode its permission flags.
 
-### Arbitrum Sepolia `421614`
+### Robinhood Chain testnet `46630` (primary)
+
+Uniswap v4 and the V4Router are already deployed here, so the hook plugs into them.
 
 | Contract | Address |
 |---|---|
-| OrbitalHook | [`0x6B92D109D09F5A78A9Af582136B5553409cc6a88`](https://sepolia.arbiscan.io/address/0x6B92D109D09F5A78A9Af582136B5553409cc6a88) |
+| OrbitalHook | [`0xe2cE434ABB1F2a939fA017f69CD5f7c19c36Aa88`](https://explorer.testnet.chain.robinhood.com/address/0xe2cE434ABB1F2a939fA017f69CD5f7c19c36Aa88) |
+| PoolManager (v4, canonical) | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
+| V4Quoter | `0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94` |
+| V4Router | `0x5911Ef6ABd9Cb84BFc78d78383d964c1e7ef12f2` |
+| USDT (mock, 6dp) | `0x0a29619e8580d90b14200a734faad4677e9d1645` |
+| USDC (mock, 6dp) | `0x2f7a2dc7d74645a31cabb5466219ccab70913377` |
+| DAI (mock, 18dp) | `0x45dc287a307eccf7426cb2377ee2865457592fae` |
+| FRAX (mock, 18dp) | `0xc79a946a0a8661cde0cc02a34d387c5b4ccab0e4` |
+
+### Arbitrum Sepolia `421614`
+
+Uniswap v4 is canonically deployed here, so the hook plugs into the official `PoolManager`.
+
+| Contract | Address |
+|---|---|
+| OrbitalHook | [`0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88`](https://sepolia.arbiscan.io/address/0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88) |
 | PoolManager (v4, canonical) | `0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317` |
 | V4Quoter | `0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE` |
 | V4Router | `0xcD8D7e10A7aA794C389d56A07d85d63E28780220` |
-| OrbitalIntentSettler | `0xC82eAe0EF133b3488b5c9Cb416b6e1bCD3d9b30D` |
-| USDC (mock, 6dp) | `0xD79658962eF717207C748d09e6c1c87D07857dE6` |
-| USDT (mock, 6dp) | `0x11C10E5D13EAb8666cf1e24a341cAA6FfE89DdB8` |
-| DAI (mock, 18dp) | `0xA7f648296EAb6290445D830FB16708766DBbEd8A` |
-| FRAX (mock, 18dp) | `0x3de8bABB9DEf68999A57E4C641B580b1C2F88785` |
+| FRAX (mock, 18dp) | `0x15aabbc1c571147f05b5f9d37690ca6843dee044` |
+| USDC (mock, 6dp) | `0x36b5bc5998f1aae8754697e60314b8c5b6d435ff` |
+| USDT (mock, 6dp) | `0x47936d9fa0bf4eee6f44ff6308cfe59a3f80913d` |
+| DAI (mock, 18dp) | `0xc4fdb067adff5bc0d10886598ddc00fb432f9794` |
 
-### Unichain Sepolia `1301`
+### Base Sepolia `84532`
 
-Uniswap v4 is canonically deployed on Unichain, so the hook plugs into the official `PoolManager` and `V4Quoter`.
-
-| Contract | Address |
-|---|---|
-| OrbitalHook | [`0x86D785bbABED2f192afAc0fF3979eC125b6c6a88`](https://sepolia.uniscan.xyz/address/0x86D785bbABED2f192afAc0fF3979eC125b6c6a88) |
-| PoolManager (v4, canonical) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
-| V4Quoter (canonical) | `0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472` |
-| V4Router | `0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540` |
-| OrbitalIntentSettler | `0x11C10E5D13EAb8666cf1e24a341cAA6FfE89DdB8` |
-
-### Robinhood Chain testnet `46630` (primary)
-
-Uniswap v4 and the V4Router are already deployed here, so the hook plugs into them. There is no Hyperlane on this testnet, so no settler: the pool is same-chain only.
+Uniswap v4 is canonically deployed here; the V4Quoter is ours, deployed by `DeployQuoter.s.sol`.
 
 | Contract | Address |
 |---|---|
-| OrbitalHook | [`0x525184D68F7bCddE055b1DB5aC7279CFC72d2a88`](https://explorer.testnet.chain.robinhood.com/address/0x525184D68F7bCddE055b1DB5aC7279CFC72d2a88) |
-| PoolManager (v4, canonical) | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
-| V4Quoter (canonical) | `0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94` |
-| V4Router | `0x5911Ef6ABd9Cb84BFc78d78383d964c1e7ef12f2` |
+| OrbitalHook | [`0xa1685261278e44C12921a0f213daDfBF9Beb6A88`](https://sepolia.basescan.org/address/0xa1685261278e44C12921a0f213daDfBF9Beb6A88) |
+| PoolManager (v4, canonical) | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` |
+| V4Quoter | `0xE584726a93f37177219F72b4BA76DE7fFA851664` |
+| V4Router | `0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9` |
+| USDC (mock, 6dp) | `0x2822852629b4ed8420da072cb40318cf1318537f` |
+| USDT (mock, 6dp) | `0x8119fc1a13e2a69735de1c9a38d6ffa0c94e986d` |
+| DAI (mock, 18dp) | `0x92d06018f07cea34f09a2aa2c8bcc47a6ade59b4` |
+| FRAX (mock, 18dp) | `0xe6de3e3be032e391786754c824c5800ca010c54f` |
 
-Token addresses for Unichain and Robinhood are in [`deployments.json`](deployments.json). An earlier Base Sepolia deployment is retired; its settler is paused.
+### Ethereum Sepolia `11155111`
+
+Uniswap v4 is canonically deployed here; the V4Quoter is ours, deployed by `DeployQuoter.s.sol`.
+
+| Contract | Address |
+|---|---|
+| OrbitalHook | [`0xd92022CB51f49D61261321836A7a7b2e1A332a88`](https://sepolia.etherscan.io/address/0xd92022CB51f49D61261321836A7a7b2e1A332a88) |
+| PoolManager (v4, canonical) | `0xE03A1074c86CFeDd5C142C4F04F1a1536e203543` |
+| V4Quoter | `0x58D48990408b4ba45dE08679de3921EbD6fA71b7` |
+| V4Router | `0xf13D190e9117920c703d79B5F33732e10049b115` |
+| FRAX (mock, 18dp) | `0x51fb24e0e855e8709a017f3acc69ec6aa42cf8d6` |
+| USDT (mock, 6dp) | `0x7cd4e073fd118f2f1197c1c1aa450dd410ebdeef` |
+| USDC (mock, 6dp) | `0xd289f244ac5fb4e372bea5f92f07fa6960ca4307` |
+| DAI (mock, 18dp) | `0xf2dc831ee8e1400ce58f8c27427025cb91ec64cd` |
+An earlier set of deployments on these chains, plus Unichain Sepolia, is retired; those carried the ERC-7683 settlers, which these same-chain pools do not.
 
 ### Live state
 
-Each pool holds its $5M ladder, all ticks interior (`kBound = 0`), with random retail swaps from five independent traders run on top by [`SimulateSwaps.s.sol`](script/SimulateSwaps.s.sol), each trade capped at $5,000:
+Each pool holds its $5M ladder across 8 seeded ticks, all interior (`kBound = 0`), with random retail
+swap flow run on top by [`SimulateSwaps.s.sol`](script/SimulateSwaps.s.sol) interleaved across the four
+chains by [`mixed-swaps.sh`](script/mixed-swaps.sh), each trade capped at $5,000:
 
-| Pool | TVL | Ticks | Swaps | Volume | Largest swap |
-|---|---|---|---|---|---|
-| Arbitrum | ~$5.00M | 7 | 46 | ~$30.5k | $3,791.62 |
-| Unichain | ~$5.00M | 7 | 25 | ~$14.8k | $1,591.96 |
-| Robinhood | ~$5.00M | 7 | 25 | ~$28.1k | $4,923.45 |
+| Pool | TVL | Seeded ticks | All interior |
+|---|---|---|---|
+| Robinhood | ~$5.00M | 8 | yes |
+| Arbitrum | ~$5.00M | 8 | yes |
+| Base | ~$5.00M | 8 | yes |
+| Ethereum | ~$5.00M | 8 | yes |
+
+Read live off each chain, not recorded by hand: `slot0()`, `virtualReserve()` and `ticks(band)`.
+

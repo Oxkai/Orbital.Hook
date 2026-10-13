@@ -4,7 +4,7 @@
 
 **One pool for every stablecoin.** A Uniswap v4 hook that replaces constant-product math with the Orbital sphere/torus curve, so USDC, USDT, DAI and FRAX all trade out of a single shared reserve book instead of six shallow pairs.
 
-[**Live app**](https://orbital-hook.vercel.app/) · Robinhood Chain testnet · Arbitrum Sepolia · Unichain Sepolia · 205 tests
+[**Live app**](https://orbital-hook.vercel.app/) · Robinhood Chain · Arbitrum Sepolia · Base Sepolia · Ethereum Sepolia · 205 tests
 
 ---
 
@@ -165,7 +165,7 @@ caller.unlock(data)
 | Depeg drains pool | n/a | Yes | Yes | **Isolated** |
 | Capital efficiency at peg | High (pair) | ~1 to 2x flat | ~1 to 2x flat | **~154x flat, N=5** |
 | Mixed decimals (6dp + 18dp) | Yes | Yes | Yes | **Yes** |
-| Cross-chain settlement | No | No | No | **ERC-7683** |
+| Cross-chain settlement | No | No | No | **ERC-7683** (optional extension) |
 | LP position type | NFT (721) | LP token | LP token | **soulbound 6909** |
 | Venue | Standalone | Standalone | Standalone | **Uniswap v4 hook** |
 
@@ -175,7 +175,9 @@ caller.unlock(data)
 
 Everything above is the hook. This part is built on top of it and is not required to use the pool.
 
-The hook is deployed on Arbitrum Sepolia and Unichain Sepolia, peered over Hyperlane, each with an [`OrbitalIntentSettler`](orbitalHook/src/crosschain/OrbitalIntentSettler.sol) implementing [ERC-7683](https://eips.ethereum.org/EIPS/eip-7683), the cross-chain intents standard from Uniswap Labs and Across.
+[`OrbitalIntentSettler`](orbitalHook/src/crosschain/OrbitalIntentSettler.sol) implements [ERC-7683](https://eips.ethereum.org/EIPS/eip-7683), the cross-chain intents standard from Uniswap Labs and Across, settled over Hyperlane. It is covered by `OrbitalIntentSettler.t.sol`, `CrosschainSecurity.t.sol` and a fork suite that runs two live testnets at once against real Hyperlane Mailboxes.
+
+> The four pools listed above are **same-chain only**: none carries a settler. [`DeployCrosschain.s.sol`](orbitalHook/script/DeployCrosschain.s.sol) adds one to a chain that has a Hyperlane Mailbox, and the peers are registered with `setPeer` afterwards.
 
 ```
  user signs an intent            filler pays out                proof settles
@@ -196,20 +198,16 @@ Funds are never stuck: if an order is not settled, the user reclaims the escrow 
 
 ## Deployments
 
-Three live pools, on Robinhood Chain testnet (primary), Arbitrum Sepolia and Unichain Sepolia. Each chain is a separate book with its own reserves; the ERC-7683 settlers move orders between Arbitrum and Unichain rather than merging liquidity. Robinhood Chain testnet has no Hyperlane, so its pool is same-chain only.
+Four live pools, one per EVM chain with a Crypto World's Fair prize track: Robinhood Chain testnet (primary), Arbitrum Sepolia, Base Sepolia and Ethereum Sepolia. Each chain is a separate book with its own reserves.
 
 | Chain | Pool | Hook |
 |---|---|---|
-| **Robinhood Chain testnet** `46630` | USDC · USDT · DAI · FRAX | [`0x525184D68F7bCddE055b1DB5aC7279CFC72d2a88`](https://explorer.testnet.chain.robinhood.com/address/0x525184D68F7bCddE055b1DB5aC7279CFC72d2a88) |
-| Arbitrum Sepolia `421614` | USDC · USDT · DAI · FRAX | [`0x6B92D109D09F5A78A9Af582136B5553409cc6a88`](https://sepolia.arbiscan.io/address/0x6B92D109D09F5A78A9Af582136B5553409cc6a88) |
-| Unichain Sepolia `1301` | USDC · USDT · DAI · FRAX | [`0x86D785bbABED2f192afAc0fF3979eC125b6c6a88`](https://sepolia.uniscan.xyz/address/0x86D785bbABED2f192afAc0fF3979eC125b6c6a88) |
+| **Robinhood Chain testnet** `46630` | USDC · USDT · DAI · FRAX | [`0xe2cE434ABB1F2a939fA017f69CD5f7c19c36Aa88`](https://explorer.testnet.chain.robinhood.com/address/0xe2cE434ABB1F2a939fA017f69CD5f7c19c36Aa88) |
+| Arbitrum Sepolia `421614` | USDC · USDT · DAI · FRAX | [`0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88`](https://sepolia.arbiscan.io/address/0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88) |
+| Base Sepolia `84532` | USDC · USDT · DAI · FRAX | [`0xa1685261278e44C12921a0f213daDfBF9Beb6A88`](https://sepolia.basescan.org/address/0xa1685261278e44C12921a0f213daDfBF9Beb6A88) |
+| Ethereum Sepolia `11155111` | USDC · USDT · DAI · FRAX | [`0xd92022CB51f49D61261321836A7a7b2e1A332a88`](https://sepolia.etherscan.io/address/0xd92022CB51f49D61261321836A7a7b2e1A332a88) |
 
-| Chain | OrbitalIntentSettler |
-|---|---|
-| Arbitrum Sepolia | [`0xC82eAe0EF133b3488b5c9Cb416b6e1bCD3d9b30D`](https://sepolia.arbiscan.io/address/0xC82eAe0EF133b3488b5c9Cb416b6e1bCD3d9b30D) |
-| Unichain Sepolia | [`0x11C10E5D13EAb8666cf1e24a341cAA6FfE89DdB8`](https://sepolia.uniscan.xyz/address/0x11C10E5D13EAb8666cf1e24a341cAA6FfE89DdB8) |
-
-Each pool uses a realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp) and is seeded with $5M of real capital on an eight-tier ladder: seven concentrated bands plus a small full-range backstop. The ladder's shape is not invented — it mirrors where LPs in the live Uniswap v3 USDC/USDT0 0.01% pool on Arbitrum actually place their capital, read tick by tick on-chain, so about two thirds of it sits within 5 bps of $1. Random retail swap flow runs on top, interleaved across the three chains, 40 swaps so far with each trade capped at $5,000.
+Each pool uses a realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp) and is seeded with $5M of real capital on an eight-tier ladder: seven concentrated bands plus a small full-range backstop. The ladder's shape is not invented — it mirrors where LPs in the live Uniswap v3 USDC/USDT0 0.01% pool on Arbitrum actually place their capital, read tick by tick on-chain, so about two thirds of it sits within 5 bps of $1. Random retail swap flow runs on top, interleaved across the four chains, with each trade capped at $5,000.
 
 Quoted on the live $5M pool, all-in including the 1 bp fee:
 
@@ -221,7 +219,7 @@ The same figure holds on every one of the six pairs, because they share one book
 
 Token addresses, v4 infra (PoolManager, router, V4Quoter), Hyperlane Mailboxes and the peer registry all live in [`orbitalHook/deployments.json`](orbitalHook/deployments.json).
 
-> **Asset index order differs per chain.** The hook sorts assets ascending by address, and addresses are unrelated across chains, so USDC is index 3 on Arbitrum and 2 on both Unichain and Robinhood. Always resolve by symbol, never by index.
+> **Asset index order differs per chain.** The hook sorts assets ascending by address, and addresses are unrelated across chains, so USDC is index 1 on Arbitrum, 1 on Robinhood, 2 on Ethereum, 0 on Base. Always resolve by symbol, never by index.
 
 - Live app: <https://orbital-hook.vercel.app/>
 - Subgraph: one manifest, per-chain addresses in [`subgraph/networks.json`](subgraph/networks.json). The app reads pools, positions and quotes straight from the chain, and uses the index only for history.
@@ -234,14 +232,15 @@ Token addresses, v4 infra (PoolManager, router, V4Quoter), Hyperlane Mailboxes a
 UHI/
 ├── orbitalHook/            Solidity
 │   ├── src/OrbitalHook.sol         the v4 hook and Orbital engine
-│   ├── src/libraries/              SphereMath, TorusMath, TickLib, QuadraticSolver
+│   ├── src/libraries/              SphereMath, TorusMath, TickLib, QuadraticSolver, BandLib
 │   ├── src/crosschain/             ERC-7683 settler + Hyperlane interfaces
 │   ├── script/                     deploy and simulation scripts
 │   │   ├── lib/TierLadder.sol          the liquidity ladder every deploy seeds
+│   │   ├── Create2Factory.sol          CREATE2 deployer for chains without the canonical one
 │   │   └── ReshapeLiquidity.s.sol      move a live pool onto the ladder in place
 │   ├── FEEDBACK.md                 Uniswap v4 developer feedback
 │   └── deployments.json            machine-readable address registry
-├── subgraph/               The Graph: one manifest, two networks
+├── subgraph/               The Graph: one manifest, three networks
 │   ├── schema.graphql              Pool, Asset, Tick, Swap, TickCross, PoolSnapshot
 │   ├── src/mapping.ts              reproduces the engine's own crossing condition
 │   └── networks.json               per-chain address + start block
