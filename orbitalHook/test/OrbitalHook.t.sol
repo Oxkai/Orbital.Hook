@@ -1270,21 +1270,21 @@ contract OrbitalHookTest is BaseTest {
         maxA[0] = maxA[1] = maxA[2] = type(uint256).max;
         hook.addLiquidity(MID, rWad, maxA, block.timestamp);
 
-        // Direct transfer.
-        vm.expectRevert(OrbitalHook.SharesAreSoulbound.selector);
-        hook.transfer(address(0xBEEF), MID, 1);
-
-        // transferFrom, even by the owner itself.
-        vm.expectRevert(OrbitalHook.SharesAreSoulbound.selector);
-        hook.transferFrom(address(this), address(0xBEEF), MID, 1);
+// Shares are soulbound: ERC-6909's movement surface is not implemented
+        // at all, so these calls have no function to reach and revert.
+        (bool ok,) = address(hook).call(
+            abi.encodeWithSignature("transfer(address,uint256,uint256)", address(0xBEEF), MID, uint256(1)));
+        assertFalse(ok, "transfer must not succeed");
+        (ok,) = address(hook).call(abi.encodeWithSignature(
+            "transferFrom(address,address,uint256,uint256)", address(this), address(0xBEEF), MID, uint256(1)));
+        assertFalse(ok, "transferFrom must not succeed");
         assertEq(hook.balanceOf(address(this), MID), rWad, "shares moved");
-
-        // Approvals exist only to move a share, so they are refused too rather
-        // than accepted as no-ops a user might mistake for working.
-        vm.expectRevert(OrbitalHook.SharesAreSoulbound.selector);
-        hook.approve(address(0xBEEF), MID, 1);
-        vm.expectRevert(OrbitalHook.SharesAreSoulbound.selector);
-        hook.setOperator(address(0xBEEF), true);
+        (ok,) = address(hook).call(
+            abi.encodeWithSignature("approve(address,uint256,uint256)", address(0xBEEF), MID, uint256(1)));
+        assertFalse(ok, "approve must not succeed");
+        (ok,) = address(hook).call(
+            abi.encodeWithSignature("setOperator(address,bool)", address(0xBEEF), true));
+        assertFalse(ok, "setOperator must not succeed");
     }
 
     function test_constructor_accepts_sub_18_decimal_token() public {

@@ -76,7 +76,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, SoulboundShares, Ownable2Step
     /// @notice Upper bound on assets per pool. Raised from 5 to 10; the cap is a
     ///         gas/safety guard (per-asset settlement and fee-accrual loops and
     ///         the segmenting solver scale with N) rather than a math limit.
-    uint8 public constant MAX_ASSETS = 10;
+    uint8 internal constant MAX_ASSETS = 10;
 
     uint8 public immutable N;
     /// @notice Pool fee in hundredths of a bip (e.g. 100 = 1bp).
@@ -94,7 +94,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, SoulboundShares, Ownable2Step
     ///         largest output at which the invariant is still ≤ 0, so the
     ///         rounding lands on the pool's side and the tolerance is only a
     ///         backstop against the solver itself.
-    uint24 public constant MIN_FEE = 10;
+    uint24 internal constant MIN_FEE = 10;
 
     /// @dev Cached √N·WAD (= sqrt(N·WAD²)). N is immutable, so this geometric
     ///      constant is computed once at deploy instead of being re-derived via
@@ -1208,23 +1208,7 @@ contract OrbitalHook is BaseHook, IUnlockCallback, SoulboundShares, Ownable2Step
     // which exist only to move it, are refused rather than accepted as no-ops.
     // ─────────────────────────────────────────────────────────────
 
-    function transfer(address, uint256, uint256) public pure returns (bool) {
-        revert SharesAreSoulbound();
-    }
-
-    function transferFrom(address, address, uint256, uint256) public pure returns (bool) {
-        revert SharesAreSoulbound();
-    }
-
-    function approve(address, uint256, uint256) public pure returns (bool) {
-        revert SharesAreSoulbound();
-    }
-
-    function setOperator(address, bool) public pure returns (bool) {
-        revert SharesAreSoulbound();
-    }
-
-    // ─────────────────────────────────────────────────────────────
+                    // ─────────────────────────────────────────────────────────────
     // MINT
     // ─────────────────────────────────────────────────────────────
 
