@@ -1,27 +1,10 @@
 import { createConfig, http, fallback, type Config } from "wagmi";
 import { defineChain } from "viem";
-import { arbitrumSepolia } from "wagmi/chains";
+import { arbitrumSepolia, sepolia, baseSepolia } from "wagmi/chains";
 import { injected, coinbaseWallet } from "wagmi/connectors";
 
-// Unichain Sepolia: Uniswap v4 is canonically deployed here.
-export const unichainSepolia = defineChain({
-  id: 1301,
-  name: "Unichain Sepolia",
-  nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://sepolia.unichain.org"] },
-  },
-  blockExplorers: {
-    default: {
-      name: "Uniscan",
-      url: "https://sepolia.uniscan.xyz",
-    },
-  },
-  testnet: true,
-});
-
 // Robinhood Chain testnet (an Arbitrum Orbit L2). Not in viem's chain list, so
-// defined here like Unichain Sepolia.
+// defined here by hand.
 export const robinhoodTestnet = defineChain({
   id: 46630,
   name: "Robinhood Chain Testnet",
@@ -41,23 +24,19 @@ export const robinhoodTestnet = defineChain({
 // Explorer links are per chain: use `explorerTx` / `explorerAddress` from
 // `lib/crosschain`, which read each deployment's own explorer.
 
-// Robinhood Chain testnet is the primary deployment; Arbitrum Sepolia and
-// Unichain Sepolia carry the same hook. Those two each also have an
-// OrbitalIntentSettler, peered over Hyperlane; Robinhood has no Hyperlane, so
-// it is same-chain only.
-export { arbitrumSepolia };
+// Robinhood Chain testnet is the primary deployment; Arbitrum Sepolia, Base
+// Sepolia and Ethereum Sepolia carry the same hook. All are same-chain only.
+export { arbitrumSepolia, sepolia, baseSepolia };
 
 export function createWagmiConfig(): Config {
-  const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL;
   return createConfig({
-    chains: [robinhoodTestnet, arbitrumSepolia, unichainSepolia],
+    chains: [robinhoodTestnet, arbitrumSepolia, baseSepolia, sepolia],
     connectors: [injected(), coinbaseWallet({ appName: "Orbital" })],
     transports: {
-      [unichainSepolia.id]: RPC_URL
-        ? fallback([http(RPC_URL), http("https://sepolia.unichain.org")])
-        : http("https://sepolia.unichain.org"),
       [arbitrumSepolia.id]: http("https://sepolia-rollup.arbitrum.io/rpc"),
       [robinhoodTestnet.id]: http("https://rpc.testnet.chain.robinhood.com"),
+      [baseSepolia.id]: http("https://base-sepolia-rpc.publicnode.com"),
+      [sepolia.id]: http("https://sepolia.drpc.org"),
     },
   });
 }

@@ -8,7 +8,7 @@ import { type Address, type Hex, encodeAbiParameters, parseAbiParameters } from 
 //
 // NOTE ON ASSET ORDER: the hook sorts its assets ascending by address, and
 // addresses are unrelated across chains. USDC is index 3 on Arbitrum Sepolia,
-// 0 on Unichain Sepolia and 3 on Robinhood testnet. Always resolve by symbol,
+// 1 on Ethereum Sepolia and 0 on Robinhood testnet. Always resolve by symbol,
 // never by index.
 
 export interface CrossChainAsset {
@@ -47,8 +47,9 @@ export interface CrossChainDeployment {
 }
 
 export const ARBITRUM_SEPOLIA_ID = 421614;
-export const UNICHAIN_SEPOLIA_ID = 1301;
 export const ROBINHOOD_TESTNET_ID = 46630;
+export const ETHEREUM_SEPOLIA_ID = 11155111;
+export const BASE_SEPOLIA_ID = 84532;
 
 export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
   // Generated from orbitalHook/deployments.json - keep the two in step.
@@ -57,39 +58,18 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
     name: "Arbitrum Sepolia",
     short: "Arbitrum",
     explorer: "https://sepolia.arbiscan.io",
-    orbitalHook: "0x6B92D109D09F5A78A9Af582136B5553409cc6a88",
+    orbitalHook: "0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88",
     poolManager: "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     swapRouter: "0xcD8D7e10A7aA794C389d56A07d85d63E28780220",
     quoter: "0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE",
-    intentSettler: "0xC82eAe0EF133b3488b5c9Cb416b6e1bCD3d9b30D",
-    hyperlaneMailbox: "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8",
-    hyperlaneDomain: 421614,
-    deployBlock: 315414399n,
+    // Redeployed 12 Oct 2026; no settler on the new hook, so same-chain only.
+    crossChainNote: "This deployment is same-chain only",
+    deployBlock: 318516459n,
     assets: {
-      USDT:  { symbol: "USDT", address: "0x11C10E5D13EAb8666cf1e24a341cAA6FfE89DdB8", decimals: 6 , index: 0 },
-      FRAX:  { symbol: "FRAX", address: "0x3de8bABB9DEf68999A57E4C641B580b1C2F88785", decimals: 18, index: 1 },
-      DAI:   { symbol: "DAI", address: "0xA7f648296EAb6290445D830FB16708766DBbEd8A", decimals: 18, index: 2 },
-      USDC:  { symbol: "USDC", address: "0xD79658962eF717207C748d09e6c1c87D07857dE6", decimals: 6 , index: 3 },
-    },
-  },
-  [UNICHAIN_SEPOLIA_ID]: {
-    chainId: UNICHAIN_SEPOLIA_ID,
-    name: "Unichain Sepolia",
-    short: "Unichain",
-    explorer: "https://sepolia.uniscan.xyz",
-    orbitalHook: "0x86D785bbABED2f192afAc0fF3979eC125b6c6a88",
-    poolManager: "0x00B036B58a818B1BC34d502D3fE730Db729e62AC",
-    swapRouter: "0xb974DE781ec4bCf09d91Db13A3aF74d14FfE7540",
-    quoter: "0x56DCD40A3F2d466F48e7F48bDBE5Cc9B92Ae4472",
-    intentSettler: "0x11C10E5D13EAb8666cf1e24a341cAA6FfE89DdB8",
-    hyperlaneMailbox: "0xDDcFEcF17586D08A5740B7D91735fcCE3dfe3eeD",
-    hyperlaneDomain: 1301,
-    deployBlock: 64199998n,
-    assets: {
-      USDT:  { symbol: "USDT", address: "0x1F3aa9AFB5D8681698b9c80B196182D2821A1Bb3", decimals: 6 , index: 0 },
-      FRAX:  { symbol: "FRAX", address: "0x3104462820D7D721cc7139400016B27cb137D74b", decimals: 18, index: 1 },
-      USDC:  { symbol: "USDC", address: "0x61B1dd09b216073fd43e93E37383e20289A392A0", decimals: 6 , index: 2 },
-      DAI:   { symbol: "DAI", address: "0xBD07f1c20F377bF93ef1D4375505c0FB690d6246", decimals: 18, index: 3 },
+      FRAX:  { symbol: "FRAX", address: "0x15aabbc1c571147f05b5f9d37690ca6843dee044", decimals: 18, index: 0 },
+      USDC:  { symbol: "USDC", address: "0x36b5bc5998f1aae8754697e60314b8c5b6d435ff", decimals: 6 , index: 1 },
+      USDT:  { symbol: "USDT", address: "0x47936d9fa0bf4eee6f44ff6308cfe59a3f80913d", decimals: 6 , index: 2 },
+      DAI:   { symbol: "DAI", address: "0xc4fdb067adff5bc0d10886598ddc00fb432f9794", decimals: 18, index: 3 },
     },
   },
   [ROBINHOOD_TESTNET_ID]: {
@@ -97,18 +77,54 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
     name: "Robinhood Chain Testnet",
     short: "Robinhood",
     explorer: "https://explorer.testnet.chain.robinhood.com",
-    orbitalHook: "0x525184D68F7bCddE055b1DB5aC7279CFC72d2a88",
+    orbitalHook: "0xe2cE434ABB1F2a939fA017f69CD5f7c19c36Aa88",
     poolManager: "0x8366a39CC670B4001A1121B8F6A443A643e40951",
     swapRouter: "0x5911Ef6ABd9Cb84BFc78d78383d964c1e7ef12f2",
     quoter: "0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94",
     // No Hyperlane on Robinhood testnet, so no settler: same-chain only.
     crossChainNote: "Robinhood Chain testnet has no Hyperlane route, so it is same-chain only",
-    deployBlock: 128289071n,
+    deployBlock: 133795692n,
     assets: {
-      USDT:  { symbol: "USDT", address: "0x1184eabC185fc19f02E99dA8d1EB824F07E8e64A", decimals: 6 , index: 0 },
-      DAI:   { symbol: "DAI", address: "0x45a5ec0d6AbAdD31Cd631Ddd75ed529984f66E9f", decimals: 18, index: 1 },
-      USDC:  { symbol: "USDC", address: "0x94B5be428FCC1000FdBbc556fE468310f556126d", decimals: 6 , index: 2 },
-      FRAX:  { symbol: "FRAX", address: "0xD289f244Ac5fb4e372BeA5f92f07fA6960CA4307", decimals: 18, index: 3 },
+      USDT:  { symbol: "USDT", address: "0x0a29619e8580d90b14200a734faad4677e9d1645", decimals: 6 , index: 0 },
+      USDC:  { symbol: "USDC", address: "0x2f7a2dc7d74645a31cabb5466219ccab70913377", decimals: 6 , index: 1 },
+      DAI:   { symbol: "DAI", address: "0x45dc287a307eccf7426cb2377ee2865457592fae", decimals: 18, index: 2 },
+      FRAX:  { symbol: "FRAX", address: "0xc79a946a0a8661cde0cc02a34d387c5b4ccab0e4", decimals: 18, index: 3 },
+    },
+  },
+  [ETHEREUM_SEPOLIA_ID]: {
+    chainId: ETHEREUM_SEPOLIA_ID,
+    name: "Ethereum Sepolia",
+    short: "Ethereum",
+    explorer: "https://sepolia.etherscan.io",
+    orbitalHook: "0xd92022CB51f49D61261321836A7a7b2e1A332a88",
+    poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+    swapRouter: "0xf13D190e9117920c703d79B5F33732e10049b115",
+    quoter: "0x58D48990408b4ba45dE08679de3921EbD6fA71b7",
+    crossChainNote: "This deployment is same-chain only",
+    deployBlock: 11901133n,
+    assets: {
+      FRAX:  { symbol: "FRAX", address: "0x51fb24e0e855e8709a017f3acc69ec6aa42cf8d6", decimals: 18, index: 0 },
+      USDT:  { symbol: "USDT", address: "0x7cd4e073fd118f2f1197c1c1aa450dd410ebdeef", decimals: 6 , index: 1 },
+      USDC:  { symbol: "USDC", address: "0xd289f244ac5fb4e372bea5f92f07fa6960ca4307", decimals: 6 , index: 2 },
+      DAI:   { symbol: "DAI", address: "0xf2dc831ee8e1400ce58f8c27427025cb91ec64cd", decimals: 18, index: 3 },
+    },
+  },
+  [BASE_SEPOLIA_ID]: {
+    chainId: BASE_SEPOLIA_ID,
+    name: "Base Sepolia",
+    short: "Base",
+    explorer: "https://sepolia.basescan.org",
+    orbitalHook: "0xa1685261278e44C12921a0f213daDfBF9Beb6A88",
+    poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    swapRouter: "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
+    quoter: "0xE584726a93f37177219F72b4BA76DE7fFA851664",
+    crossChainNote: "This deployment is same-chain only",
+    deployBlock: 48033167n,
+    assets: {
+      USDC:  { symbol: "USDC", address: "0x2822852629b4ed8420da072cb40318cf1318537f", decimals: 6 , index: 0 },
+      USDT:  { symbol: "USDT", address: "0x8119fc1a13e2a69735de1c9a38d6ffa0c94e986d", decimals: 6 , index: 1 },
+      DAI:   { symbol: "DAI", address: "0x92d06018f07cea34f09a2aa2c8bcc47a6ade59b4", decimals: 18, index: 2 },
+      FRAX:  { symbol: "FRAX", address: "0xe6de3e3be032e391786754c824c5800ca010c54f", decimals: 18, index: 3 },
     },
   },
 };
@@ -133,7 +149,12 @@ export const PRIMARY_CHAIN_ID = ROBINHOOD_TESTNET_ID;
 export const DEFAULT_SWAP_CHAIN_ID = ROBINHOOD_TESTNET_ID;
 
 /// Display order in the token dropdown, primary chain first.
-export const CHAIN_IDS = [ROBINHOOD_TESTNET_ID, ARBITRUM_SEPOLIA_ID, UNICHAIN_SEPOLIA_ID] as const;
+export const CHAIN_IDS = [
+  ROBINHOOD_TESTNET_ID,
+  ARBITRUM_SEPOLIA_ID,
+  BASE_SEPOLIA_ID,
+  ETHEREUM_SEPOLIA_ID,
+] as const;
 
 /// Every chain carries the same four stables, so a same-chain route always exists.
 export const ROUTABLE_SYMBOLS = ["USDC", "USDT", "DAI", "FRAX"] as const;

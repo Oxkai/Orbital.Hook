@@ -1,5 +1,10 @@
 import type { CSSProperties } from "react";
-import { UNICHAIN_SEPOLIA_ID, ARBITRUM_SEPOLIA_ID, ROBINHOOD_TESTNET_ID } from "@/lib/crosschain";
+import {
+  ARBITRUM_SEPOLIA_ID,
+  ROBINHOOD_TESTNET_ID,
+  ETHEREUM_SEPOLIA_ID,
+  BASE_SEPOLIA_ID,
+} from "@/lib/crosschain";
 
 /** Chain badge, drawn as ONE svg: rounded-square plate plus the network glyph,
  *  in a single 24x24 coordinate system.
@@ -38,12 +43,18 @@ const CHAIN_ART: Record<number, ChainArt> = {
       "M11.36 7.001H9.407a.36.36 0 0 0-.2.065.34.34 0 0 0-.124.162L4.918 18.3l2.008 1.128 4.595-12.195a.17.17 0 0 0-.021-.158.19.19 0 0 0-.148-.075zm3.402 0h-1.944a.36.36 0 0 0-.198.062.34.34 0 0 0-.126.16l-4.77 12.634 2.015 1.128 5.185-13.756a.16.16 0 0 0 0-.119.17.17 0 0 0-.08-.09.2.2 0 0 0-.082-.019",
     ],
   },
-  [UNICHAIN_SEPOLIA_ID]: {
-    plate: "#FC0FA4",
+  [ETHEREUM_SEPOLIA_ID]: {
+    plate: "#627EEA",
     glyph: [
-      // Unichain has no icon in the token-icons package; this is the brand mark,
-      // renormalised from its native 116x115 box into this 24x24 viewBox.
-      "M23.9 11.68C17.44 11.68 12.21 6.44 12.21 0h-.45v11.68H.07v.45c6.46 0 11.69 5.24 11.69 11.68h.45V12.13H23.9v-.45z",
+      // Ethereum diamond, from Simple Icons (CC0), native 24x24 box.
+      "M11.944 17.97 4.58 13.62 11.943 24l7.37-10.38-7.372 4.35h.003zM12.056 0 4.69 12.223l7.365 4.354 7.365-4.35L12.056 0z",
+    ],
+  },
+  [BASE_SEPOLIA_ID]: {
+    plate: "#0052FF",
+    glyph: [
+      // Base mark, from Simple Icons (CC0), native 24x24 box.
+      "M11.9 23.9C18.5 23.9 23.9 18.5 23.9 11.9S18.5 0 11.9 0C5.6 0 .5 4.8 0 10.9h15.9v2H0c.5 6.2 5.6 11 11.9 11z",
     ],
   },
   [ROBINHOOD_TESTNET_ID]: {

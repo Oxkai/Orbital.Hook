@@ -86,5 +86,3 @@ lib/
   orbital/                  client-side Orbital math helpers
 constants/                  color themes and type scale
 ```
-
-> Testnet deployment, not yet audited.

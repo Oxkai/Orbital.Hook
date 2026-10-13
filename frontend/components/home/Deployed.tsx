@@ -4,7 +4,7 @@ import { CHAIN_IDS, DEPLOYMENTS, PRIMARY_CHAIN_ID, assetsByIndex, explorerAddres
 
 type Contract = { name: string; address: string };
 
-/// The primary (Arbitrum Sepolia) deployment, on canonical Uniswap v4, read from
+/// The primary deployment (`PRIMARY_CHAIN_ID`), on canonical Uniswap v4, read from
 /// the same registry the app uses.
 const CHAIN_ID = PRIMARY_CHAIN_ID;
 const DEP = DEPLOYMENTS[CHAIN_ID];
