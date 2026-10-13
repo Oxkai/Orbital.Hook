@@ -7,19 +7,12 @@
 * copy.*
 * copy [0-9]*.*
 
-# Personal planning / scratch notes, not for the repo
+# Personal planning / scratch notes and hackathon write-ups, not for the repo
 todo.md
-req.md
-submission.md
-other
+other/
 proposal/
-
-# Hackathon planning notes, not for the repo
 /DESCRIPTION.md
-/ETHONLINE_2026_TRACKS.md
-/SUBMISSION_CHECKLIST.md
-/checkin.md
-/sub.md
+/HACKATHON.md
 
 # Local tooling config
 .claude/
