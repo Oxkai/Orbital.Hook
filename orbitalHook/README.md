@@ -52,12 +52,12 @@ Instead each asset is paid on its own ([`_payOrDefer`](src/OrbitalHook.sol)). If
 
 Quoting $100k on every pair of the deployed 4-asset book, $5M of real capital:
 
-| | USDT→DAI | USDT→USDC | USDT→FRAX | DAI→USDC | DAI→FRAX | USDC→FRAX |
+| | USDC→USDT | USDC→DAI | USDC→FRAX | USDT→DAI | USDT→FRAX | DAI→FRAX |
 |---|---:|---:|---:|---:|---:|---:|
-| price impact | 1.22 bps | 1.21 bps | 1.22 bps | 1.21 bps | 1.21 bps | 1.22 bps |
+| all-in cost | 1.21 bps | 1.22 bps | 1.22 bps | 1.23 bps | 1.23 bps | 1.22 bps |
 
-One basis point of that is the pool's own fee, so the curve costs about 0.2 bps on a
-$100k trade — and it is the same on all six pairs, because they are one book.
+One basis point of that is the pool's own fee, so the curve itself costs about 0.22 bps
+on a $100k trade, and within 0.02 bps of that on every pair, because they are one book.
 
 Calibrated against the live Uniswap v3 USDC/USDT0 0.01% pool on Arbitrum, read tick by
 tick and scaled to the same $5M, Orbital quotes within a fifth of a basis point of it on

@@ -43,7 +43,7 @@ Adding a fifth coin adds a dimension, not a market.
 
 Liquidity concentrates in the narrow band around $1 where dollars actually change hands, not spread across prices that never occur.
 
-**1.00 bps** all-in on a $1k swap and **1.22 bps** on $100k, fee included, measured on the live $5M pool — and the same on all six pairs.
+**0.99 bps** all-in on a $1k swap and **1.21 bps** on $100k, fee included, measured on the live $5M pool — and within 0.02 bps of that on all six pairs.
 
 </td>
 <td width="33%" valign="top">
@@ -213,9 +213,9 @@ Quoted on the live $5M pool, all-in including the 1 bp fee:
 
 | Trade | $1k | $10k | $100k | $250k |
 |---|---|---|---|---|
-| All-in cost | 1.00 bps | 1.02 bps | 1.22 bps | 1.54 bps |
+| All-in cost | 0.99 bps | 1.01 bps | 1.21 bps | 1.53 bps |
 
-The same figure holds on every one of the six pairs, because they share one book.
+Every one of the six pairs quotes within 0.02 bps of that, because they share one book.
 
 Token addresses, v4 infra (PoolManager, router, V4Quoter), Hyperlane Mailboxes and the peer registry all live in [`orbitalHook/deployments.json`](orbitalHook/deployments.json).
 
