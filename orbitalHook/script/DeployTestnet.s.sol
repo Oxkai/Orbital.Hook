@@ -57,12 +57,19 @@ contract DeployTestnetScript is Script {
         require(pm.code.length > 0, "no PoolManager on this chain");
         require(rt.code.length > 0, "no V4Router on this chain");
         require(permit2.code.length > 0, "no Permit2 on this chain");
+        require(
+            vm.envOr("CREATE2_DEPLOYER", OrbitalDeploy.CREATE2_FACTORY).code.length > 0,
+            "no CREATE2 deployer on this chain"
+        );
         require(mailbox == address(0) || mailbox.code.length > 0, "no Mailbox at HYPERLANE_MAILBOX");
 
         vm.startBroadcast();
 
         Currency[] memory assets = _deployTokens();
-        OrbitalHook hook = OrbitalDeploy.deployHook(IPoolManager(pm), assets, msg.sender);
+        // Chains without the canonical deterministic deployer pass their own
+        // CREATE2 factory, so the hook's permission-flag address can still be mined.
+        address create2Deployer = vm.envOr("CREATE2_DEPLOYER", OrbitalDeploy.CREATE2_FACTORY);
+        OrbitalHook hook = OrbitalDeploy.deployHook(IPoolManager(pm), assets, msg.sender, create2Deployer);
         OrbitalDeploy.initPools(IPoolManager(pm), hook, assets);
         OrbitalDeploy.seed(hook, assets, TierLadder.DEFAULT_CAPITAL_PER_ASSET);
         OrbitalIntentSettler settler;

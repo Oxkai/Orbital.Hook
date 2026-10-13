@@ -15,6 +15,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {OrbitalHook} from "../../src/OrbitalHook.sol";
 import {TierLadder} from "./TierLadder.sol";
+import {Create2Factory} from "./Create2Factory.sol";
 
 /// @notice The deploy steps every Orbital deployment shares, whatever tokens it
 ///         lists: mine the hook address, register every pair with the
@@ -49,15 +50,32 @@ library OrbitalDeploy {
         internal
         returns (OrbitalHook hook)
     {
+        return deployHook(pm, assets, admin, CREATE2_FACTORY);
+    }
+
+    /// @notice As above, but mined against `deployer` rather than the canonical
+    ///         deterministic deployer. Chains that do not carry 0x4e59b4... pass
+    ///         a `Create2Factory` of their own; everywhere else the default path
+    ///         is unchanged and forge broadcasts the salted `new` as before.
+    function deployHook(IPoolManager pm, Currency[] memory assets, address admin, address deployer)
+        internal
+        returns (OrbitalHook hook)
+    {
         uint160 flags = uint160(
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
                 | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
         );
         bytes memory args = abi.encode(pm, assets, POOL_FEE, admin);
         (address expected, bytes32 salt) =
-            HookMiner.find(CREATE2_FACTORY, flags, type(OrbitalHook).creationCode, args);
+            HookMiner.find(deployer, flags, type(OrbitalHook).creationCode, args);
 
-        hook = new OrbitalHook{salt: salt}(pm, assets, POOL_FEE, admin);
+        if (deployer == CREATE2_FACTORY) {
+            hook = new OrbitalHook{salt: salt}(pm, assets, POOL_FEE, admin);
+        } else {
+            hook = OrbitalHook(
+                Create2Factory(deployer).deploy(salt, abi.encodePacked(type(OrbitalHook).creationCode, args))
+            );
+        }
         require(address(hook) == expected, "hook address mismatch");
     }
 
