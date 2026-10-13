@@ -18,8 +18,8 @@ interface IMintable {
 
 /// @notice Random retail swap flow against a LIVE deployment.
 ///
-/// @dev    Unlike `SimulateMultiLPLive.s.sol`, which sizes swaps as a share of
-///         the pool's reserves (thousands of dollars on a $5M pool), every swap
+/// @dev    Swaps are sized in dollars and capped per trade, rather than as a
+///         share of pool depth, so the flow reads like retail traffic.
 ///         here is sized in DOLLARS and capped at `MAX_SWAP_USD`, so the
 ///         pool sees small retail trades only. No liquidity is touched.
 ///
