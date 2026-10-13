@@ -11,10 +11,18 @@ import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {OrbitalHook} from "../src/OrbitalHook.sol";
 import {BaseTest} from "./utils/BaseTest.sol";
 
-/// @notice Gas of a swap as a user pays it: a fresh transaction, so every
-///         storage slot is cold, on a four-asset pool seeded like the deploy
-///         ladder. Pins the swap path's cost so a regression shows up here.
-///         Figures are logged; `forge test --mc GasBaseline -vv`.
+/// @notice Gas of a swap as a user pays it, on a four-asset pool seeded like
+///         the deploy ladder. Pins the swap path's cost so a regression shows
+///         up here. Figures are logged; `forge test --mc GasBaseline -vv`.
+///
+///         STEADY STATE IS THE NUMBER THAT MATTERS. The first swap a pool ever
+///         takes also pays to initialise the fee accumulators, three slots
+///         moving 0 -> non-zero at 20k gas each instead of 2.9k. That is ~97k
+///         paid once, by the first swapper, and never again. Quoting it as
+///         "the" swap cost overstates what a user pays by about 60%.
+///         `vm.cool` re-chills the slots between the two, so the steady-state
+///         figure still pays cold SLOADs the way a swap in its own transaction
+///         does; only the one-time zero-init is gone.
 contract GasBaselineTest is BaseTest {
     OrbitalHook hook;
     PoolKey key;
@@ -56,12 +64,28 @@ contract GasBaselineTest is BaseTest {
     function test_gas_small_swap() public {
         uint256 g = gasleft();
         swapRouter.swapExactTokensForTokens(100 ether, 0, true, key, "", address(this), block.timestamp);
-        emit log_named_uint("swap $100, no crossing (cold)", g - gasleft());
+        uint256 first = g - gasleft();
+
+        vm.cool(address(hook));
+        vm.cool(address(poolManager));
+        g = gasleft();
+        swapRouter.swapExactTokensForTokens(100 ether, 0, true, key, "", address(this), block.timestamp);
+        uint256 steady = g - gasleft();
+
+        emit log_named_uint("swap $100, no crossing (steady state)", steady);
+        emit log_named_uint("  first swap on the pool (one-off)   ", first);
+        emit log_named_uint("  one-time fee-slot initialisation   ", first - steady);
     }
 
     function test_gas_swap_with_crossing() public {
+        // Warm the fee accumulators first, so this measures a crossing swap and
+        // not a crossing swap plus the pool's one-time initialisation.
+        swapRouter.swapExactTokensForTokens(100 ether, 0, true, key, "", address(this), block.timestamp);
+        vm.cool(address(hook));
+        vm.cool(address(poolManager));
+
         uint256 g = gasleft();
         swapRouter.swapExactTokensForTokens(50_000 ether, 0, true, key, "", address(this), block.timestamp);
-        emit log_named_uint("swap $50k, crossing bands (cold)", g - gasleft());
+        emit log_named_uint("swap $50k, crossing bands (steady state)", g - gasleft());
     }
 }
