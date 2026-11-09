@@ -177,7 +177,7 @@ Everything above is the hook. This part is built on top of it and is not require
 
 [`OrbitalIntentSettler`](orbitalHook/src/crosschain/OrbitalIntentSettler.sol) implements [ERC-7683](https://eips.ethereum.org/EIPS/eip-7683), the cross-chain intents standard from Uniswap Labs and Across, settled over Hyperlane. It is covered by `OrbitalIntentSettler.t.sol`, `CrosschainSecurity.t.sol` and a fork suite that runs two live testnets at once against real Hyperlane Mailboxes.
 
-> The four pools listed above are **same-chain only**: none carries a settler. [`DeployCrosschain.s.sol`](orbitalHook/script/DeployCrosschain.s.sol) adds one to a chain that has a Hyperlane Mailbox, and the peers are registered with `setPeer` afterwards.
+> Three of the four pools above carry a settler: Arbitrum Sepolia, Ethereum Sepolia and Base Sepolia, each peered to the other two, so all six directed routes are live. Robinhood Chain testnet has no Hyperlane Mailbox, so it is same-chain only. [`DeployCrosschain.s.sol`](orbitalHook/script/DeployCrosschain.s.sol) deploys a settler on a chain that has a Mailbox, and the peers are registered with `setPeer` afterwards.
 
 ```
  user signs an intent            filler pays out                proof settles

@@ -22,7 +22,7 @@ export type Tick = {
 export type Pool = {
   address:             string;
   /// Chain this deployment lives on. Without it a card cannot label itself or
-  /// build a correct explorer link, and every pool rendered as "Unichain".
+  /// build a correct explorer link, and every pool rendered as one chain's.
   chainId:             number;
   name:                string;
   tokens:              Token[];

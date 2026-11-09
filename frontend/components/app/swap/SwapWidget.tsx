@@ -49,6 +49,7 @@ import {
 } from "@/lib/hooks/useCrossChainOrder";
 import { TokenIcon } from "@/components/app/shared/TokenIcon";
 import { explainPoolError } from "@/lib/poolErrors";
+import { useTxFees } from "@/lib/hooks/useTxFees";
 
 const LBL = {
   fontFamily: typography.caption.family,
@@ -109,6 +110,28 @@ interface DropdownProps {
   excludedKey: string;
   onSelect: (key: string) => void;
   onClose: () => void;
+}
+
+/// Turn a wallet/RPC error into something a trader can act on.
+///
+/// These stables are mock ERC20s on Solidity 0.8 checked arithmetic, so paying
+/// more than you hold reverts inside `transferFrom` as panic 0x11 and surfaces
+/// as "arithmetic underflow or overflow" - true, and useless. The balance guard
+/// should catch that first; this is the backstop for when it cannot, such as a
+/// balance that changed between the check and the send.
+function swapErrorMessage(e: Error, symbol: string): string {
+  const raw = e.message;
+  const m = raw.toLowerCase();
+  if (m.includes("underflow") || m.includes("0x4e487b71") || m.includes("panic")) {
+    return `Not enough ${symbol} - use "Get test tokens", then retry`;
+  }
+  if (m.includes("user rejected") || m.includes("user denied")) return "Rejected in wallet";
+  if (m.includes("deadline")) return "Quote expired - retry";
+  if (m.includes("toolittlereceived") || m.includes("too little")) {
+    return "Price moved past your slippage - raise it or retry";
+  }
+  if (m.includes("insufficient funds")) return "Not enough ETH for gas";
+  return raw.split("\n")[0];
 }
 
 function TokenDropdown({ balances, selectedKey, excludedKey, onSelect, onClose }: DropdownProps) {
@@ -194,7 +217,7 @@ function TokenDropdown({ balances, selectedKey, excludedKey, onSelect, onClose }
 
 function TokenBox({
   mode, token, balances, selectedKey, excludedKey, value, onChange, onTokenSelect,
-  isConnected, balanceReady = true, onFaucet,
+  isConnected, balanceReady = true, onFaucet, needsFaucet = false,
 }: {
   mode: "in" | "out";
   token: TokenRow;
@@ -206,6 +229,10 @@ function TokenBox({
   onTokenSelect: (key: string) => void;
   isConnected: boolean;
   balanceReady?: boolean;
+  /// Show the faucet because the wallet cannot cover the entered amount, even
+  /// if it is not empty. An almost-empty wallet used to get no affordance at
+  /// all and only a disabled "Insufficient" button.
+  needsFaucet?: boolean;
   onFaucet?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -220,7 +247,7 @@ function TokenBox({
           {mode === "in" ? "You pay" : "You receive"}
         </span>
         <span className="flex items-center gap-2.5">
-          {mode === "in" && isConnected && balanceReady && bal === 0n && onFaucet && (
+          {mode === "in" && isConnected && balanceReady && (bal === 0n || needsFaucet) && onFaucet && (
             <button
               onClick={onFaucet}
               className="hover:opacity-100 opacity-70 transition-opacity"
@@ -586,11 +613,18 @@ export function SwapWidget() {
   const originDep = DEPLOYMENTS[originChainId];
   const blocked = tokenRouteBlocked(tokenIn, tokenOut);
 
-  const { balances, refetch: refetchBalances, isLoading: balancesLoading } = useAllTokenBalances(address);
-  const balanceReady = !!address && !balancesLoading;
+  const { balances, ready: balancesResolved, refetch: refetchBalances } = useAllTokenBalances(address);
+  // `ready` means every balance actually came back, not merely that loading
+  // stopped. Gating on the weaker condition let the swap fire before any
+  // balance was known, which reverts as panic 0x11 inside transferFrom.
+  const balanceReady = balancesResolved;
 
   // Approval target depends on the route: the v4 router for a same-chain swap,
   // the intent settler for a cross-chain order.
+  // Explicit EIP-1559 fees, so a stale wallet estimate cannot get the send
+  // rejected for undershooting the base fee.
+  const txFees = useTxFees(originChainId);
+
   const spender = isCrossChain ? originDep?.intentSettler : originDep?.swapRouter;
   const { allowance, refetch: refetchAllowance } = useAllowance(
     originChainId, tokenIn.address, address, spender
@@ -766,6 +800,9 @@ export function SwapWidget() {
 
   const inBalance = balances[tokenIn.key] ?? 0n;
   const isInsufficient = balanceReady && amtInRaw > 0n && amtInRaw > inBalance;
+  /// An amount entered before balances are known is not swappable: there is
+  /// nothing to check it against yet.
+  const balanceUnknown = isConnected && amtInRaw > 0n && !balanceReady;
   const needsApproval = isConnected && amtInRaw > 0n && allowance < amtInRaw;
   const onWrongChain = isConnected && walletChainId !== originChainId;
 
@@ -788,13 +825,14 @@ export function SwapWidget() {
         abi: MOCK_ERC20_ABI,
         functionName: "mint",
         args: [address, 100_000n * 10n ** BigInt(tokenIn.decimals)],
+        ...txFees,
       },
       {
         onSuccess: (hash) => {
           setPendingHash(hash);
           showResult({ status: "pending", hash, msg: `100,000 ${tokenIn.symbol} minted` });
         },
-        onError: (e) => showResult({ status: "error", msg: e.message.split("\n")[0] }),
+        onError: (e) => showResult({ status: "error", msg: swapErrorMessage(e, tokenIn.symbol) }),
       }
     );
   }
@@ -808,13 +846,14 @@ export function SwapWidget() {
         abi: ERC20_ABI,
         functionName: "approve",
         args: [spender, maxUint256],
+        ...txFees,
       },
       {
         onSuccess: (hash) => {
           setPendingHash(hash);
           showResult({ status: "pending", hash, msg: `${tokenIn.symbol} approved` });
         },
-        onError: (e) => showResult({ status: "error", msg: e.message.split("\n")[0] }),
+        onError: (e) => showResult({ status: "error", msg: swapErrorMessage(e, tokenIn.symbol) }),
       }
     );
   }
@@ -840,6 +879,7 @@ export function SwapWidget() {
           address,
           BigInt(Math.floor(Date.now() / 1000) + deadline * 60),
         ],
+        ...txFees,
       },
       {
         onSuccess: (hash) => {
@@ -851,7 +891,7 @@ export function SwapWidget() {
             msg: `Swapped ${numIn.toFixed(4)} ${tokenIn.symbol} → ${amountOut.toFixed(4)} ${tokenOut.symbol}`,
           });
         },
-        onError: (e) => showResult({ status: "error", msg: e.message.split("\n")[0] }),
+        onError: (e) => showResult({ status: "error", msg: swapErrorMessage(e, tokenIn.symbol) }),
       }
     );
   }
@@ -865,6 +905,7 @@ export function SwapWidget() {
         abi: SETTLER_ABI,
         functionName: "open",
         args: [{ fillDeadline: order.fillDeadline, orderDataType: order.orderDataType, orderData: order.orderData }],
+        ...txFees,
       },
       {
         onSuccess: (hash) => {
@@ -877,7 +918,7 @@ export function SwapWidget() {
             msg: `Order opened · ${numIn.toFixed(4)} ${tokenIn.symbol} → ${amountOut.toFixed(4)} ${tokenOut.symbol}`,
           });
         },
-        onError: (e) => showResult({ status: "error", msg: e.message.split("\n")[0] }),
+        onError: (e) => showResult({ status: "error", msg: swapErrorMessage(e, tokenIn.symbol) }),
       }
     );
   }
@@ -894,6 +935,8 @@ export function SwapWidget() {
     ? "Enter an amount"
     : isInsufficient
     ? `Insufficient ${tokenIn.symbol}`
+    : balanceUnknown
+    ? "Checking balance…"
     : needsApproval
     ? `Approve ${tokenIn.symbol}`
     : isPending
@@ -903,7 +946,8 @@ export function SwapWidget() {
     : "Swap";
 
   const btnDisabled =
-    isConnected && (!!blocked || !!quoteFailure || (!onWrongChain && (numIn <= 0 || isInsufficient || isPending)));
+    isConnected && (!!blocked || !!quoteFailure
+      || (!onWrongChain && (numIn <= 0 || isInsufficient || balanceUnknown || isPending)));
 
   function handleBtn() {
     if (!isConnected) {
@@ -983,6 +1027,7 @@ export function SwapWidget() {
           isConnected={isConnected}
           balanceReady={balanceReady}
           onFaucet={handleFaucet}
+          needsFaucet={isInsufficient}
         />
       </div>
 

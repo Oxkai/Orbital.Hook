@@ -17,12 +17,7 @@ const SCALE_OF_ABI = [
   { type: "function", name: "scaleOf", stateMutability: "view", inputs: [{ type: "uint8" }], outputs: [{ type: "uint256" }] },
 ] as const;
 
-/** Largest `eth_getLogs` block range each chain's public RPC accepts (measured:
- *  Arbitrum takes 100k; the others are held to the 10k default). */
-const LOG_RANGE: Record<number, bigint> = {
-  421614: 100_000n,
-  46630: 100_000n,
-};
+/** Fallback span for a pool whose chain carries no `logWindow`. */
 const DEFAULT_LOG_RANGE = 10_000n;
 
 /** Swap volume of one pool over the last 24 hours, in USD, and the fees it
@@ -85,7 +80,11 @@ async function scanVolumeWad(client: PublicClient, pool: PoolEntry): Promise<big
     ),
   );
 
-  const range = LOG_RANGE[pool.chainId] ?? DEFAULT_LOG_RANGE;
+  // One source of truth: the chain's own measured span, from `lib/crosschain`.
+  // This used to be a second, separate table here, which drifted - it had
+  // Robinhood at 100k while the scanner's copy said 1M, and the scanner's
+  // windows were all rejected.
+  const range = pool.logWindow ?? DEFAULT_LOG_RANGE;
   let total = 0n;
   for (let start = from; start <= latest.number; start += range) {
     const end = start + range - 1n < latest.number ? start + range - 1n : latest.number;

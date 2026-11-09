@@ -36,9 +36,9 @@ function bigSqrt(n: BigInt): BigInt {
 // Chain ids keyed by the graph-cli network name, so a Pool row can say which
 // deployment it came from without the manifest carrying an extra parameter.
 function chainIdForNetwork(net: string): i32 {
-  if (net == "unichain-testnet") return 1301;
-  if (net == "base-sepolia") return 84532;
+  if (net == "sepolia") return 11155111;
   if (net == "arbitrum-sepolia") return 421614;
+  if (net == "base-sepolia") return 84532;
   return 0;
 }
 

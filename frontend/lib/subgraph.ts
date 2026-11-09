@@ -6,8 +6,8 @@
  * The transactions feed used to be built by scanning `eth_getLogs` backwards in
  * 10,000-block windows, per chain, four event types at a time, then fetching a
  * block per record just to get a timestamp. That is slow, hammers public RPCs,
- * and hits their log-range caps: Unichain rejects anything over 10,000 blocks
- * and Base over 10,000, so the window size was already pinned to the limit.
+ * and hits their log-range caps: Ethereum Sepolia and Base cap a range at
+ * 50,000 blocks, so the window size was already pinned to the limit.
  *
  * The subgraph answers the same question in one round trip per chain, with
  * timestamps already attached, and adds fields the logs simply do not carry:
@@ -29,15 +29,18 @@ const ENDPOINTS: Record<number, { url?: string; hook: string } | undefined> = {
   421614: {
     url:
       process.env.NEXT_PUBLIC_SUBGRAPH_ARBITRUM ??
-      "https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.3.0",
-    hook: "0xdEE6773E69611CfA1395Dc47cDd4Cca6E36CaA88",
+      "https://api.studio.thegraph.com/query/107768/orbital-arbitrum/v0.4.0",
+    hook: "0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88",
   },
-  1301: {
+  11155111: {
     url:
-      process.env.NEXT_PUBLIC_SUBGRAPH_UNICHAIN ??
-      "https://api.studio.thegraph.com/query/107768/orbital-unichain/v0.3.0",
-    hook: "0x2ad0767A51fD05c2d150f0f60eE436a52bF76a88",
+      process.env.NEXT_PUBLIC_SUBGRAPH_ETHEREUM ??
+      "https://api.studio.thegraph.com/query/107768/orbital-ethereum/v0.4.1",
+    hook: "0xd92022CB51f49D61261321836A7a7b2e1A332a88",
   },
+  // Base Sepolia and Robinhood Chain have no subgraph: The Graph lists
+  // robinhood-sepolia but offers no subgraph service on it, so both chains use
+  // the RPC fallback below.
 };
 
 /** The chain's subgraph URL, if it indexes the chain's live hook. */
@@ -276,7 +279,7 @@ export async function fetchActivity(chainId: number, first: number, skip: number
  *
  * Ordered by TIMESTAMP, never block number: heights are per-chain and not
  * comparable, so sorting merged rows by block would interleave a 306M-block
- * Arbitrum row against a 62M-block Unichain row as though one preceded the other.
+ * Arbitrum row against a 12M-block Ethereum row as though one preceded the other.
  *
  * A failing chain yields nothing rather than rejecting the batch, and is
  * reported separately so the caller can fall back for just that chain.

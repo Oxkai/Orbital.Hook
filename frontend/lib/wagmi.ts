@@ -1,4 +1,4 @@
-import { createConfig, http, fallback, type Config } from "wagmi";
+import { createConfig, http, type Config } from "wagmi";
 import { defineChain } from "viem";
 import { arbitrumSepolia, sepolia, baseSepolia } from "wagmi/chains";
 import { injected, coinbaseWallet } from "wagmi/connectors";
@@ -24,19 +24,21 @@ export const robinhoodTestnet = defineChain({
 // Explorer links are per chain: use `explorerTx` / `explorerAddress` from
 // `lib/crosschain`, which read each deployment's own explorer.
 
-// Robinhood Chain testnet is the primary deployment; Arbitrum Sepolia, Base
-// Sepolia and Ethereum Sepolia carry the same hook. All are same-chain only.
+// Arbitrum Sepolia is the primary deployment (see `PRIMARY_CHAIN_ID`); Ethereum
+// Sepolia, Base Sepolia and Robinhood Chain testnet carry the same hook.
+// Arbitrum, Ethereum and Base are peered for cross-chain intents; Robinhood has
+// no Hyperlane mailbox, so it is same-chain only.
 export { arbitrumSepolia, sepolia, baseSepolia };
 
 export function createWagmiConfig(): Config {
   return createConfig({
-    chains: [robinhoodTestnet, arbitrumSepolia, baseSepolia, sepolia],
+    chains: [arbitrumSepolia, sepolia, baseSepolia, robinhoodTestnet],
     connectors: [injected(), coinbaseWallet({ appName: "Orbital" })],
     transports: {
       [arbitrumSepolia.id]: http("https://sepolia-rollup.arbitrum.io/rpc"),
       [robinhoodTestnet.id]: http("https://rpc.testnet.chain.robinhood.com"),
       [baseSepolia.id]: http("https://base-sepolia-rpc.publicnode.com"),
-      [sepolia.id]: http("https://sepolia.drpc.org"),
+      [sepolia.id]: http("https://ethereum-sepolia-rpc.publicnode.com"),
     },
   });
 }

@@ -43,6 +43,20 @@ export interface CrossChainDeployment {
   crossChainNote?: string;
   /// Block the hook was deployed at. Event scanners start here, not genesis.
   deployBlock: bigint;
+  /// Starting `eth_getLogs` block span for scans of this chain.
+  ///
+  /// Measured against the endpoint in `lib/wagmi.ts`, not guessed: publicnode
+  /// (Base, Ethereum) rejects anything over 50k outright with "exceed maximum
+  /// block range". The Orbit endpoints (Arbitrum, Robinhood) are not a fixed
+  /// range at all - Robinhood served a 1M span holding 2 logs and rejected the
+  /// same 1M span over a denser stretch with "but only 100000", so their real
+  /// limit tracks RESULT size. A single constant therefore cannot be correct
+  /// for them, and callers must treat this as a hint and narrow on rejection
+  /// (see `fetchChunk` in `lib/hooks/useTransactions.ts`).
+  ///
+  /// Guessing low is not harmless either: at 10k, Robinhood's 17M-block history
+  /// took 1,710 sequential round trips and the feed appeared to hang.
+  logWindow: bigint;
   assets: Record<string, CrossChainAsset>;
 }
 
@@ -62,9 +76,11 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
     poolManager: "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     swapRouter: "0xcD8D7e10A7aA794C389d56A07d85d63E28780220",
     quoter: "0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE",
-    // Redeployed 12 Oct 2026; no settler on the new hook, so same-chain only.
-    crossChainNote: "This deployment is same-chain only",
+    intentSettler: "0x8353622b6d7101E91850E25d69b51C92BB5d9bc9",
+    hyperlaneMailbox: "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8",
+    mailboxRelays: true,
     deployBlock: 318516459n,
+    logWindow: 100_000n,
     assets: {
       FRAX:  { symbol: "FRAX", address: "0x15aabbc1c571147f05b5f9d37690ca6843dee044", decimals: 18, index: 0 },
       USDC:  { symbol: "USDC", address: "0x36b5bc5998f1aae8754697e60314b8c5b6d435ff", decimals: 6 , index: 1 },
@@ -84,6 +100,7 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
     // No Hyperlane on Robinhood testnet, so no settler: same-chain only.
     crossChainNote: "Robinhood Chain testnet has no Hyperlane route, so it is same-chain only",
     deployBlock: 133795692n,
+    logWindow: 100_000n,
     assets: {
       USDT:  { symbol: "USDT", address: "0x0a29619e8580d90b14200a734faad4677e9d1645", decimals: 6 , index: 0 },
       USDC:  { symbol: "USDC", address: "0x2f7a2dc7d74645a31cabb5466219ccab70913377", decimals: 6 , index: 1 },
@@ -100,8 +117,11 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
     poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
     swapRouter: "0xf13D190e9117920c703d79B5F33732e10049b115",
     quoter: "0x58D48990408b4ba45dE08679de3921EbD6fA71b7",
-    crossChainNote: "This deployment is same-chain only",
+    intentSettler: "0x15DbC4a72cb641f8189bcF9Fe74E3abBFB106187",
+    hyperlaneMailbox: "0xfFAEF09B3cd11D9b20d1a19bECca54EEC2884766",
+    mailboxRelays: true,
     deployBlock: 11901133n,
+    logWindow: 50_000n,
     assets: {
       FRAX:  { symbol: "FRAX", address: "0x51fb24e0e855e8709a017f3acc69ec6aa42cf8d6", decimals: 18, index: 0 },
       USDT:  { symbol: "USDT", address: "0x7cd4e073fd118f2f1197c1c1aa450dd410ebdeef", decimals: 6 , index: 1 },
@@ -118,8 +138,11 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
     poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
     swapRouter: "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
     quoter: "0xE584726a93f37177219F72b4BA76DE7fFA851664",
-    crossChainNote: "This deployment is same-chain only",
+    intentSettler: "0x7ceF8F04369Cd9f57C2CFfa13991B30968DB058E",
+    hyperlaneMailbox: "0x6966b0E55883d49BFB24539356a2f8A673E02039",
+    mailboxRelays: true,
     deployBlock: 48033167n,
+    logWindow: 50_000n,
     assets: {
       USDC:  { symbol: "USDC", address: "0x2822852629b4ed8420da072cb40318cf1318537f", decimals: 6 , index: 0 },
       USDT:  { symbol: "USDT", address: "0x8119fc1a13e2a69735de1c9a38d6ffa0c94e986d", decimals: 6 , index: 1 },
@@ -130,10 +153,15 @@ export const DEPLOYMENTS: Record<number, CrossChainDeployment> = {
 };
 
 /// The chain the single-chain pages (pools, positions, transactions) default to,
-/// and the swap widget's opening pair. Robinhood Chain is the home of this
-/// hook; the other two carry the same deployment, and between them the
-/// cross-chain routes. One constant to move if that changes.
-export const PRIMARY_CHAIN_ID = ROBINHOOD_TESTNET_ID;
+/// and the swap widget's opening pair. One constant to move if that changes.
+///
+/// Arbitrum Sepolia, because it is the only chain where every subsystem the app
+/// depends on is live at once: an indexed subgraph (so the activity feed is one
+/// query instead of a multi-million-block RPC crawl), a peered intent settler,
+/// and an RPC with no `eth_getLogs` range cap, which keeps the fallback path
+/// working when the subgraph lags. Robinhood carries more volume but The Graph
+/// serves no subgraph on it, so its feed can only ever be scanned over RPC.
+export const PRIMARY_CHAIN_ID = ARBITRUM_SEPOLIA_ID;
 
 /// Chain the swap widget opens on.
 ///
@@ -144,16 +172,16 @@ export const PRIMARY_CHAIN_ID = ROBINHOOD_TESTNET_ID;
 /// decisions, so they get different constants.
 ///
 /// The opening pair is same-chain, so the widget never opens on a route that
-/// depends on a cross-chain settlement — which matters more here, since
-/// Robinhood has no Hyperlane mailbox and so no cross-chain settler at all.
-export const DEFAULT_SWAP_CHAIN_ID = ROBINHOOD_TESTNET_ID;
+/// depends on a cross-chain settlement. That still holds now the default chain
+/// has a settler: a first quote should not wait on a relayer.
+export const DEFAULT_SWAP_CHAIN_ID = ARBITRUM_SEPOLIA_ID;
 
 /// Display order in the token dropdown, primary chain first.
 export const CHAIN_IDS = [
-  ROBINHOOD_TESTNET_ID,
   ARBITRUM_SEPOLIA_ID,
-  BASE_SEPOLIA_ID,
   ETHEREUM_SEPOLIA_ID,
+  BASE_SEPOLIA_ID,
+  ROBINHOOD_TESTNET_ID,
 ] as const;
 
 /// Every chain carries the same four stables, so a same-chain route always exists.
@@ -426,6 +454,9 @@ export interface PoolEntry {
   short: string;
   /// Block the hook was deployed at: event scanners start here.
   deployBlock: bigint;
+  /// Largest `eth_getLogs` span this pool's chain will serve. See
+  /// `CrossChainDeployment.logWindow`.
+  logWindow: bigint;
   /// Assets in the hook's OWN index order, the order its events use. Carried
   /// per POOL, not per chain: two pools on one chain have unrelated orders.
   assets: CrossChainAsset[];
@@ -438,6 +469,7 @@ export const ALL_POOLS: PoolEntry[] = CHAIN_IDS.map((chainId) => ({
   name: DEPLOYMENTS[chainId].name,
   short: DEPLOYMENTS[chainId].short,
   deployBlock: DEPLOYMENTS[chainId].deployBlock,
+  logWindow: DEPLOYMENTS[chainId].logWindow,
   assets: assetsByIndex(chainId),
 }));
 

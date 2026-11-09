@@ -200,6 +200,16 @@ export function useChainAssets(chainId: number, symbols: readonly string[], acco
 /// Balances for EVERY (chain, asset) pair, keyed `chainId:SYMBOL`. Powers the
 /// chain-grouped token dropdown, which shows what the user holds on each chain
 /// without making them switch networks to find out.
+/// Balances for every token on every chain, keyed by `TokenOption.key`.
+///
+/// Returns `ready` as well as the map, and callers must gate any
+/// balance-dependent decision on it. A dropped read is NOT a zero balance: this
+/// reads one `balanceOf` per token per chain (four chains, four stables), so a
+/// public RPC under load routinely fails a few. Collapsing those to 0n made a
+/// failed read look like an empty wallet, and - worse - `isLoading` going false
+/// while reads were still failing let the swap button enable itself against a
+/// balance nobody had confirmed, which reverts inside the token's transferFrom
+/// as panic 0x11 (arithmetic underflow).
 export function useAllTokenBalances(account?: Address) {
   const { data, refetch, isLoading } = useReadContracts({
     contracts: account
@@ -214,15 +224,18 @@ export function useAllTokenBalances(account?: Address) {
     query: { enabled: !!account, refetchInterval: 20_000 },
   });
 
-  const balances = useMemo(() => {
+  const { balances, ready } = useMemo(() => {
     const m: Record<string, bigint> = {};
+    let allResolved = ALL_TOKENS.length > 0;
     ALL_TOKENS.forEach((t, i) => {
-      m[t.key] = (data?.[i]?.result as bigint | undefined) ?? 0n;
+      const raw = data?.[i]?.result as bigint | undefined;
+      if (raw === undefined) allResolved = false;
+      m[t.key] = raw ?? 0n;
     });
-    return m;
-  }, [data]);
+    return { balances: m, ready: !!account && allResolved };
+  }, [data, account]);
 
-  return { balances, refetch, isLoading: !!account && isLoading };
+  return { balances, ready, refetch, isLoading: !!account && isLoading };
 }
 
 /// Allowance of one token for one spender on one chain. The spender differs by

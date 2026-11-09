@@ -327,7 +327,7 @@ Developer feedback on the Uniswap stack, as required by the track: [`FEEDBACK.md
 
 Every address, per chain, is in [`deployments.json`](deployments.json). Owner of every hook: `0xb29e1ddDfc73E00dEE3EaA7EA102990ADca78b39`. Each hook's address is CREATE2-mined so its low bits encode its permission flags.
 
-### Robinhood Chain testnet `46630` (primary)
+### Robinhood Chain testnet `46630`
 
 Uniswap v4 and the V4Router are already deployed here, so the hook plugs into them.
 
@@ -342,13 +342,15 @@ Uniswap v4 and the V4Router are already deployed here, so the hook plugs into th
 | DAI (mock, 18dp) | `0x45dc287a307eccf7426cb2377ee2865457592fae` |
 | FRAX (mock, 18dp) | `0xc79a946a0a8661cde0cc02a34d387c5b4ccab0e4` |
 
-### Arbitrum Sepolia `421614`
+### Arbitrum Sepolia `421614` (primary)
 
 Uniswap v4 is canonically deployed here, so the hook plugs into the official `PoolManager`.
 
 | Contract | Address |
 |---|---|
 | OrbitalHook | [`0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88`](https://sepolia.arbiscan.io/address/0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88) |
+| OrbitalIntentSettler | [`0x8353622b6d7101E91850E25d69b51C92BB5d9bc9`](https://sepolia.arbiscan.io/address/0x8353622b6d7101E91850E25d69b51C92BB5d9bc9) |
+| Hyperlane Mailbox (canonical) | `0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8` |
 | PoolManager (v4, canonical) | `0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317` |
 | V4Quoter | `0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE` |
 | V4Router | `0xcD8D7e10A7aA794C389d56A07d85d63E28780220` |
@@ -364,6 +366,8 @@ Uniswap v4 is canonically deployed here; the V4Quoter is ours, deployed by `Depl
 | Contract | Address |
 |---|---|
 | OrbitalHook | [`0xa1685261278e44C12921a0f213daDfBF9Beb6A88`](https://sepolia.basescan.org/address/0xa1685261278e44C12921a0f213daDfBF9Beb6A88) |
+| OrbitalIntentSettler | [`0x7ceF8F04369Cd9f57C2CFfa13991B30968DB058E`](https://sepolia.basescan.org/address/0x7ceF8F04369Cd9f57C2CFfa13991B30968DB058E) |
+| Hyperlane Mailbox (canonical) | `0x6966b0E55883d49BFB24539356a2f8A673E02039` |
 | PoolManager (v4, canonical) | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` |
 | V4Quoter | `0xE584726a93f37177219F72b4BA76DE7fFA851664` |
 | V4Router | `0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9` |
@@ -379,6 +383,8 @@ Uniswap v4 is canonically deployed here; the V4Quoter is ours, deployed by `Depl
 | Contract | Address |
 |---|---|
 | OrbitalHook | [`0xd92022CB51f49D61261321836A7a7b2e1A332a88`](https://sepolia.etherscan.io/address/0xd92022CB51f49D61261321836A7a7b2e1A332a88) |
+| OrbitalIntentSettler | [`0x15DbC4a72cb641f8189bcF9Fe74E3abBFB106187`](https://sepolia.etherscan.io/address/0x15DbC4a72cb641f8189bcF9Fe74E3abBFB106187) |
+| Hyperlane Mailbox (canonical) | `0xfFAEF09B3cd11D9b20d1a19bECca54EEC2884766` |
 | PoolManager (v4, canonical) | `0xE03A1074c86CFeDd5C142C4F04F1a1536e203543` |
 | V4Quoter | `0x58D48990408b4ba45dE08679de3921EbD6fA71b7` |
 | V4Router | `0xf13D190e9117920c703d79B5F33732e10049b115` |
@@ -386,7 +392,12 @@ Uniswap v4 is canonically deployed here; the V4Quoter is ours, deployed by `Depl
 | USDT (mock, 6dp) | `0x7cd4e073fd118f2f1197c1c1aa450dd410ebdeef` |
 | USDC (mock, 6dp) | `0xd289f244ac5fb4e372bea5f92f07fa6960ca4307` |
 | DAI (mock, 18dp) | `0xf2dc831ee8e1400ce58f8c27427025cb91ec64cd` |
-An earlier set of deployments on these chains, plus Unichain Sepolia, is retired; those carried the ERC-7683 settlers, which these same-chain pools do not.
+An earlier set of deployments on these chains, plus Unichain Sepolia, is retired.
+
+Arbitrum Sepolia, Ethereum Sepolia and Base Sepolia each carry an
+`OrbitalIntentSettler` peered to the other two, so all six directed routes
+between them are live. Robinhood Chain testnet has no Hyperlane Mailbox
+(the registry lists only Robinhood mainnet, `4663`), so it is same-chain only.
 
 ### Live state
 

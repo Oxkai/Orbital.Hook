@@ -1,5 +1,5 @@
 {
-  "_comment": "Live Orbital deployments, redeployed 2026-10-12 for the Crypto World's Fair hackathon: one pool per prize-track EVM chain. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: ~$5M TVL per pool over seven concentrated bands plus a full-range backstop. These hooks are same-chain only (no settler).",
+  "_comment": "Live Orbital deployments, redeployed 2026-10-12 for the Crypto World's Fair hackathon: one pool per prize-track EVM chain. Asset INDEX ORDER DIFFERS PER CHAIN (the hook sorts by address; addresses are unrelated across chains) - resolve by symbol, never index, and decode event asset indices via that chain's order. Realistic decimal mix (USDC/USDT 6dp, DAI/FRAX 18dp). CONCENTRATED LIQUIDITY: a tick's reserves below its band's floor (xMin) are virtual and never deposited; `reserves(i)` is the engine's virtual reserve, tokens held are `reserves(i) - virtualReserve()`. Seeded with script/lib/TierLadder.sol in REAL capital: ~$5M TVL per pool over seven concentrated bands plus a full-range backstop. CROSS-CHAIN: Arbitrum Sepolia, Base Sepolia and Ethereum Sepolia each carry an ERC-7683 OrbitalIntentSettler over real Hyperlane, peered pairwise (6 directed routes). Robinhood Chain TESTNET (46630) has no Hyperlane deployment - the registry lists only Robinhood MAINNET (chain 4663) - so it stays same-chain only.",
   "421614": {
     "name": "Arbitrum Sepolia",
     "short": "Arbitrum",
@@ -8,6 +8,8 @@
     "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
     "v4Router": "0xcD8D7e10A7aA794C389d56A07d85d63E28780220",
     "quoter": "0xF0DB224d356dFF5cFF51D3d7295391bB2c9265FE",
+    "intentSettler": "0x8353622b6d7101E91850E25d69b51C92BB5d9bc9",
+    "hyperlaneMailbox": "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8",
     "orbitalHook": "0x3F09f9eCf71Cf78f346Eb2683D4a295D00e82A88",
     "deployBlock": 318516459,
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
@@ -71,11 +73,13 @@
   "11155111": {
     "short": "Ethereum",
     "name": "Ethereum Sepolia",
-    "rpc": "https://sepolia.drpc.org",
+    "rpc": "https://ethereum-sepolia-rpc.publicnode.com",
     "explorer": "https://sepolia.etherscan.io",
     "poolManager": "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
     "v4Router": "0xf13D190e9117920c703d79B5F33732e10049b115",
     "quoter": "0x58D48990408b4ba45dE08679de3921EbD6fA71b7",
+    "intentSettler": "0x15DbC4a72cb641f8189bcF9Fe74E3abBFB106187",
+    "hyperlaneMailbox": "0xfFAEF09B3cd11D9b20d1a19bECca54EEC2884766",
     "orbitalHook": "0xd92022CB51f49D61261321836A7a7b2e1A332a88",
     "deployBlock": 11901133,
     "assets": {
@@ -110,6 +114,8 @@
     "poolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
     "v4Router": "0x71cD4Ea054F9Cb3D3BF6251A00673303411A7DD9",
     "quoter": "0xE584726a93f37177219F72b4BA76DE7fFA851664",
+    "intentSettler": "0x7ceF8F04369Cd9f57C2CFfa13991B30968DB058E",
+    "hyperlaneMailbox": "0x6966b0E55883d49BFB24539356a2f8A673E02039",
     "orbitalHook": "0xa1685261278e44C12921a0f213daDfBF9Beb6A88",
     "deployBlock": 48033167,
     "assets": {

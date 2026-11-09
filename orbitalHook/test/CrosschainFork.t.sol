@@ -137,7 +137,7 @@ contract CrosschainForkTest is Test {
         address flagged = address(HOOK_FLAGS ^ (salt << 144));
         deployCodeTo(
             "OrbitalHook.sol:OrbitalHook",
-            abi.encode(IPoolManager(pm), IAllowanceTransfer(PERMIT2), regd, uint24(100), address(this)),
+            abi.encode(IPoolManager(pm), regd, uint24(100), address(this)),
             flagged
         );
         d.hook = OrbitalHook(flagged);

@@ -1,15 +1,16 @@
 # Orbital Subgraph
 
-Indexes the [Orbital Hook](../orbitalHook) on **Arbitrum Sepolia** and **Unichain Sepolia**. Robinhood Chain testnet has no subgraph support on The Graph (Substreams/Firehose only), so the app reads its activity straight from the chain.
+Indexes the [Orbital Hook](../orbitalHook) on **Arbitrum Sepolia** and **Ethereum Sepolia**. Robinhood Chain testnet has no subgraph support on The Graph (Substreams/Firehose only), so the app reads its activity straight from the chain; Base Sepolia has a manifest ready but no Studio subgraph yet, so it uses the same RPC fallback.
 
 | Network | graph-cli name | chainId | Hook | Subgraph |
 |---|---|---|---|---|
-| Arbitrum Sepolia | `arbitrum-sepolia` | 421614 | `0xdEE6773E…6CaA88` | `v0.3.0` |
-| Unichain Sepolia | `unichain-testnet` | 1301 | `0x2ad0767A…F76a88` | `v0.3.0` |
+| Arbitrum Sepolia | `arbitrum-sepolia` | 421614 | `0x3F09f9eC…e82A88` | `orbital-arbitrum` `v0.4.0` |
+| Ethereum Sepolia | `sepolia` | 11155111 | `0xd92022CB…1A332A88` | `orbital-ethereum` `v0.4.1` |
+| Base Sepolia | `base-sepolia` | 84532 | `0xa1685261…9Beb6A88` | — (RPC fallback) |
 
-Both are supported by The Graph, with `subgraphs`, `firehose` and `substreams`.
 Each indexes that chain's Orbital pool, and the frontend reads its activity feed
-and 24h volume from them.
+and 24h volume from them. A chain without a subgraph, or whose subgraph is
+behind or indexing a retired hook, falls back to reading the hook's logs.
 
 ---
 
@@ -43,7 +44,7 @@ isolation says nothing.
 ```bash
 npm install
 npm run codegen
-npm run build:arbitrum     # or :unichain
+npm run build:arbitrum     # or :ethereum, :base
 ```
 
 `subgraph.yaml` carries a placeholder network and address. The real values come
@@ -59,8 +60,9 @@ then:
 ```bash
 npx graph auth <DEPLOY_KEY>      # or pass --deploy-key to each deploy
 
-npx graph deploy orbital-arbitrum  --network arbitrum-sepolia  --version-label v0.3.0
-npx graph deploy orbital-unichain  --network unichain-testnet  --version-label v0.3.0
+npx graph deploy orbital-arbitrum  --network arbitrum-sepolia  --version-label v0.4.0
+npx graph deploy orbital-ethereum  --network sepolia           --version-label v0.4.1
+npx graph deploy orbital-base      --network base-sepolia      --version-label v0.4.1
 ```
 
 ---
@@ -152,8 +154,8 @@ slippage. This is the number the design exists to shrink.
 ## Notes for querying
 
 **Asset indices are per chain.** The hook sorts its basket ascending by address,
-and addresses are unrelated across chains, so USDC is index 3 on Arbitrum
-and 0 on Unichain. Events carry the **index**, never the symbol. Always resolve through
+and addresses are unrelated across chains, so USDC is index 1 on Arbitrum
+and 0 on Base. Events carry the **index**, never the symbol. Always resolve through
 `Asset` for the chain the event came from — indexing a cross-chain symbol table
 by a per-chain index silently returns the wrong token.
 

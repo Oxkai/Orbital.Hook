@@ -8,10 +8,39 @@ import { POOL_ABI } from "@/lib/contracts";
 import { ALL_POOLS, DEPLOYMENTS, type PoolEntry } from "@/lib/crosschain";
 import { fetchActivityAll, subgraphIndexes, type SubgraphTx, type TokenAmount } from "@/lib/subgraph";
 
-// Wide ranges work on a dedicated RPC (NEXT_PUBLIC_RPC_URL → Alchemy). The
-// public node caps eth_getLogs at 100 blocks; Alchemy handles 10k comfortably,
-// which is the whole reason this used to crawl.
-const CHUNK = 10_000n;
+// How many log windows one pool has in flight at once.
+//
+// Measured, not tuned: base-sepolia-rpc.publicnode.com serves 8 concurrent
+// `eth_getLogs` cleanly and starts rejecting at 16. A rejected window used to
+// drop that pool's whole page on the floor, so this stays at the safe ceiling.
+//
+// The window SIZE is per chain (`PoolEntry.logWindow`) because the limits are
+// per endpoint: 1M on the Arbitrum and Robinhood Orbit nodes, 50k on publicnode.
+const CONCURRENCY = 4;
+/// Smallest span worth splitting down to before giving up on a window.
+const MIN_WINDOW = 2_000n;
+/// Attempts per window, across both range rejections and rate limiting.
+const MAX_ATTEMPTS = 6;
+
+/// Whether an RPC error is worth narrowing the window for, rather than failing.
+///
+/// Two different endpoint behaviours land here. publicnode rejects a span over
+/// its fixed cap ("exceed maximum block range"), and the Orbit nodes reject on
+/// RESULT size ("query spans N blocks ... but only M"), which no fixed window
+/// can predict. Both are answered the same way: halve and retry.
+function isRangeError(e: unknown): boolean {
+  const m = (e instanceof Error ? e.message : String(e)).toLowerCase();
+  return m.includes("block range") || m.includes("but only") || m.includes("too many results")
+    || m.includes("query returned more than") || m.includes("response size") || m.includes("limit exceeded");
+}
+
+/// Rate limiting is transient, so it is waited out rather than narrowed.
+function isRateLimit(e: unknown): boolean {
+  const m = (e instanceof Error ? e.message : String(e)).toLowerCase();
+  return m.includes("429") || m.includes("rate limit") || m.includes("too many requests");
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const PAGE_SIZE = 20;
 const POLL_MS = 15_000;
 const TS_BATCH = 8;
@@ -60,12 +89,14 @@ const SWAP = parseAbiItem("event Swap(address indexed sender, uint8 assetIn, uin
 const MINT = parseAbiItem("event Mint(address indexed recipient, uint256 indexed tickIdx, uint256 kWad, uint256 rWad, uint256[] amounts)") as AbiEvent;
 const BURN = parseAbiItem("event Burn(address indexed owner, uint256 indexed tickIdx, uint256 rWad, uint256[] amounts)") as AbiEvent;
 const COLLECT = parseAbiItem("event Collect(address indexed owner, uint256 indexed tickIdx, uint256[] fees)") as AbiEvent;
+/// All four in one topic0 OR-filter, so a window costs one request.
+const ALL_EVENTS = [SWAP, MINT, BURN, COLLECT] as AbiEvent[];
 
 /// Timestamps are immutable, so they cache across renders and pages.
 ///
 /// Keyed by `chainId:block`, NOT by block number alone. Every chain starts at
 /// block 1, so a bare-number cache collides constantly once more than one chain
-/// is scanned: Unichain block 62,428,261 and an Arbitrum block of the same height
+/// is scanned: Ethereum block 12,098,631 and an Arbitrum block of the same height
 /// would share an entry and stamp each other's rows with the wrong time.
 const tsCache = new Map<string, number>();
 
@@ -99,7 +130,7 @@ const openPools = (cursors: Record<string, bigint | null>): ReadonlySet<string> 
 
 /// Newest first. Ordering is by TIMESTAMP, never by block number: heights are
 /// per-chain and not comparable, so sorting merged rows by block would
-/// interleave a 300M-block Arbitrum row against a 62M-block Unichain row as though
+/// interleave a 327M-block Arbitrum row against a 12M-block Ethereum row as though
 /// one preceded the other.
 const byNewest = (a: { timestamp: number }, b: { timestamp: number }) => b.timestamp - a.timestamp;
 
@@ -166,19 +197,23 @@ async function fetchTimestamps(client: Client, chainId: number, blocks: bigint[]
   return map;
 }
 
-// One ≤CHUNK-block window on ONE pool: pull all four events from its hook in
+// One log window on ONE pool: pull all four events from its hook in
 // parallel, decoding asset indices through that pool's own asset order.
 async function fetchChunk(src: Source, from: bigint, to: bigint): Promise<RawTx[]> {
   const { pool, client } = src;
   const asset = (idx: number) => pool.assets[idx] ?? { symbol: `Asset#${idx}`, decimals: 18 };
+  // ONE request for all four events, as an OR filter on topic0, rather than one
+  // request per event. The window count is already the binding constraint on a
+  // 50k-capped endpoint, so paying 4x the requests for it was pure latency.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [s, m, b, c, scales]: [any[], any[], any[], any[], readonly bigint[] | undefined] = await Promise.all([
-    client.getLogs({ address: pool.address, event: SWAP, fromBlock: from, toBlock: to }),
-    client.getLogs({ address: pool.address, event: MINT, fromBlock: from, toBlock: to }),
-    client.getLogs({ address: pool.address, event: BURN, fromBlock: from, toBlock: to }),
-    client.getLogs({ address: pool.address, event: COLLECT, fromBlock: from, toBlock: to }),
+  const [logs, scales]: [any[], readonly bigint[] | undefined] = await Promise.all([
+    client.getLogs({ address: pool.address, events: ALL_EVENTS, fromBlock: from, toBlock: to }),
     scalesOf(src),
   ]);
+  const s = logs.filter((l) => l.eventName === "Swap");
+  const m = logs.filter((l) => l.eventName === "Mint");
+  const b = logs.filter((l) => l.eventName === "Burn");
+  const c = logs.filter((l) => l.eventName === "Collect");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const base = (log: any) => ({
     eventId: `${String(log.transactionHash).toLowerCase()}-${log.logIndex}`,
@@ -224,17 +259,62 @@ async function withTimestamps(src: Source, raw: RawTx[]): Promise<TxRecord[]> {
   return raw.map((r) => ({ ...r, timestamp: tsMap.get(r.blockNumber) ?? 0 }));
 }
 
+/// `fetchChunk` over one span, narrowing on rejection and waiting out rate limits.
+///
+/// The span a node will serve is not knowable up front (see
+/// `CrossChainDeployment.logWindow`), so a rejected range is halved and retried
+/// rather than treated as fatal. Halves are fetched in series, not parallel: the
+/// rejection usually means the node is already straining on this range.
+async function fetchWindow(src: Source, from: bigint, to: bigint, attempt = 0): Promise<RawTx[]> {
+  try {
+    return await fetchChunk(src, from, to);
+  } catch (e) {
+    if (attempt >= MAX_ATTEMPTS) throw e;
+    if (isRateLimit(e)) {
+      await sleep(250 * 2 ** attempt); // 250ms, 500, 1s, 2s, ...
+      return fetchWindow(src, from, to, attempt + 1);
+    }
+    if (!isRangeError(e) || to - from + 1n <= MIN_WINDOW) throw e;
+    const mid = from + (to - from) / 2n;
+    const older = await fetchWindow(src, from, mid, attempt + 1);
+    const newer = await fetchWindow(src, mid + 1n, to, attempt + 1);
+    return [...newer, ...older]; // newest-first, matching the caller's order
+  }
+}
+
+/// The next `count` windows walking back from `to`, floored at `floor`.
+function windowsBack(to: bigint, floor: bigint, size: bigint, count: number) {
+  const windows: Array<{ from: bigint; to: bigint }> = [];
+  let hi = to;
+  while (windows.length < count && hi >= floor) {
+    const lo = hi - size + 1n < floor ? floor : hi - size + 1n;
+    windows.push({ from: lo, to: hi });
+    hi = lo - 1n; // drops below `floor` once the deploy block is covered
+  }
+  return { windows, next: hi };
+}
+
 /// Scan one pool backward from `startTo` until it has `limit` rows or hits the
 /// pool's deploy block.
+///
+/// Windows go out CONCURRENCY at a time rather than one-by-one. That matters
+/// because a pool's activity is clustered near its DEPLOY block while the scan
+/// starts at the HEAD, so the `limit` early-exit does not fire until the whole
+/// empty span has been walked: 17M blocks on Robinhood, 8.5M on Base.
 async function scanPoolBack(src: Source, startTo: bigint, limit: number) {
   const acc: RawTx[] = [];
   let to = startTo;
   const floor = src.pool.deployBlock;
+  const size = src.pool.logWindow;
   while (acc.length < limit && to >= floor) {
-    const from = to - CHUNK + 1n < floor ? floor : to - CHUNK + 1n;
-    acc.push(...(await fetchChunk(src, from, to)));
-    if (from === floor) { to = floor - 1n; break; }
-    to = from - 1n;
+    const { windows, next } = windowsBack(to, floor, size, CONCURRENCY);
+    // allSettled, not all: a window that cannot be served even after narrowing
+    // must cost its own rows, not the pool's whole page. Before this, one
+    // rejected Robinhood window rejected the wave, which rejected the pool, and
+    // the feed showed nothing for that chain at all.
+    const waves = await Promise.allSettled(windows.map((w) => fetchWindow(src, w.from, w.to)));
+    for (const r of waves) if (r.status === "fulfilled") acc.push(...r.value); // newest-first
+    to = next;
   }
   return { records: await withTimestamps(src, acc), nextCursor: to >= floor ? to : null };
 }
@@ -243,13 +323,22 @@ async function scanPoolBack(src: Source, startTo: bigint, limit: number) {
 ///
 /// A pool that errors (dead RPC, unsupported log range) yields nothing instead
 /// of rejecting the batch, so one unreachable endpoint cannot blank the feed.
-async function scanAllBack(sources: Source[], starts: Record<string, bigint | null>, limit: number) {
+async function scanAllBack(
+  sources: Source[],
+  starts: Record<string, bigint | null>,
+  limit: number,
+  /// Called with each pool's rows as that pool finishes, so a fast chain's
+  /// history paints while a slow one is still scanning.
+  onRows?: (rows: TxRecord[]) => void,
+) {
   const results = await Promise.all(
     sources.map(async (src) => {
       const start = starts[src.key];
       if (start === null || start === undefined) return { key: src.key, records: [] as TxRecord[], nextCursor: null };
       try {
-        return { key: src.key, ...(await scanPoolBack(src, start, limit)) };
+        const page = await scanPoolBack(src, start, limit);
+        if (page.records.length > 0) onRows?.(page.records);
+        return { key: src.key, ...page };
       } catch {
         return { key: src.key, records: [] as TxRecord[], nextCursor: null };
       }
@@ -309,7 +398,7 @@ export function useTransactions() {
 
   /// A full first page: subgraph rows for indexed pools, an RPC page for the
   /// rest, merged. A pool whose subgraph request fails falls back to RPC.
-  const loadFirstPage = useCallback(async () => {
+  const loadFirstPage = useCallback(async (onRows?: (rows: TxRecord[]) => void) => {
     const heads = await headsOf(sources);
 
     let subgraphRows: TxRecord[] = [];
@@ -322,6 +411,9 @@ export function useTransactions() {
         for (const s of sources) {
           if (s.subgraph && !failed.includes(s.pool.chainId)) servedBySubgraph.add(s.key);
         }
+        // Paint these now. They arrive in one round trip, and used to sit
+        // invisible behind the RPC scan of the chains that have no subgraph.
+        if (subgraphRows.length > 0) onRows?.(subgraphRows);
       } catch {
         // every indexed pool falls back to RPC below
       }
@@ -329,7 +421,7 @@ export function useTransactions() {
 
     const starts: Record<string, bigint | null> = {};
     for (const s of sources) starts[s.key] = servedBySubgraph.has(s.key) ? null : heads[s.key];
-    const rpc = await scanAllBack(sources, starts, PAGE_SIZE);
+    const rpc = await scanAllBack(sources, starts, PAGE_SIZE, onRows);
 
     return { records: mergeRows(subgraphRows, rpc.records), cursors: rpc.cursors, heads };
   }, [sources]);
@@ -345,9 +437,15 @@ export function useTransactions() {
       setIsLoading(true);
       setError(null);
       try {
-        const { records, cursors, heads } = await loadFirstPage();
+        // Merge, never replace: rows already painted by `onRows` are deduped by
+        // `rowKey`, so the final result is the same set either way.
+        const { records, cursors, heads } = await loadFirstPage((rows) => {
+          if (cancelled) return;
+          setTxs((prev) => mergeRows(prev, rows));
+          setIsLoading(false);
+        });
         if (cancelled) return;
-        setTxs(records);
+        setTxs((prev) => mergeRows(prev, records));
         backCursor.current = cursors;
         for (const [k, h] of Object.entries(heads)) if (h !== null) headBlock.current[k] = h;
         setOpen(openPools(cursors));
@@ -369,9 +467,10 @@ export function useTransactions() {
             if (head === undefined || latest <= head) { headBlock.current[src.key] = head ?? latest; return; }
             const raw: RawTx[] = [];
             let from = head + 1n;
+            const size = src.pool.logWindow;
             while (from <= latest) {
-              const to = from + CHUNK - 1n > latest ? latest : from + CHUNK - 1n;
-              raw.push(...(await fetchChunk(src, from, to)));
+              const to = from + size - 1n > latest ? latest : from + size - 1n;
+              raw.push(...(await fetchWindow(src, from, to)));
               from = to + 1n;
             }
             headBlock.current[src.key] = latest;

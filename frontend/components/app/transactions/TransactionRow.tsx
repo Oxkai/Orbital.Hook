@@ -63,7 +63,13 @@ const TITLE: Record<Exclude<TxType, "Swap">, string> = {
   Collect: "Collect fees",
 };
 
-const AMOUNT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/// Token amounts need more than 2dp here.
+///
+/// These are all stablecoins trading at ~1bp, so a swap's fee is ~0.01% of the
+/// amount. At 2dp a 16 USDC trade printed "16.00 USDC -> 16.00 USDT", which
+/// reads as a free 1:1 swap; the real fill was 15.998421 USDT. 4dp keeps the
+/// spread visible at small sizes while large amounts still render as "1,183.31".
+const AMOUNT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function timeAgo(unix: number): string {
@@ -159,8 +165,20 @@ export function TransactionRow({ tx, scope }: { tx: TxRecord; scope: Transaction
   // A deposit goes into the pool; a withdrawal or fee claim comes out of it.
   const valueIn = tx.type === "Add" ? tx.valueUsd : undefined;
   const valueOut = tx.type === "Remove" || tx.type === "Collect" ? tx.valueUsd : undefined;
-  // Only the subgraph knows a swap's realised slippage.
-  const slip = tx.slippageBps === undefined ? undefined : `${tx.slippageBps} bps`;
+  // Realised slippage, derived from the fill rather than read off the row.
+  //
+  // Two reasons not to use `tx.slippageBps`: the subgraph computes it with
+  // integer division (`.div(...).toI32()`), which TRUNCATES, so a genuine
+  // 0.99bps fill was reported as "0 bps" and looked like no fee was charged;
+  // and RPC-scanned rows carry no slippage at all, so chains without a subgraph
+  // showed nothing. Both assets are dollar stables, so comparing their human
+  // amounts is the same comparison the subgraph makes in WAD.
+  const slipBps = swap && swap.tokenIn.amount > 0
+    ? ((swap.tokenIn.amount - swap.tokenOut.amount) / swap.tokenIn.amount) * 10_000
+    : undefined;
+  const slip = slipBps === undefined || !Number.isFinite(slipBps)
+    ? undefined
+    : `${slipBps < 10 ? slipBps.toFixed(2) : Math.round(slipBps)} bps`;
   const fullTime = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : undefined;
 
   return (
